@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       case "issuing_authorization.request": {
         const auth = event.data.object as Stripe.Issuing.Authorization;
 
-        const cardId = typeof auth.card === "string" ? auth.card : (auth.card as unknown)?.id ?? null;
+        const cardId = typeof auth.card === "string" ? auth.card : (auth.card as Stripe.Issuing.Card)?.id ?? null;
 
         const { data: cardData } = await supabaseAdmin
           .from("cards")
@@ -124,10 +124,10 @@ export async function POST(req: NextRequest) {
         }
 
         try {
-          await supabaseAdmin.from("card_transactions").insert({
+            await supabaseAdmin.from("card_transactions").insert({
             user_id: card.user_id,
             stripe_authorization_id: auth.id,
-            merchant_name: (auth.merchant_data as unknown)?.name ?? null,
+            merchant_name: (auth.merchant_data as Stripe.Issuing.MerchantData)?.name ?? null,
             amount: amountUsd,
             currency: auth.currency ?? "usd",
             status: "approved"
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
       case "issuing_transaction.created": {
         const tx = event.data.object as Stripe.Issuing.Transaction;
 
-        const cardId = typeof tx.card === "string" ? tx.card : (tx.card as unknown)?.id ?? null;
+        const cardId = typeof tx.card === "string" ? tx.card : (tx.card as Stripe.Issuing.Card)?.id ?? null;
         let userId: string | null = null;
         try {
           const { data: prof } = await supabaseAdmin.from("profiles").select("user_id").eq("stripe_card_id", cardId).maybeSingle();
@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
               type: "card_charge",
               amount: Number((-amountUsd).toFixed(2)),
               reference_id: tx.id,
-              metadata: { authorization_id: (tx.authorization as unknown)?.id ?? null, card_id: cardId }
+              metadata: { authorization_id: (tx.authorization as Stripe.Issuing.Authorization)?.id ?? null, card_id: cardId }
             });
           } else {
             console.warn("Skipping ledger entry for issuing_transaction.created: missing userId", tx.id);
@@ -172,14 +172,14 @@ export async function POST(req: NextRequest) {
         } catch (e) { console.error("Failed to add ledger entry for issuing_transaction.created:", e); }
 
         try {
-          await supabaseAdmin.from("card_transactions").insert({
+            await supabaseAdmin.from("card_transactions").insert({
             user_id: userId,
             stripe_transaction_id: tx.id,
-            stripe_authorization_id: (tx.authorization as unknown)?.id ?? null,
-            merchant_name: (tx.merchant_data as unknown)?.name ?? "unknown",
+            stripe_authorization_id: (tx.authorization as Stripe.Issuing.Authorization)?.id ?? null,
+            merchant_name: (tx.merchant_data as Stripe.Issuing.MerchantData)?.name ?? "unknown",
             amount: amountUsd,
             currency: tx.currency ?? "usd",
-            status: (tx as unknown).status ?? null
+            status: (tx as Stripe.Issuing.Transaction)?.status ?? null
           });
         } catch (e) { console.error("Failed to insert card transaction for issuing_transaction.created:", e); }
 
@@ -189,21 +189,21 @@ export async function POST(req: NextRequest) {
       case "issuing_transaction.updated": {
         const tx = event.data.object as Stripe.Issuing.Transaction;
         try {
-          await supabaseAdmin.from("card_transactions").update({ status: (tx as unknown).status ?? null }).eq("stripe_transaction_id", tx.id);
+          await supabaseAdmin.from("card_transactions").update({ status: (tx as Stripe.Issuing.Transaction)?.status ?? null }).eq("stripe_transaction_id", tx.id);
 
-          if ((tx as unknown).status === "reversed") {
+          if ((tx as Stripe.Issuing.Transaction)?.status === "reversed") {
             const amountUsd = Number(((tx.amount ?? 0) / 100).toFixed(2));
             try {
               // if we can find user by card, credit them; otherwise skip ledger
               let reversalUserId: string | null = null;
               try {
-                const cardId = typeof tx.card === "string" ? tx.card : (tx.card as unknown)?.id ?? null;
+                const cardId = typeof tx.card === "string" ? tx.card : (tx.card as Stripe.Issuing.Card)?.id ?? null;
                 const { data: prof } = await supabaseAdmin.from("profiles").select("user_id").eq("stripe_card_id", cardId).maybeSingle();
                 reversalUserId = prof?.user_id ?? null;
               } catch (e) { console.error("Failed to lookup user for reversal ledger entry:", e); }
 
               if (reversalUserId) {
-                await addLedgerEntry({ user_id: reversalUserId, type: "card_reversal", amount: Number((amountUsd).toFixed(2)), reference_id: tx.id, metadata: { authorization_id: (tx.authorization as unknown)?.id ?? null } });
+                await addLedgerEntry({ user_id: reversalUserId, type: "card_reversal", amount: Number((amountUsd).toFixed(2)), reference_id: tx.id, metadata: { authorization_id: (tx.authorization as Stripe.Issuing.Authorization)?.id ?? null } });
               } else {
                 console.warn("Skipping reversal ledger entry: no user found for transaction", tx.id);
               }

@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
       case "issuing_authorization.created":
       case "issuing_authorization.updated": {
         const authObj = event.data.object as Stripe.Issuing.Authorization;
-        const cardId = typeof authObj.card === "string" ? authObj.card : (authObj.card as unknown)?.id;
+        const cardId = typeof authObj.card === "string" ? authObj.card : (authObj.card as Stripe.Issuing.Card)?.id;
 
         const user = await supabaseAdmin.from("cards").select("user_id,daily_limit,monthly_limit,status").eq("stripe_card_id", cardId).maybeSingle().then(r => r.data);
         if (!user || user.status !== "active") {
@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
         if (user.user_id) {
           await addLedgerEntry({ user_id: user.user_id, type: "card_charge", amount: -amount, reference_id: authObj.id });
         }
-        await supabaseAdmin.from("card_transactions").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, merchant_name: (authObj.merchant_data as unknown)?.name ?? null, amount, currency: authObj.currency ?? "usd", status: "approved" });
+        await supabaseAdmin.from("card_transactions").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, merchant_name: (authObj.merchant_data as Stripe.Issuing.MerchantData)?.name ?? null, amount, currency: authObj.currency ?? "usd", status: "approved" });
         await supabaseAdmin.from("issuing_logs").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, amount, approved: true });
         console.log(`Card authorization approved for ${user.user_id}`);
         break;
