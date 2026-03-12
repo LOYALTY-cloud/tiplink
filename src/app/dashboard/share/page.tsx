@@ -64,8 +64,8 @@ export default function SharePage() {
 
   const shareQR = async () => {
     try {
-      if ((navigator as any).share) {
-        await (navigator as any).share({ title: `Tip ${username}`, text: `Send a tip to ${username}`, url: shareUrl });
+      if ((navigator as unknown).share) {
+        await (navigator as unknown).share({ title: `Tip ${username}`, text: `Send a tip to ${username}`, url: shareUrl });
         return;
       }
     } catch (e) {

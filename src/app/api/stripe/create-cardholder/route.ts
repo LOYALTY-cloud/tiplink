@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     await supabase.from("profiles").upsert({ user_id: user.id, stripe_cardholder_id: cardholder.id }, { onConflict: "user_id" });
 
     return NextResponse.json(cardholder);
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
   }
 }

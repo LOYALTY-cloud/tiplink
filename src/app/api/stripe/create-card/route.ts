@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     if (!chId) {
       // try to read from profile
       const { data: prof } = await supabase.from("profiles").select("stripe_cardholder_id").eq("user_id", user.id).maybeSingle();
-      chId = (prof as any)?.stripe_cardholder_id;
+      chId = (prof as unknown)?.stripe_cardholder_id;
     }
 
     if (!chId) return NextResponse.json({ error: "Missing cardholderId" }, { status: 400 });
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     await supabase.from("profiles").upsert({ user_id: user.id, stripe_card_id: card.id }, { onConflict: "user_id" });
 
     return NextResponse.json(card);
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
   }
 }

@@ -56,7 +56,7 @@ export async function POST() {
         }
 
         processed++;
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error(`Retry failed for ${userId}:`, err?.message || err);
         const { data: existing } = await supabaseAdmin.from("stripe_onboard_queue").select("retry_count").eq("user_id", userId).maybeSingle();
         const nextRetry = (existing?.retry_count ?? 0) + 1;
@@ -66,7 +66,7 @@ export async function POST() {
     }
 
     return NextResponse.json({ retried: processed });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("onboard-retry error", err);
     return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
   }

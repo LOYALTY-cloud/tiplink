@@ -92,7 +92,7 @@ export async function POST(req: Request) {
         reference_id: w.id,
         metadata: { method: "stripe", fee: 0 },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Attempt to rollback withdrawal row if ledger logging fails
       try { await supabaseAdmin.from("withdrawals").delete().eq("id", w.id); } catch (e) {}
       return NextResponse.json({ error: "Failed to log ledger entry" }, { status: 500 });
@@ -113,7 +113,7 @@ export async function POST(req: Request) {
         },
         { stripeAccount }
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       // If instant payout fails, surface the error to the client
       return NextResponse.json({ error: err?.message || "Instant payout failed" }, { status: 400 });
     }
@@ -134,7 +134,7 @@ export async function POST(req: Request) {
       payout_status: payout.status,
       payout_method: payoutMethod,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
   }
 }

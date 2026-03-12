@@ -40,7 +40,7 @@ function Inner({ onDone }: { onDone: () => void }) {
       return;
     }
 
-    const pmId = (setupIntent as any)?.payment_method as string | undefined;
+    const pmId = (setupIntent as unknown)?.payment_method as string | undefined;
     if (!pmId) {
       setLoading(false);
       setMsg("No payment method returned.");

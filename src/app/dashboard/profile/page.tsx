@@ -62,7 +62,7 @@ export default function ProfilePage() {
           .eq("profile_id", prof.id)
           .order("sort_order", { ascending: true });
 
-        setLinks((sl || []).map((x: any) => ({ ...x })));
+        setLinks((sl || []).map((x: unknown) => ({ ...x })));
       } else {
         const suggested = (user.email || "").split("@")[0] || "mytiplink";
         setHandle(suggested);
@@ -268,7 +268,7 @@ export default function ProfilePage() {
             try {
               const bucket = cropTarget === "avatars" ? "avatars" : "banners";
               const oldUrl = cropTarget === "avatars" ? avatarUrl || undefined : bannerUrl || undefined;
-              const url = await uploadImage(file, bucket as any, user.id, oldUrl);
+              const url = await uploadImage(file, bucket as unknown, user.id, oldUrl);
 
               await supabase.from("profiles").upsert(
                 cropTarget === "avatars" ? { user_id: user.id, avatar_url: url } : { user_id: user.id, banner_url: url },
@@ -277,7 +277,7 @@ export default function ProfilePage() {
 
               if (cropTarget === "avatars") setAvatarUrl(url);
               else setBannerUrl(url);
-            } catch (err: any) {
+            } catch (err: unknown) {
               console.error("Cropped upload error", err);
               alert(err?.message || String(err) || "Upload failed");
             } finally {

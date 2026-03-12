@@ -13,9 +13,9 @@ export async function GET() {
       .select("*")
       .order("updated_at", { ascending: false });
 
-    if (error) return NextResponse.json({ error: (error as any).message }, { status: 500 });
+    if (error) return NextResponse.json({ error: (error as unknown).message }, { status: 500 });
 
-    const rows = (data || []).map((row: any) => ({
+    const rows = (data || []).map((row: unknown) => ({
       user_id: row.user_id,
       status: row.status,
       retry_count: row.retry_count,
@@ -25,7 +25,7 @@ export async function GET() {
     }));
 
     return NextResponse.json({ rows });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Error fetching onboard queue admin view:", err);
     return NextResponse.json({ error: err?.message || "Unknown error" }, { status: 500 });
   }

@@ -19,8 +19,8 @@ export async function POST(req: Request) {
 
   const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
 
-  const brand = (pm as any)?.card?.brand ?? null;
-  const last4 = (pm as any)?.card?.last4 ?? null;
+  const brand = (pm as unknown)?.card?.brand ?? null;
+  const last4 = (pm as unknown)?.card?.last4 ?? null;
 
   await supabaseAdmin
     .from("payout_methods")

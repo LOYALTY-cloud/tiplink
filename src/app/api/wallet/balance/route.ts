@@ -10,7 +10,7 @@ export async function GET() {
 
     const { data: wallet } = await supabase.from("wallets").select("balance,currency").eq("user_id", user.id).maybeSingle();
     return NextResponse.json(wallet || { balance: 0, currency: "usd" });
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
   }
 }

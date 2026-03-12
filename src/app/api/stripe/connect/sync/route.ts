@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20" as any,
+  apiVersion: "2024-06-20" as unknown,
 });
 
 const supabaseAdmin = createClient(
@@ -32,8 +32,8 @@ export async function POST(req: Request) {
 
     // "Ready enough" heuristic:
     const payoutsEnabled =
-      Boolean((acct as any).payouts_enabled) &&
-      Boolean((acct as any).charges_enabled);
+      Boolean((acct as unknown).payouts_enabled) &&
+      Boolean((acct as unknown).charges_enabled);
 
     await supabaseAdmin
       .from("profiles")
@@ -45,11 +45,11 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       payouts_enabled: payoutsEnabled,
-      charges_enabled: (acct as any).charges_enabled,
-      payouts_enabled_stripe: (acct as any).payouts_enabled,
-      details_submitted: (acct as any).details_submitted,
+      charges_enabled: (acct as unknown).charges_enabled,
+      payouts_enabled_stripe: (acct as unknown).payouts_enabled,
+      details_submitted: (acct as unknown).details_submitted,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.log("stripe connect sync error:", e?.message || e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

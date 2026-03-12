@@ -38,9 +38,9 @@ export default function VerifiedUserHandler() {
   useEffect(() => {
     let mounted = true;
 
-    async function ensureCardForUser(user: any) {
+    async function ensureCardForUser(user: unknown) {
       if (!user) return;
-      const isConfirmed = Boolean((user as any).confirmed_at || (user as any).email_confirmed_at || (user as any).email_confirmed);
+      const isConfirmed = Boolean((user as unknown).confirmed_at || (user as unknown).email_confirmed_at || (user as unknown).email_confirmed);
       if (!isConfirmed) return;
 
       try {
@@ -74,12 +74,12 @@ export default function VerifiedUserHandler() {
     // Run once on mount
     (async () => {
       const { data } = await supabase.auth.getUser();
-      const user = (data as any)?.user;
+      const user = (data as unknown)?.user;
       if (user) ensureCardForUser(user);
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      const user = (session as any)?.user;
+      const user = (session as unknown)?.user;
       if (user) ensureCardForUser(user);
     });
 

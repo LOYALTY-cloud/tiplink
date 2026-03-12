@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   try {
     event = stripe.webhooks.constructEvent(payload, sig, process.env.STRIPE_ISSUING_WEBHOOK_SECRET!) as unknown as StripeWebhookEvent;
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json({ error: `Webhook Error: ${err.message}` }, { status: 400 });
   }
 
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       case "issuing_authorization.request": {
         const auth = event.data.object as Stripe.Issuing.Authorization;
 
-        const cardId = typeof auth.card === "string" ? auth.card : (auth.card as any)?.id ?? null;
+        const cardId = typeof auth.card === "string" ? auth.card : (auth.card as unknown)?.id ?? null;
 
         const { data: cardData } = await supabaseAdmin
           .from("cards")
@@ -63,10 +63,10 @@ export async function POST(req: NextRequest) {
           let weeklySpend = 0;
           if (weeklyRes) {
             if (Array.isArray(weeklyRes) && weeklyRes.length > 0) {
-              const row = weeklyRes[0] as any;
+              const row = weeklyRes[0] as unknown;
               weeklySpend = Number(Object.values(row)[0] ?? 0);
             } else {
-              weeklySpend = Number(weeklyRes as any ?? 0);
+              weeklySpend = Number(weeklyRes as unknown ?? 0);
             }
           }
 
@@ -83,10 +83,10 @@ export async function POST(req: NextRequest) {
           let monthlySpend = 0;
           if (monthlyRes) {
             if (Array.isArray(monthlyRes) && monthlyRes.length > 0) {
-              const row = monthlyRes[0] as any;
+              const row = monthlyRes[0] as unknown;
               monthlySpend = Number(Object.values(row)[0] ?? 0);
             } else {
-              monthlySpend = Number(monthlyRes as any ?? 0);
+              monthlySpend = Number(monthlyRes as unknown ?? 0);
             }
           }
 
@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
           await supabaseAdmin.from("card_transactions").insert({
             user_id: card.user_id,
             stripe_authorization_id: auth.id,
-            merchant_name: (auth.merchant_data as any)?.name ?? null,
+            merchant_name: (auth.merchant_data as unknown)?.name ?? null,
             amount: amountUsd,
             currency: auth.currency ?? "usd",
             status: "approved"
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
       case "issuing_transaction.created": {
         const tx = event.data.object as Stripe.Issuing.Transaction;
 
-        const cardId = typeof tx.card === "string" ? tx.card : (tx.card as any)?.id ?? null;
+        const cardId = typeof tx.card === "string" ? tx.card : (tx.card as unknown)?.id ?? null;
         let userId: string | null = null;
         try {
           const { data: prof } = await supabaseAdmin.from("profiles").select("user_id").eq("stripe_card_id", cardId).maybeSingle();
@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
               type: "card_charge",
               amount: Number((-amountUsd).toFixed(2)),
               reference_id: tx.id,
-              metadata: { authorization_id: (tx.authorization as any)?.id ?? null, card_id: cardId }
+              metadata: { authorization_id: (tx.authorization as unknown)?.id ?? null, card_id: cardId }
             });
           } else {
             console.warn("Skipping ledger entry for issuing_transaction.created: missing userId", tx.id);
@@ -175,11 +175,11 @@ export async function POST(req: NextRequest) {
           await supabaseAdmin.from("card_transactions").insert({
             user_id: userId,
             stripe_transaction_id: tx.id,
-            stripe_authorization_id: (tx.authorization as any)?.id ?? null,
-            merchant_name: (tx.merchant_data as any)?.name ?? "unknown",
+            stripe_authorization_id: (tx.authorization as unknown)?.id ?? null,
+            merchant_name: (tx.merchant_data as unknown)?.name ?? "unknown",
             amount: amountUsd,
             currency: tx.currency ?? "usd",
-            status: (tx as any).status ?? null
+            status: (tx as unknown).status ?? null
           });
         } catch (e) { console.error("Failed to insert card transaction for issuing_transaction.created:", e); }
 
@@ -189,21 +189,21 @@ export async function POST(req: NextRequest) {
       case "issuing_transaction.updated": {
         const tx = event.data.object as Stripe.Issuing.Transaction;
         try {
-          await supabaseAdmin.from("card_transactions").update({ status: (tx as any).status ?? null }).eq("stripe_transaction_id", tx.id);
+          await supabaseAdmin.from("card_transactions").update({ status: (tx as unknown).status ?? null }).eq("stripe_transaction_id", tx.id);
 
-          if ((tx as any).status === "reversed") {
+          if ((tx as unknown).status === "reversed") {
             const amountUsd = Number(((tx.amount ?? 0) / 100).toFixed(2));
             try {
               // if we can find user by card, credit them; otherwise skip ledger
               let reversalUserId: string | null = null;
               try {
-                const cardId = typeof tx.card === "string" ? tx.card : (tx.card as any)?.id ?? null;
+                const cardId = typeof tx.card === "string" ? tx.card : (tx.card as unknown)?.id ?? null;
                 const { data: prof } = await supabaseAdmin.from("profiles").select("user_id").eq("stripe_card_id", cardId).maybeSingle();
                 reversalUserId = prof?.user_id ?? null;
               } catch (e) { console.error("Failed to lookup user for reversal ledger entry:", e); }
 
               if (reversalUserId) {
-                await addLedgerEntry({ user_id: reversalUserId, type: "card_reversal", amount: Number((amountUsd).toFixed(2)), reference_id: tx.id, metadata: { authorization_id: (tx.authorization as any)?.id ?? null } });
+                await addLedgerEntry({ user_id: reversalUserId, type: "card_reversal", amount: Number((amountUsd).toFixed(2)), reference_id: tx.id, metadata: { authorization_id: (tx.authorization as unknown)?.id ?? null } });
               } else {
                 console.warn("Skipping reversal ledger entry: no user found for transaction", tx.id);
               }
@@ -226,7 +226,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ received: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Error processing issuing webhook event:", err);
     return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
   }

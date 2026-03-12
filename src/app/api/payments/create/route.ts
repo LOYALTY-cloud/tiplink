@@ -81,7 +81,7 @@ export async function POST(req: Request) {
         total: totalCharge,
       },
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
