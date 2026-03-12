@@ -99,7 +99,7 @@ export async function POST(req: Request) {
     }
 
     // Only attempt instant payouts
-    const payoutMethod: "instant" = "instant";
+    const payoutMethod = "instant" as const;
     let payout;
 
     try {

@@ -78,7 +78,7 @@ export default function ProfilePage() {
 
   const updateLink = (idx: number, key: "type" | "url", value: string) => {
     const next = [...links];
-    // @ts-ignore
+    // @ts-expect-error - indexed dynamic update to union type
     next[idx][key] = value;
     setLinks(next.map((l, i) => ({ ...l, sort_order: i })));
   };

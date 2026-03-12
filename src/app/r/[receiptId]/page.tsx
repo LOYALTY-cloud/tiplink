@@ -86,7 +86,7 @@ export default async function ReceiptPage({
           </div>
 
           <div className="pt-2 text-xs text-gray-500">
-            This support is private. The creator won't see your email or identity unless you chose to share it.
+            This support is private. The creator will not see your email or identity unless you choose to share it.
           </div>
         </div>
 

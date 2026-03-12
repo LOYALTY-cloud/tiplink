@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
 import { useToast } from "@/lib/useToast";
 import { formatMoney } from "@/lib/walletFees";
@@ -216,9 +217,9 @@ export default function DashboardPage() {
           <h2 className={ui.h2}>Share</h2>
           <p className={`mt-1 ${ui.muted}`}>Download QR codes and share your link anywhere: flyers, bio links, booths, chairs, stages.</p>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            <a className={`${ui.btnGhost} ${ui.btnSmall}`} href="/dashboard/share">Go to Share</a>
-            <a className={`${ui.btnGhost} ${ui.btnSmall}`} href="/dashboard/profile">Edit Profile</a>
+            <div className="mt-4 flex flex-wrap gap-2">
+            <Link className={`${ui.btnGhost} ${ui.btnSmall}`} href="/dashboard/share">Go to Share</Link>
+            <Link className={`${ui.btnGhost} ${ui.btnSmall}`} href="/dashboard/profile">Edit Profile</Link>
           </div>
         </div>
       </div>
