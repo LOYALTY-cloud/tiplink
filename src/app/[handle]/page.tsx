@@ -29,7 +29,7 @@ export default async function PublicTipPage({
         <div className="max-w-md w-full rounded-2xl border border-white/10 bg-white/5 p-6">
           <div className="text-lg font-semibold">Page not found</div>
           <div className="mt-2 text-sm text-white/70">
-            This TipLinkMe page doesn't exist.
+            This TipLinkMe page does not exist.
           </div>
         </div>
       </div>

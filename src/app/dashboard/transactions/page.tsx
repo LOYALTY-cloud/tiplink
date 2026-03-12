@@ -108,7 +108,8 @@ export default function TransactionsPage() {
   }, []);
 
   useEffect(() => {
-    setPage(1);
+    const t = setTimeout(() => setPage(1), 0);
+    return () => clearTimeout(t);
   }, [statusFilter, typeFilter]);
 
   const filteredRows = useMemo(() => {

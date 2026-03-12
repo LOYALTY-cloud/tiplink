@@ -94,8 +94,11 @@ export default function WalletPage() {
   };
 
   useEffect(() => {
-    reloadWallet();
-    loadPayout();
+    const t = setTimeout(() => {
+      reloadWallet();
+      loadPayout();
+    }, 0);
+    return () => clearTimeout(t);
   }, []);
 
   const hasCard = !!payout?.last4;

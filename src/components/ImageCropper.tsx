@@ -22,6 +22,11 @@ export default function ImageCropper({ image, onCropComplete, aspect = 1 }: any)
     };
   }, []);
 
+  // Signal fallback if Cropper not available and render accordingly.
+  useEffect(() => {
+    if (!CropperComp && onCropComplete) onCropComplete?.(null, null);
+  }, [image, onCropComplete, CropperComp]);
+
   if (CropperComp) {
     const C = CropperComp;
     return (
@@ -38,11 +43,6 @@ export default function ImageCropper({ image, onCropComplete, aspect = 1 }: any)
       </div>
     );
   }
-
-  // Fallback: simple preview and signal no interactive crop area
-  useEffect(() => {
-    if (onCropComplete) onCropComplete?.(null, null);
-  }, [image, onCropComplete]);
 
   return (
     <div className="relative w-full h-80 flex items-center justify-center bg-black/5">
