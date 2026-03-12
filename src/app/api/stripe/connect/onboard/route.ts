@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20" as any,
+  apiVersion: "2024-06-20" as unknown,
 });
 
 const supabaseAdmin = createClient(
@@ -108,7 +108,7 @@ export async function POST(req: Request) {
       url: accountLink.url,
       stripe_account_id: stripeAccountId,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.log("stripe connect onboard error:", e?.message || e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }

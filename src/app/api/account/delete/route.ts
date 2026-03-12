@@ -10,7 +10,7 @@ export async function POST(req: Request) {
     }
     const accessToken = authHeader.slice("Bearer ".length);
 
-    const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(accessToken as any);
+    const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(accessToken as unknown);
     if (userErr || !userRes?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
       .from("wallets")
       .select("available, pending, withdraw_fee")
       .eq("user_id", user.id)
-      .maybeSingle<{ available: any; pending: any; withdraw_fee: any }>();
+      .maybeSingle<{ available: unknown; pending: unknown; withdraw_fee: unknown }>();
 
     if (walletErr) {
       return NextResponse.json({ error: walletErr.message }, { status: 500 });
@@ -76,7 +76,7 @@ export async function POST(req: Request) {
     if (stripeAccountId) {
       try {
         await stripe.accounts.del(stripeAccountId);
-      } catch (e: any) {
+      } catch (e: unknown) {
         return NextResponse.json(
           {
             error:
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json({ error: err?.message ?? "Server error" }, { status: 500 });
   }
 }

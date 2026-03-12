@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     const { name, email } = await req.json();
 
     // Stripe types require a billing field; cast to any to avoid type errors here
-    const cardholder = await (stripe.issuing.cardholders.create as any)({
+    const cardholder = await (stripe.issuing.cardholders.create as unknown)({
       type: "individual",
       name: name || undefined,
       email: email || undefined,
@@ -87,7 +87,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ success: true, last4: card.last4 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Card creation error:", err);
     return NextResponse.json({ error: err?.message ?? "Server error" }, { status: 500 });
   }

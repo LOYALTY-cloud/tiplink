@@ -55,7 +55,7 @@ export async function POST(req: Request) {
         reference_id: tip.id,
         metadata: { tipper_name: tipper_name ?? null, receipt_email: receipt_email?.trim().toLowerCase() ?? null },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Attempt to rollback tip row to avoid inconsistent state
       try { await supabaseAdmin.from("tips").delete().eq("id", tip.id); } catch (e) {}
       return NextResponse.json({ error: "Failed to log ledger entry" }, { status: 500 });
@@ -85,7 +85,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: true, id: tip.id, receipt_id: rid });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
   }
 }

@@ -12,9 +12,9 @@ export default function VirtualCardPage() {
   const [loading, setLoading] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [cardId, setCardId] = useState<string | null>(null);
-  const [cardInfo, setCardInfo] = useState<any | null>(null);
+  const [cardInfo, setCardInfo] = useState<unknown | null>(null);
   const [transactions, setTransactions] = useState<Tx[]>([]);
-  const [ephemeralKey, setEphemeralKey] = useState<any | null>(null);
+  const [ephemeralKey, setEphemeralKey] = useState<unknown | null>(null);
 
   const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -30,10 +30,10 @@ export default function VirtualCardPage() {
         .eq("user_id", user.id)
         .maybeSingle();
 
-      if (prof && (prof as any).stripe_card_id) {
-        setCardId((prof as any).stripe_card_id);
-        await fetchCard((prof as any).stripe_card_id);
-        await fetchTransactions((prof as any).stripe_card_id);
+      if (prof && (prof as unknown).stripe_card_id) {
+        setCardId((prof as unknown).stripe_card_id);
+        await fetchCard((prof as unknown).stripe_card_id);
+        await fetchTransactions((prof as unknown).stripe_card_id);
       }
     })();
   }, []);

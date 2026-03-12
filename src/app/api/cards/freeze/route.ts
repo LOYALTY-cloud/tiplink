@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     await supabaseAdmin.from("cards").update({ status: "inactive" }).eq("stripe_card_id", cardId);
 
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json({ error: e?.message ?? String(e) }, { status: 500 });
   }
 }

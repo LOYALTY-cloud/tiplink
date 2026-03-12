@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ ok: true, resendResponse });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json(
       { error: e?.message ?? "Server error" },
       { status: 500 }

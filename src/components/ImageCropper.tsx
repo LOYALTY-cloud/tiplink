@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-export default function ImageCropper({ image, onCropComplete, aspect = 1 }: any) {
-  const [CropperComp, setCropperComp] = useState<any>(null);
+export default function ImageCropper({ image, onCropComplete, aspect = 1 }: unknown) {
+  const [CropperComp, setCropperComp] = useState<unknown>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
 
@@ -38,7 +38,7 @@ export default function ImageCropper({ image, onCropComplete, aspect = 1 }: any)
           aspect={aspect}
           onCropChange={setCrop}
           onZoomChange={setZoom}
-          onCropComplete={(croppedArea: any, croppedAreaPixels: any) => onCropComplete?.(croppedArea, croppedAreaPixels)}
+          onCropComplete={(croppedArea: unknown, croppedAreaPixels: unknown) => onCropComplete?.(croppedArea, croppedAreaPixels)}
         />
       </div>
     );

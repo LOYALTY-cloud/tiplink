@@ -19,7 +19,7 @@ export default function ResetPasswordPage() {
           // some versions expose a helper to parse session from the URL
           // use a safe any cast so TypeScript doesn't complain if it's not present
           // @ts-expect-error - optional helper may not exist on this client version
-          const parsed = await (supabase.auth as any).getSessionFromUrl?.();
+          const parsed = await (supabase.auth as unknown).getSessionFromUrl?.();
           if (parsed?.data?.session) return;
         } catch (e) {
           // ignore and fallthrough to show error

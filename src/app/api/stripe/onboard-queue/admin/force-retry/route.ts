@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       .limit(1)
       .single();
 
-    if (fetchError) return NextResponse.json({ error: (fetchError as any).message }, { status: 500 });
+    if (fetchError) return NextResponse.json({ error: (fetchError as unknown).message }, { status: 500 });
 
     if (!rows) {
       return NextResponse.json({ error: "No queue row found for this user" }, { status: 404 });
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       })
       .eq("user_id", user_id);
 
-    if (updateError) return NextResponse.json({ error: (updateError as any).message }, { status: 500 });
+    if (updateError) return NextResponse.json({ error: (updateError as unknown).message }, { status: 500 });
 
     // Best-effort: record admin action in stripe_onboard_admin_logs if table exists
     try {
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ message: "Force retry applied successfully" });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Force retry error:", err);
     return NextResponse.json({ error: err?.message || "Unknown error" }, { status: 500 });
   }

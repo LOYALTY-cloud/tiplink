@@ -14,20 +14,20 @@ export async function POST(req: Request) {
 
     // Ensure the user owns the card
     const { data: prof } = await supabase.from("profiles").select("stripe_card_id").eq("user_id", user.id).maybeSingle();
-    if (!prof || (prof as any).stripe_card_id !== cardId) {
+    if (!prof || (prof as unknown).stripe_card_id !== cardId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
     // Create an ephemeral key scoped to the issuing card for Elements
     const ephemeralKey = await stripe.ephemeralKeys.create(
       // `associated_objects` typing varies between SDK versions; cast to any
-      { associated_objects: [{ type: "issuing_card", id: cardId }] } as any,
+      { associated_objects: [{ type: "issuing_card", id: cardId }] } as unknown,
       // request options typing differs between SDK versions; cast to any
-      ({ stripeVersion: "2026-02-25.clover" } as any)
+      ({ stripeVersion: "2026-02-25.clover" } as unknown)
     );
 
     return NextResponse.json(ephemeralKey);
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
   }
 }

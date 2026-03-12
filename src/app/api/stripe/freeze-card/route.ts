@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     const status = action === "unfreeze" ? "active" : "inactive";
     const card = await stripe.issuing.cards.update(cardId as string, { status });
     return NextResponse.json(card);
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
   }
 }

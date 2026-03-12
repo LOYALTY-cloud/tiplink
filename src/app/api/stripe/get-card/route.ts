@@ -8,7 +8,7 @@ export async function POST(req: Request) {
 
     const card = await stripe.issuing.cards.retrieve(cardId as string);
     return NextResponse.json(card);
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
   }
 }

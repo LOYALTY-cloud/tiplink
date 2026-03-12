@@ -16,9 +16,9 @@ export default function ProfileImageCropper({
 }: Props) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<unknown>(null);
 
-  const onCropComplete = useCallback((_: any, croppedPixels: any) => {
+  const onCropComplete = useCallback((_: unknown, croppedPixels: unknown) => {
     setCroppedAreaPixels(croppedPixels);
   }, []);
 

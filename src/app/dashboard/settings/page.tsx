@@ -59,7 +59,7 @@ export default function SettingsPage() {
         if (error) throw error;
 
         setMsg("Password reset link sent. Check your email.");
-      } catch (e: any) {
+      } catch (e: unknown) {
         setErr(e?.message ?? "Failed to send reset email.");
       } finally {
         setLoading(false);
@@ -78,7 +78,7 @@ export default function SettingsPage() {
       const body = await res.json();
       if (body.url) window.location.href = body.url;
       else alert(body.error || "Unable to start Stripe connect");
-    } catch (e: any) {
+    } catch (e: unknown) {
       alert(e?.message || "Stripe connect failed");
     } finally {
       setLoading(false);
@@ -97,7 +97,7 @@ export default function SettingsPage() {
       const body = await res.json();
       if (body.url) window.location.href = body.url;
       else alert(body.error || "Unable to manage Stripe connect");
-    } catch (e: any) {
+    } catch (e: unknown) {
       alert(e?.message || "Stripe connect failed");
     } finally {
       setLoading(false);
@@ -142,7 +142,7 @@ export default function SettingsPage() {
 
       await supabase.auth.signOut();
       window.location.href = "/login";
-    } catch (e: any) {
+    } catch (e: unknown) {
       alert(e?.message || "Unable to delete account");
     } finally {
       setLoading(false);

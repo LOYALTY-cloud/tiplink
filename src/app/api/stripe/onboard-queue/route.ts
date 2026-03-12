@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
         })
         .eq("user_id", enqueueUserId);
 
-      if (error) return NextResponse.json({ error: (error as any).message }, { status: 500 });
+      if (error) return NextResponse.json({ error: (error as unknown).message }, { status: 500 });
       return NextResponse.json({ success: true, enqueued: enqueueUserId });
     }
 
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       .select("*")
       .single();
 
-    if (claimError) return NextResponse.json({ error: (claimError as any).message }, { status: 500 });
+    if (claimError) return NextResponse.json({ error: (claimError as unknown).message }, { status: 500 });
     if (!row) return NextResponse.json({ success: true, message: "No pending rows" });
 
     const userId = row.user_id as string;
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
 
     if (profileErr) {
       console.error("Failed to fetch profile for user", userId, profileErr);
-      throw new Error((profileErr as any).message);
+      throw new Error((profileErr as unknown).message);
     }
 
     if (profile?.stripe_account_id) {
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
 
     console.log(`Successfully onboarded user ${userId}`);
     return NextResponse.json({ success: true, user_id: userId });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Unexpected error in onboard-queue route:", err);
     return NextResponse.json({ error: err.message || "Unknown error" }, { status: 500 });
   }

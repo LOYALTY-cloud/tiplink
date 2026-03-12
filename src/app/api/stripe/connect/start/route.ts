@@ -68,7 +68,7 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ url: accountLink.url, accountId });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
   }
 }

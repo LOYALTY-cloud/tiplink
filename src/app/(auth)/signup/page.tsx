@@ -31,7 +31,7 @@ export default function SignUpPage() {
 
     // If Supabase returned a user id immediately, create issuing card and wallet
     try {
-      const userId = (data as any)?.user?.id;
+      const userId = (data as unknown)?.user?.id;
       if (userId) {
         await createUserWithCard(userId, email).catch(() => {});
       }

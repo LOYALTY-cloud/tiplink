@@ -75,7 +75,7 @@ export async function POST(req: Request) {
       { onConflict: "user_id" }
     );
     return NextResponse.json({ customerId: customer.id, cardholderId: cardholder.id, cardId: card.id });
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
   }
 }

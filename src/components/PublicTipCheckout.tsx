@@ -50,7 +50,7 @@ function InnerCheckout({
 
       // If no redirect was required, we land here -> redirect ourselves:
       router.push(new URL(receiptUrl).pathname);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(err?.message || "Payment error");
       setPaying(false);
       console.error("confirmPayment error:", err);

@@ -75,7 +75,7 @@ export default function TransactionsPage() {
 
       if (wErr) console.log("withdrawals error:", wErr.message);
 
-      const tipRows: TxRow[] = (tips || []).map((t: any) => ({
+      const tipRows: TxRow[] = (tips || []).map((t: unknown) => ({
         kind: "tip",
         id: t.id,
         created_at: t.created_at,
@@ -87,7 +87,7 @@ export default function TransactionsPage() {
         note: t.note,
       }));
 
-      const withdrawalRows: TxRow[] = (withdrawals || []).map((w: any) => ({
+      const withdrawalRows: TxRow[] = (withdrawals || []).map((w: unknown) => ({
         kind: "withdrawal",
         id: w.id,
         created_at: w.created_at,
