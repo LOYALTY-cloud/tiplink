@@ -1,0 +1,81 @@
+import { NextResponse } from "next/server";
+import { createSupabaseRouteClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+
+type Body = {
+  bucket: string;
+  fileName: string;
+  fileBase64: string;
+  oldPublicUrl?: string;
+};
+
+export async function POST(req: Request) {
+  try {
+    const body: Body = await req.json();
+    const { bucket, fileName, fileBase64, oldPublicUrl } = body;
+
+    console.log("/api/upload called", { bucket, fileName, hasOld: !!oldPublicUrl });
+
+    if (!bucket || !fileName || !fileBase64) {
+      return NextResponse.json({ error: "Missing params" }, { status: 400 });
+    }
+
+    // Basic validation: reject non-image extensions
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    const allowed = ['png','jpg','jpeg','webp','gif','avif'];
+    if (!allowed.includes(ext)) {
+      return NextResponse.json({ error: 'Invalid file type' }, { status: 400 });
+    }
+
+    let supabase: any;
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    } else {
+      supabase = await createSupabaseRouteClient();
+    }
+
+    // decode base64
+    const buffer = Buffer.from(fileBase64, 'base64');
+
+    // server-side max size 6MB
+    if (buffer.length > 6 * 1024 * 1024) {
+      return NextResponse.json({ error: 'File too large' }, { status: 400 });
+    }
+
+    const { error: upErr } = await supabase.storage.from(bucket).upload(fileName, buffer, { upsert: true });
+    if (upErr) {
+      console.error("upload error", upErr);
+      return NextResponse.json({ error: upErr.message }, { status: 500 });
+    }
+
+    // delete old file if provided
+    if (oldPublicUrl) {
+      try {
+        const key = extractKeyFromPublicUrl(oldPublicUrl, bucket);
+        if (key) {
+          await supabase.storage.from(bucket).remove([key]);
+        }
+      } catch (e) {
+        console.error("delete old object error", e);
+      }
+    }
+
+    const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
+
+    console.log("/api/upload success", { publicUrl: data.publicUrl });
+    return NextResponse.json({ publicUrl: data.publicUrl });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
+  }
+}
+
+function extractKeyFromPublicUrl(url: string, bucket: string) {
+  try {
+    const marker = `/storage/v1/object/public/${bucket}/`;
+    const idx = url.indexOf(marker);
+    if (idx === -1) return null;
+    return decodeURIComponent(url.substring(idx + marker.length));
+  } catch (e) {
+    return null;
+  }
+}

@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
 import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // Simple in-memory rate limiter (best-effort for this PR).
 // In production prefer a distributed limiter like Upstash/Redis.
@@ -58,7 +54,8 @@ export async function POST(req: Request) {
     // Create cardholder
     const { name, email } = await req.json();
 
-    const cardholder = await stripe.issuing.cardholders.create({
+    // Stripe types require a billing field; cast to any to avoid type errors here
+    const cardholder = await (stripe.issuing.cardholders.create as any)({
       type: "individual",
       name: name || undefined,
       email: email || undefined,

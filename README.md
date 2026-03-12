@@ -77,3 +77,175 @@ psql "$DATABASE_URL" -c "SELECT 1;"
 
 ✅ **Recommended:** Always backup before applying any schema changes.
 
+## Wallet Reconciliation
+
+TipLinkMe uses a `transactions_ledger` table as the source of truth for all financial activity.
+
+A scheduled GitHub Action automatically reconciles wallet balances with ledger entries to ensure financial integrity.
+
+**Schedule**
+
+Runs daily at 03:00 UTC via:
+
+```
+.github/workflows/reconcile.yml
+```
+
+**Required Secrets**
+
+The workflow requires these repository secrets:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+Add them in:
+
+GitHub → Repository → Settings → Secrets and Variables → Actions
+
+**Manual Run**
+
+You can run reconciliation manually from:
+
+GitHub → Actions → Reconcile wallets → Run workflow
+
+**What the Script Does**
+
+The script:
+
+- Fetches all wallets
+- Calculates balance from `transactions_ledger`
+- Updates `wallets.balance` if mismatched
+- Logs corrections
+
+Script location:
+
+```
+scripts/reconcileWallets.ts
+```
+
+This ensures wallet balances remain consistent with the financial ledger.
+
+## Next steps and important rules
+
+2️⃣ What we should implement next (VERY important)
+
+Now that reconciliation exists, the most important rule is:
+
+Every money movement must write to `transactions_ledger`.
+
+Right now you already patched:
+
+- ✅ Tips
+- ✅ Withdrawals
+- ✅ Stripe webhook tip processing
+
+Next we should patch remaining flows:
+
+1️⃣ Virtual Card Charges
+
+When user spends from card, write a ledger entry, for example:
+
+```
+ledger_type: card_charge
+amount: -$X
+```
+
+2️⃣ Card Refunds
+
+```
+ledger_type: card_refund
+amount: +$X
+```
+
+3️⃣ Promo / Bonus credits
+
+```
+ledger_type: promo_credit
+amount: +$X
+```
+
+4️⃣ Stripe payout fees
+
+```
+ledger_type: payout_fee
+amount: -$X
+```
+
+## System architecture
+
+Your fintech backend now looks like this:
+
+```
+Users
+	│
+	▼
+Wallets (cached balance)
+	│
+	▼
+Transactions Ledger (source of truth)
+	│
+	├─ Tips
+	├─ Withdrawals
+	├─ Card charges
+	├─ Refunds
+	└─ Promos
+	│
+	▼
+Daily Reconciliation Script
+```
+
+This is how real fintech systems avoid money bugs. CashApp / Venmo / Stripe all use a ledger-first architecture like this.
+
+## Virtual Card system status
+
+You’re about 80–85% done. Remaining work:
+
+| Feature | Status |
+|---|---|
+| Stripe connected accounts | ✅ |
+| Onboard queue system | ✅ |
+| Retry worker | ✅ |
+| Admin logging | ✅ |
+| Cards table | ✅ |
+| Card creation API | ✅ |
+| Ledger system | ✅ |
+| Reconciliation script | ✅ |
+| Automated reconciliation | ✅ |
+| Stripe card issuing integration | ⚠️ next |
+| Card spend ledger hooks | ⚠️ next |
+| Card dashboard UI | ⚠️ next |
+
+## Recommended next feature
+
+The next thing to build is: Stripe Issuing Card Creation
+
+When a user signs up:
+
+```
+User verified
+	  ↓
+Create Stripe Issuing Cardholder
+	  ↓
+Create Virtual Card
+	  ↓
+Save card_id in cards table
+```
+
+Then users can spend their TipLinkMe wallet balance.
+
+## Additional table recommendation
+
+There is ONE more table recommended soon: `ledger_audit_logs`
+
+This logs:
+
+```
+who modified ledger
+why
+admin actions
+manual corrections
+```
+
+It protects you from fraud, accounting disputes, and regulatory audits.
+
+

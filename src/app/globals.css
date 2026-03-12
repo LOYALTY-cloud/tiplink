@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+:root{
+  --bg0:#050A1A;         /* deep navy */
+  --bg1:#070D24;
+  --card:rgba(255,255,255,.06);
+  --card2:rgba(255,255,255,.08);
+  --border:rgba(255,255,255,.10);
+  --border2:rgba(255,255,255,.14);
+  --text:rgba(255,255,255,.92);
+  --muted:rgba(255,255,255,.65);
+  --muted2:rgba(255,255,255,.45);
+  --blue:#3B82F6;
+  --blue2:#2563EB;
+  --green:#22C55E;
+}
+
+html, body {
+  background: var(--bg0);
+  color: var(--text);
+}
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+}
