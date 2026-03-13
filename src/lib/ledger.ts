@@ -1,41 +1,54 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-export type LedgerEntry = {
+export type LedgerEntryType =
+  | "tip_received"
+  | "tip_refunded"
+  | "payout"
+  | "card_charge"
+  | "card_refund"
+  | "adjustment"
+  | "withdrawal"
+  | "deposit"
+  | "fee"
+  | "card_reversal";
+
+export interface LedgerEntry {
   user_id: string;
-  type: string; // deposit | tip | withdrawal | fee | refund | card_charge
+  type: LedgerEntryType;
   amount: number;
   reference_id?: string | null;
-  metadata?: Record<string, unknown> | null;
-  // Optional audit fields
+  meta?: Record<string, unknown>;
+  // keep legacy field for compatibility
+  metadata?: Record<string, unknown>;
   performed_by?: string | null;
   action?: string | null;
   reason?: string | null;
-};
+}
 
 export async function addLedgerEntry(entry: LedgerEntry) {
-  // Use DB-side function to atomically insert ledger row + audit log
-  const params: Record<string, unknown> = {
-    _user_id: entry.user_id,
-    _type: entry.type,
-    _amount: entry.amount,
-    _reference_id: entry.reference_id ?? null,
-    _metadata: entry.metadata ?? {},
-    _performed_by: entry.performed_by ?? null,
-    _action: entry.action ?? "insert",
-    _reason: entry.reason ?? null,
+  // Insert a canonical ledger row
+  const insertPayload = {
+    user_id: entry.user_id,
+    type: entry.type,
+    amount: entry.amount,
+    reference_id: entry.reference_id ?? null,
+    meta: entry.meta ?? entry.metadata ?? {},
+    created_at: new Date().toISOString(),
   };
 
-  const { data, error } = await supabaseAdmin.rpc(
-    "insert_ledger_entry_with_audit",
-    params
-  );
+  const { data, error } = await supabaseAdmin.from("transactions_ledger").insert(insertPayload).select().single();
 
   if (error) {
-    console.error("Ledger RPC failed:", error);
-    throw new Error("Failed to log transaction");
+    throw new Error(`Ledger insert failed: ${error.message}`);
   }
 
-  return data?.[0] ?? null;
+  // Recalculate wallet balance for the user (DB-side logic)
+  const { error: recalcError } = await supabaseAdmin.rpc("recalculate_wallet_balance", { p_user_id: entry.user_id });
+  if (recalcError) {
+    throw new Error(`Wallet recalculation failed: ${recalcError.message}`);
+  }
+
+  return data ?? null;
 }
 
 export default addLedgerEntry;

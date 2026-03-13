@@ -8,13 +8,25 @@ import CardDetails from "@/components/CardDetails";
 
 type Tx = { id: string; merchant_data?: { name?: string }; amount: number };
 
+type CardInfo = {
+  id?: string;
+  brand?: string;
+  last4?: string;
+  cardholder_name?: string;
+  exp_month?: number;
+  exp_year?: number;
+  status?: string;
+};
+
+type EphemeralKey = { secret: string };
+
 export default function VirtualCardPage() {
   const [loading, setLoading] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [cardId, setCardId] = useState<string | null>(null);
-  const [cardInfo, setCardInfo] = useState<unknown | null>(null);
+  const [cardInfo, setCardInfo] = useState<CardInfo | null>(null);
   const [transactions, setTransactions] = useState<Tx[]>([]);
-  const [ephemeralKey, setEphemeralKey] = useState<unknown | null>(null);
+  const [ephemeralKey, setEphemeralKey] = useState<EphemeralKey | null>(null);
 
   const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -28,12 +40,14 @@ export default function VirtualCardPage() {
         .from("profiles")
         .select("stripe_card_id")
         .eq("user_id", user.id)
-        .maybeSingle();
+        .maybeSingle()
+        .returns<import("@/types/db").ProfileRow | null>();
 
-      if (prof && (prof as unknown).stripe_card_id) {
-        setCardId((prof as unknown).stripe_card_id);
-        await fetchCard((prof as unknown).stripe_card_id);
-        await fetchTransactions((prof as unknown).stripe_card_id);
+      if (prof && prof.stripe_card_id) {
+        const id = prof.stripe_card_id as string;
+        setCardId(id);
+        await fetchCard(id);
+        await fetchTransactions(id);
       }
     })();
   }, []);
@@ -149,7 +163,9 @@ export default function VirtualCardPage() {
   function copyNumber() {
     const last4 = cardInfo?.last4 || "0000";
     const masked = `•••• •••• •••• ${last4}`;
-    navigator.clipboard?.writeText(masked);
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(masked);
+    }
     alert("Copied: " + masked);
   }
 
@@ -160,7 +176,7 @@ export default function VirtualCardPage() {
       <div className="bg-black text-white rounded-2xl p-6 shadow-lg space-y-6">
         <div className="flex justify-between">
           <span className="text-sm opacity-70">Your Card</span>
-          <span className="font-bold">{(cardInfo?.brand || "VISA").toUpperCase()}</span>
+          <span className="font-bold">{((cardInfo?.brand || "VISA").toUpperCase())}</span>
         </div>
 
         <div className="text-xl tracking-widest">
@@ -175,7 +191,7 @@ export default function VirtualCardPage() {
 
           <div>
             <p className="opacity-60">Expires</p>
-            <p>{cardInfo ? `${cardInfo?.exp_month || "••"}/${cardInfo?.exp_year ? String(cardInfo.exp_year).slice(-2) : "••"}` : "--"}</p>
+            <p>{cardInfo ? `${cardInfo.exp_month ?? "••"}/${cardInfo.exp_year ? String(cardInfo.exp_year).slice(-2) : "••"}` : "--"}</p>
           </div>
 
           <div>
@@ -187,7 +203,7 @@ export default function VirtualCardPage() {
           <div className="mt-3">
             {/* Stripe Elements Issuing Element (secure PAN reveal) */}
             {ephemeralKey ? (
-              <Elements stripe={stripePromise} options={{ clientSecret: ephemeralKey.secret }}>
+              <Elements stripe={stripePromise} options={{ clientSecret: ephemeralKey?.secret ?? "" }}>
                 <CardDetails />
               </Elements>
             ) : (

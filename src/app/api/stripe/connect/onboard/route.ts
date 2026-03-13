@@ -1,12 +1,8 @@
-import Stripe from "stripe";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { stripe } from "@/lib/stripe/server";
 
 export const runtime = "nodejs";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20" as unknown,
-});
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -109,7 +105,7 @@ export async function POST(req: Request) {
       stripe_account_id: stripeAccountId,
     });
   } catch (e: unknown) {
-    console.log("stripe connect onboard error:", e?.message || e);
+    console.log("stripe connect onboard error:", e instanceof Error ? e.message : e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

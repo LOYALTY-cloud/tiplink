@@ -50,7 +50,7 @@ export async function POST(req: Request) {
     try {
       await addLedgerEntry({
         user_id: receiver_user_id,
-        type: "tip",
+        type: "tip_received",
         amount: Number(net.toFixed(2)),
         reference_id: tip.id,
         metadata: { tipper_name: tipper_name ?? null, receipt_email: receipt_email?.trim().toLowerCase() ?? null },
@@ -65,7 +65,8 @@ export async function POST(req: Request) {
         .from("profiles")
         .select("handle, display_name")
         .eq("user_id", receiver_user_id)
-        .maybeSingle();
+        .maybeSingle()
+        .returns<import("@/types/db").ProfileRow | null>();
 
       const creatorName = prof?.display_name || prof?.handle || "Creator";
       const createdAt = new Date(tip.created_at).toLocaleString();
@@ -86,6 +87,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, id: tip.id, receipt_id: rid });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
+    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

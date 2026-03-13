@@ -16,9 +16,10 @@ export default function ProfileImageCropper({
 }: Props) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [croppedAreaPixels, setCroppedAreaPixels] = useState<unknown>(null);
+  type Area = { x: number; y: number; width: number; height: number };
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
 
-  const onCropComplete = useCallback((_: unknown, croppedPixels: unknown) => {
+  const onCropComplete = useCallback((_: unknown, croppedPixels: Area) => {
     setCroppedAreaPixels(croppedPixels);
   }, []);
 
@@ -34,6 +35,8 @@ export default function ProfileImageCropper({
     const img = await createImage(image);
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
+
+    if (!croppedAreaPixels) throw new Error("No crop area available");
 
     canvas.width = croppedAreaPixels.width;
     canvas.height = croppedAreaPixels.height;

@@ -1,12 +1,8 @@
-import Stripe from "stripe";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { stripe } from "@/lib/stripe/server";
 
 export const runtime = "nodejs";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20" as unknown,
-});
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,7 +18,8 @@ export async function POST(req: Request) {
       .from("profiles")
       .select("stripe_account_id")
       .eq("user_id", user_id)
-      .maybeSingle();
+      .maybeSingle()
+      .returns<import("@/types/db").ProfileRow | null>();
 
     if (!profile?.stripe_account_id) {
       return NextResponse.json({ payouts_enabled: false, reason: "no_account" });
@@ -32,8 +29,8 @@ export async function POST(req: Request) {
 
     // "Ready enough" heuristic:
     const payoutsEnabled =
-      Boolean((acct as unknown).payouts_enabled) &&
-      Boolean((acct as unknown).charges_enabled);
+      Boolean((acct as any).payouts_enabled) &&
+      Boolean((acct as any).charges_enabled);
 
     await supabaseAdmin
       .from("profiles")
@@ -45,12 +42,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       payouts_enabled: payoutsEnabled,
-      charges_enabled: (acct as unknown).charges_enabled,
-      payouts_enabled_stripe: (acct as unknown).payouts_enabled,
-      details_submitted: (acct as unknown).details_submitted,
+      charges_enabled: (acct as any).charges_enabled,
+      payouts_enabled_stripe: (acct as any).payouts_enabled,
+      details_submitted: (acct as any).details_submitted,
     });
   } catch (e: unknown) {
-    console.log("stripe connect sync error:", e?.message || e);
+    console.log("stripe connect sync error:", e instanceof Error ? e.message : e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

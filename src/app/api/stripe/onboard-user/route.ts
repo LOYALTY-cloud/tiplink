@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { createSupabaseRouteClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { ProfileRow } from "@/types/db";
 
 export async function POST(req: Request) {
   try {
@@ -24,7 +25,12 @@ export async function POST(req: Request) {
     }
 
     // load profile (use admin client to bypass RLS)
-    const { data: prof } = await supabaseAdmin.from("profiles").select("email, stripe_customer_id, stripe_cardholder_id, stripe_card_id").eq("user_id", userId).maybeSingle();
+    const { data: prof } = await supabaseAdmin
+      .from("profiles")
+      .select("email, stripe_customer_id, stripe_cardholder_id, stripe_card_id")
+      .eq("user_id", userId)
+      .maybeSingle()
+      .returns<ProfileRow | null>();
 
     // Duplicate-check: if any stripe ids present, skip to avoid duplicate creation
     if (prof && (prof.stripe_customer_id || prof.stripe_cardholder_id || prof.stripe_card_id)) {
@@ -76,6 +82,7 @@ export async function POST(req: Request) {
     );
     return NextResponse.json({ customerId: customer.id, cardholderId: cardholder.id, cardId: card.id });
   } catch (err: unknown) {
-    return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
+    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

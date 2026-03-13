@@ -21,7 +21,7 @@ async function reconcileWallets() {
   let processed = 0;
 
   for (const w of wallets || []) {
-    const uid = (w as unknown).user_id;
+    const uid = (w as { user_id?: string }).user_id;
     if (!uid) continue;
 
     const { data: ledgerRows, error: ledgerErr } = await supabase
@@ -34,7 +34,7 @@ async function reconcileWallets() {
       continue;
     }
 
-    const computedBalance = (ledgerRows || []).reduce((sum: number, row: unknown) => sum + Number(row.amount || 0), 0);
+    const computedBalance = (ledgerRows || []).reduce((sum: number, row: { amount?: number | string } | unknown) => sum + Number((row as { amount?: number | string }).amount || 0), 0);
 
     const { error: updateErr } = await supabase
       .from("wallets")

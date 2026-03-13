@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { ProfileRow, WalletRow } from "@/types/db";
 import { stripe } from "@/lib/stripe/server";
 
 export async function POST(req: Request) {
@@ -10,7 +11,7 @@ export async function POST(req: Request) {
     }
     const accessToken = authHeader.slice("Bearer ".length);
 
-    const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(accessToken as unknown);
+    const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(accessToken as string);
     if (userErr || !userRes?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -21,7 +22,8 @@ export async function POST(req: Request) {
       .from("profiles")
       .select("stripe_account_id")
       .eq("id", user.id)
-      .maybeSingle<{ stripe_account_id: string | null }>();
+      .maybeSingle()
+      .returns<ProfileRow | null>();
 
     if (profErr) {
       return NextResponse.json({ error: profErr.message }, { status: 500 });
@@ -34,7 +36,8 @@ export async function POST(req: Request) {
       .from("wallets")
       .select("available, pending, withdraw_fee")
       .eq("user_id", user.id)
-      .maybeSingle<{ available: unknown; pending: unknown; withdraw_fee: unknown }>();
+      .maybeSingle()
+      .returns<WalletRow | null>();
 
     if (walletErr) {
       return NextResponse.json({ error: walletErr.message }, { status: 500 });
@@ -77,11 +80,12 @@ export async function POST(req: Request) {
       try {
         await stripe.accounts.del(stripeAccountId);
       } catch (e: unknown) {
+        const stripeErrMsg = e instanceof Error ? e.message : String(e ?? "Stripe error");
         return NextResponse.json(
           {
             error:
               "Stripe account could not be deleted yet. If there are pending funds/payouts, try again after settlement.",
-            stripeError: e?.message ?? "Stripe error",
+            stripeError: stripeErrMsg,
           },
           { status: 409 }
         );
@@ -95,6 +99,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
-    return NextResponse.json({ error: err?.message ?? "Server error" }, { status: 500 });
+    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

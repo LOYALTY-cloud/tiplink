@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { addLedgerEntry } from "@/lib/ledger";
 import type Stripe from "stripe";
 import type { StripeWebhookEvent } from "@/types/stripe";
+import type { CardRow, WalletRow, ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,8 @@ export async function POST(req: NextRequest) {
   try {
     event = stripe.webhooks.constructEvent(payload, sig, process.env.STRIPE_ISSUING_WEBHOOK_SECRET!) as unknown as StripeWebhookEvent;
   } catch (err: unknown) {
-    return NextResponse.json({ error: `Webhook Error: ${err.message}` }, { status: 400 });
+    const sigErr = err instanceof Error ? err.message : String(err ?? "Webhook error");
+    return NextResponse.json({ error: `Webhook Error: ${sigErr}` }, { status: 400 });
   }
 
   try {
@@ -28,13 +30,12 @@ export async function POST(req: NextRequest) {
 
         const cardId = typeof auth.card === "string" ? auth.card : (auth.card as Stripe.Issuing.Card)?.id ?? null;
 
-        const { data: cardData } = await supabaseAdmin
+        const { data: card } = await supabaseAdmin
           .from("cards")
           .select("user_id,weekly_limit,monthly_limit,status")
           .eq("stripe_card_id", cardId)
-          .maybeSingle();
-
-        const card = cardData || null;
+          .maybeSingle()
+          .returns<CardRow | null>();
 
         if (!card || card.status !== "active") {
           await logDecline(card?.user_id, auth.id, "card_inactive");
@@ -46,7 +47,8 @@ export async function POST(req: NextRequest) {
           .from("wallets")
           .select("available")
           .eq("user_id", card.user_id)
-          .maybeSingle();
+          .maybeSingle()
+          .returns<WalletRow | null>();
 
         const walletAvailable = Number((wallet?.available ?? 0) as number);
         const amountUsd = Number(((auth.amount ?? 0) / 100).toFixed(2));
@@ -63,10 +65,10 @@ export async function POST(req: NextRequest) {
           let weeklySpend = 0;
           if (weeklyRes) {
             if (Array.isArray(weeklyRes) && weeklyRes.length > 0) {
-              const row = weeklyRes[0] as unknown;
+              const row = weeklyRes[0] as any;
               weeklySpend = Number(Object.values(row)[0] ?? 0);
             } else {
-              weeklySpend = Number(weeklyRes as unknown ?? 0);
+              weeklySpend = Number(weeklyRes as any ?? 0);
             }
           }
 
@@ -83,10 +85,10 @@ export async function POST(req: NextRequest) {
           let monthlySpend = 0;
           if (monthlyRes) {
             if (Array.isArray(monthlyRes) && monthlyRes.length > 0) {
-              const row = monthlyRes[0] as unknown;
+              const row = monthlyRes[0] as any;
               monthlySpend = Number(Object.values(row)[0] ?? 0);
             } else {
-              monthlySpend = Number(monthlyRes as unknown ?? 0);
+              monthlySpend = Number(monthlyRes as any ?? 0);
             }
           }
 
@@ -127,7 +129,7 @@ export async function POST(req: NextRequest) {
             await supabaseAdmin.from("card_transactions").insert({
             user_id: card.user_id,
             stripe_authorization_id: auth.id,
-            merchant_name: (auth.merchant_data as Stripe.Issuing.MerchantData)?.name ?? null,
+            merchant_name: (auth.merchant_data as any)?.name ?? null,
             amount: amountUsd,
             currency: auth.currency ?? "usd",
             status: "approved"
@@ -151,8 +153,13 @@ export async function POST(req: NextRequest) {
         const cardId = typeof tx.card === "string" ? tx.card : (tx.card as Stripe.Issuing.Card)?.id ?? null;
         let userId: string | null = null;
         try {
-          const { data: prof } = await supabaseAdmin.from("profiles").select("user_id").eq("stripe_card_id", cardId).maybeSingle();
-          userId = prof?.user_id ?? null;
+          const { data: prof } = await supabaseAdmin
+            .from("profiles")
+            .select("user_id")
+            .eq("stripe_card_id", cardId)
+            .maybeSingle()
+            .returns<import("@/types/db").ProfileRow | null>();
+            userId = prof?.user_id ?? null;
         } catch (e) { console.error("Profile lookup failed for issuing_transaction.created:", e); }
 
         const amountUsd = Number(((tx.amount ?? 0) / 100).toFixed(2));
@@ -176,10 +183,10 @@ export async function POST(req: NextRequest) {
             user_id: userId,
             stripe_transaction_id: tx.id,
             stripe_authorization_id: (tx.authorization as Stripe.Issuing.Authorization)?.id ?? null,
-            merchant_name: (tx.merchant_data as Stripe.Issuing.MerchantData)?.name ?? "unknown",
+            merchant_name: (tx.merchant_data as any)?.name ?? "unknown",
             amount: amountUsd,
             currency: tx.currency ?? "usd",
-            status: (tx as Stripe.Issuing.Transaction)?.status ?? null
+            status: (tx as any)?.status ?? null
           });
         } catch (e) { console.error("Failed to insert card transaction for issuing_transaction.created:", e); }
 
@@ -189,16 +196,21 @@ export async function POST(req: NextRequest) {
       case "issuing_transaction.updated": {
         const tx = event.data.object as Stripe.Issuing.Transaction;
         try {
-          await supabaseAdmin.from("card_transactions").update({ status: (tx as Stripe.Issuing.Transaction)?.status ?? null }).eq("stripe_transaction_id", tx.id);
+          await supabaseAdmin.from("card_transactions").update({ status: (tx as any)?.status ?? null }).eq("stripe_transaction_id", tx.id);
 
-          if ((tx as Stripe.Issuing.Transaction)?.status === "reversed") {
+          if ((tx as any)?.status === "reversed") {
             const amountUsd = Number(((tx.amount ?? 0) / 100).toFixed(2));
             try {
               // if we can find user by card, credit them; otherwise skip ledger
               let reversalUserId: string | null = null;
               try {
                 const cardId = typeof tx.card === "string" ? tx.card : (tx.card as Stripe.Issuing.Card)?.id ?? null;
-                const { data: prof } = await supabaseAdmin.from("profiles").select("user_id").eq("stripe_card_id", cardId).maybeSingle();
+                const { data: prof } = await supabaseAdmin
+                  .from("profiles")
+                  .select("user_id")
+                  .eq("stripe_card_id", cardId)
+                  .maybeSingle()
+                  .returns<ProfileRow | null>();
                 reversalUserId = prof?.user_id ?? null;
               } catch (e) { console.error("Failed to lookup user for reversal ledger entry:", e); }
 
@@ -228,7 +240,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true });
   } catch (err: unknown) {
     console.error("Error processing issuing webhook event:", err);
-    return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
+    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }
 

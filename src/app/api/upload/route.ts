@@ -42,10 +42,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'File too large' }, { status: 400 });
     }
 
-    const { error: upErr } = await supabase.storage.from(bucket).upload(fileName, buffer, { upsert: true });
+    const { error: upErr } = await (supabase as any).storage.from(bucket).upload(fileName, buffer, { upsert: true });
     if (upErr) {
       console.error("upload error", upErr);
-      return NextResponse.json({ error: upErr.message }, { status: 500 });
+      const msg = upErr instanceof Error ? upErr.message : String(upErr ?? "Upload error");
+      return NextResponse.json({ error: msg }, { status: 500 });
     }
 
     // delete old file if provided
@@ -53,19 +54,20 @@ export async function POST(req: Request) {
       try {
         const key = extractKeyFromPublicUrl(oldPublicUrl, bucket);
         if (key) {
-          await supabase.storage.from(bucket).remove([key]);
+          await (supabase as any).storage.from(bucket).remove([key]);
         }
       } catch (e) {
         console.error("delete old object error", e);
       }
     }
 
-    const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
+    const { data } = (supabase as any).storage.from(bucket).getPublicUrl(fileName);
 
     console.log("/api/upload success", { publicUrl: data.publicUrl });
     return NextResponse.json({ publicUrl: data.publicUrl });
   } catch (err: unknown) {
-    return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
+    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }
 

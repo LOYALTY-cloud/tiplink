@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import type { ProfileRow, WalletRow } from "@/types/db";
 import { useToast } from "@/lib/useToast";
 import { formatMoney } from "@/lib/walletFees";
 import { useRouter } from "next/navigation";
@@ -36,7 +37,8 @@ export default function DashboardPage() {
         .from("profiles")
         .select("handle, stripe_account_id, payouts_enabled")
         .eq("user_id", user.id)
-        .maybeSingle();
+        .maybeSingle()
+        .returns<ProfileRow | null>();
 
       setHandle(prof?.handle ?? null);
       setStripeAccountId(prof?.stripe_account_id ?? null);
@@ -48,7 +50,8 @@ export default function DashboardPage() {
         .from("wallets")
         .select("available, pending, withdraw_fee")
         .eq("user_id", user.id)
-        .maybeSingle();
+        .maybeSingle()
+        .returns<WalletRow | null>();
 
       if (walletData) {
         setWallet({
@@ -76,7 +79,9 @@ export default function DashboardPage() {
       show("Set your handle in Profile first.");
       return;
     }
-    await navigator.clipboard.writeText(fullUrl);
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(fullUrl);
+    }
     show("Link copied OK");
   };
 

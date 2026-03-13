@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { ProfileRow } from "@/types/db";
 import { uploadImage } from "@/lib/uploadImage";
 import ProfileImageCropper from "@/components/ProfileImageCropper";
 import { ui } from "@/lib/ui";
@@ -42,7 +43,8 @@ export default function ProfilePage() {
           "id, handle, display_name, bio, location, avatar_url, banner_url, handle_change_count, handle_change_window_start"
         )
         .eq("user_id", user.id)
-        .maybeSingle();
+        .maybeSingle()
+        .returns<ProfileRow | null>();
 
       if (prof) {
         setProfileId(prof.id);
@@ -62,7 +64,7 @@ export default function ProfilePage() {
           .eq("profile_id", prof.id)
           .order("sort_order", { ascending: true });
 
-        setLinks((sl || []).map((x: unknown) => ({ ...x })));
+        setLinks((sl || []).map((x: unknown) => ({ ...(x as any) })));
       } else {
         const suggested = (user.email || "").split("@")[0] || "mytiplink";
         setHandle(suggested);
@@ -268,7 +270,7 @@ export default function ProfilePage() {
             try {
               const bucket = cropTarget === "avatars" ? "avatars" : "banners";
               const oldUrl = cropTarget === "avatars" ? avatarUrl || undefined : bannerUrl || undefined;
-              const url = await uploadImage(file, bucket as unknown, user.id, oldUrl);
+              const url = await uploadImage(file, bucket, user.id, oldUrl);
 
               await supabase.from("profiles").upsert(
                 cropTarget === "avatars" ? { user_id: user.id, avatar_url: url } : { user_id: user.id, banner_url: url },
@@ -279,7 +281,7 @@ export default function ProfilePage() {
               else setBannerUrl(url);
             } catch (err: unknown) {
               console.error("Cropped upload error", err);
-              alert(err?.message || String(err) || "Upload failed");
+              alert(err instanceof Error ? err.message : String(err ?? "Upload failed"));
             } finally {
               if (imageSrcLocal) URL.revokeObjectURL(imageSrcLocal);
               setImageSrcLocal(null);

@@ -8,35 +8,33 @@ export function ShareButton({ receiptId }: { receiptId: string }) {
   const handleShare = async () => {
     const url = `${window.location.origin}/r/${encodeURIComponent(receiptId)}`;
     
-    try {
-      // Try Web Share API first (only works on mobile/HTTPS contexts with user gesture)
-      if (navigator.share && navigator.canShare && navigator.canShare({ url })) {
-        try {
-          await navigator.share({
-            title: "TipLink Receipt",
-            text: `Receipt for your support - ${receiptId}`,
-            url: url,
-          });
-          setShared(true);
-          setTimeout(() => setShared(false), 2000);
-          return;
-        } catch (shareErr) {
-          // If share fails or user cancels, fall through to clipboard
-          if (shareErr instanceof Error && shareErr.name === "AbortError") {
-            return; // User cancelled, don't show error
+      try {
+        if (typeof navigator !== "undefined" && (navigator as any).share && (navigator as any).canShare && (navigator as any).canShare({ url })) {
+          try {
+            await (navigator as any).share({
+              title: "TipLink Receipt",
+              text: `Receipt for your support - ${receiptId}`,
+              url: url,
+            });
+            setShared(true);
+            setTimeout(() => setShared(false), 2000);
+            return;
+          } catch (shareErr) {
+            if (shareErr instanceof Error && shareErr.name === "AbortError") return;
           }
         }
+
+        if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(url);
+          setShared(true);
+          setTimeout(() => setShared(false), 2000);
+        } else {
+          prompt("Copy this receipt link:", url);
+        }
+      } catch (err) {
+        console.error("Failed to share:", err);
+        prompt("Copy this receipt link:", url);
       }
-      
-      // Fallback: copy to clipboard
-      await navigator.clipboard.writeText(url);
-      setShared(true);
-      setTimeout(() => setShared(false), 2000);
-    } catch (err) {
-      console.error("Failed to share:", err);
-      // Final fallback: show URL in prompt
-      prompt("Copy this receipt link:", url);
-    }
   };
 
   return (

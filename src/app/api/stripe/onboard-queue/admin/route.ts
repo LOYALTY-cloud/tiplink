@@ -13,9 +13,12 @@ export async function GET() {
       .select("*")
       .order("updated_at", { ascending: false });
 
-    if (error) return NextResponse.json({ error: (error as unknown).message }, { status: 500 });
+    if (error) {
+      const msg = error instanceof Error ? error.message : String(error ?? "");
+      return NextResponse.json({ error: msg }, { status: 500 });
+    }
 
-    const rows = (data || []).map((row: unknown) => ({
+    const rows = (data || []).map((row: any) => ({
       user_id: row.user_id,
       status: row.status,
       retry_count: row.retry_count,
@@ -27,6 +30,7 @@ export async function GET() {
     return NextResponse.json({ rows });
   } catch (err: unknown) {
     console.error("Error fetching onboard queue admin view:", err);
-    return NextResponse.json({ error: err?.message || "Unknown error" }, { status: 500 });
+    const errMsg = err instanceof Error ? err.message : String(err ?? "Unknown error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

@@ -1,12 +1,9 @@
-import Stripe from "stripe";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import type { ProfileRow } from "@/types/db";
+import { stripe } from "@/lib/stripe/server";
 
 export const runtime = "nodejs";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20" as unknown,
-});
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -69,7 +66,8 @@ export async function POST(req: Request) {
       .from("profiles")
       .select("user_id, stripe_account_id, handle, display_name")
       .eq("user_id", creator_user_id)
-      .maybeSingle();
+      .maybeSingle()
+      .returns<ProfileRow | null>();
 
     if (profileErr || !profile) {
       return NextResponse.json({ error: "Creator not found" }, { status: 404 });
@@ -136,7 +134,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (e: unknown) {
-    console.log("create-intent error:", e?.message || e);
+    console.log("create-intent error:", e instanceof Error ? e.message : e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

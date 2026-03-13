@@ -75,28 +75,34 @@ export default function TransactionsPage() {
 
       if (wErr) console.log("withdrawals error:", wErr.message);
 
-      const tipRows: TxRow[] = (tips || []).map((t: unknown) => ({
-        kind: "tip",
-        id: t.id,
-        created_at: t.created_at,
-        title: t.tipper_name?.trim() ? t.tipper_name : "Anonymous tip",
-        amount: Number(t.amount ?? 0),
-        fee: Number(t.platform_fee ?? 0),
-        net: Number(t.net ?? 0),
-        status: t.status,
-        note: t.note,
-      }));
+      const tipRows: TxRow[] = (tips || []).map((t: unknown) => {
+        const row: any = t;
+        return {
+          kind: "tip",
+          id: row.id,
+          created_at: row.created_at,
+          title: row.tipper_name?.trim() ? row.tipper_name : "Anonymous tip",
+          amount: Number(row.amount ?? 0),
+          fee: Number(row.platform_fee ?? 0),
+          net: Number(row.net ?? 0),
+          status: row.status,
+          note: row.note,
+        };
+      });
 
-      const withdrawalRows: TxRow[] = (withdrawals || []).map((w: unknown) => ({
-        kind: "withdrawal",
-        id: w.id,
-        created_at: w.created_at,
-        title: "Instant withdrawal",
-        amount: Number(w.amount ?? 0),
-        fee: Number(w.fee ?? 0),
-        net: Number(w.net ?? 0),
-        status: w.status,
-      }));
+      const withdrawalRows: TxRow[] = (withdrawals || []).map((w: unknown) => {
+        const row: any = w;
+        return {
+          kind: "withdrawal",
+          id: row.id,
+          created_at: row.created_at,
+          title: "Instant withdrawal",
+          amount: Number(row.amount ?? 0),
+          fee: Number(row.fee ?? 0),
+          net: Number(row.net ?? 0),
+          status: row.status,
+        };
+      });
 
       const merged = [...tipRows, ...withdrawalRows].sort(
         (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
