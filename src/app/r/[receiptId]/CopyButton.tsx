@@ -9,17 +9,15 @@ export function CopyButton({ receiptId }: { receiptId: string }) {
     const url = `${window.location.origin}/r/${encodeURIComponent(receiptId)}`;
     
     try {
-      // Use Web Share API if available (mobile/modern browsers)
-      if (navigator.share) {
-        await navigator.share({
+      if (typeof navigator !== "undefined" && (navigator as any).share) {
+        await (navigator as any).share({
           title: "TipLink Receipt",
           text: `Receipt for your support - ${receiptId}`,
           url: url,
         });
         setShared(true);
         setTimeout(() => setShared(false), 2000);
-      } else {
-        // Fallback: copy to clipboard
+      } else if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
         setShared(true);
         setTimeout(() => setShared(false), 2000);

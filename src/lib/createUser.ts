@@ -40,8 +40,8 @@ export async function createUserWithCard(userId: string, email: string) {
       {
         user_id: userId,
         stripe_card_id: card.id,
-        brand: (card as unknown).brand ?? null,
-        last4: (card as unknown).last4 ?? null,
+        brand: (card as any).brand ?? null,
+        last4: (card as any).last4 ?? null,
         status: card.status ?? null,
       },
       { onConflict: "stripe_card_id" }

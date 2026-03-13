@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { createSupabaseRouteClient } from "@/lib/supabase/server";
+import type { ProfileRow } from "@/types/db";
 
 export async function POST(req: Request) {
   try {
@@ -15,8 +16,13 @@ export async function POST(req: Request) {
     let chId = cardholderId;
     if (!chId) {
       // try to read from profile
-      const { data: prof } = await supabase.from("profiles").select("stripe_cardholder_id").eq("user_id", user.id).maybeSingle();
-      chId = (prof as unknown)?.stripe_cardholder_id;
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("stripe_cardholder_id")
+        .eq("user_id", user.id)
+        .maybeSingle()
+        .returns<ProfileRow | null>();
+      chId = prof?.stripe_cardholder_id ?? undefined;
     }
 
     if (!chId) return NextResponse.json({ error: "Missing cardholderId" }, { status: 400 });
@@ -32,6 +38,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(card);
   } catch (err: unknown) {
-    return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
+    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

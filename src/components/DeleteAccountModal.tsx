@@ -15,7 +15,7 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
   const [confirmText, setConfirmText] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [details, setDetails] = useState<unknown>(null);
+  const [details, setDetails] = useState<any>(null);
 
   const canSubmit = useMemo(() => {
     return !!email && password.length >= 6 && confirmText.trim().toUpperCase() === "DELETE";
@@ -77,7 +77,7 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
       onDeleted?.();
       window.location.href = "/login";
     } catch (e: unknown) {
-      setErr(e?.message ?? "Something went wrong.");
+      setErr(e instanceof Error ? e.message : String(e ?? "Something went wrong."));
     } finally {
       setLoading(false);
     }

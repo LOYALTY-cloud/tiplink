@@ -36,6 +36,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(cardholder);
   } catch (err: unknown) {
-    return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
+    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

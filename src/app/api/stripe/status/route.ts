@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
 
@@ -30,7 +31,8 @@ export async function GET(req: Request) {
     .from("profiles")
     .select("stripe_account_id, stripe_payouts_enabled, stripe_onboarding_complete")
     .eq("user_id", userId)
-    .maybeSingle();
+    .maybeSingle()
+    .returns<ProfileRow | null>();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

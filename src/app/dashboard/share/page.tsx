@@ -34,7 +34,9 @@ export default function SharePage() {
   const shareUrl = amount ? `${basePath}?amount=${amount}` : basePath;
 
   const copyLink = async () => {
-    await navigator.clipboard.writeText(shareUrl);
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(shareUrl);
+    }
     alert("Copied!");
   };
 
@@ -63,9 +65,9 @@ export default function SharePage() {
   };
 
   const shareQR = async () => {
-    try {
-      if ((navigator as unknown).share) {
-        await (navigator as unknown).share({ title: `Tip ${username}`, text: `Send a tip to ${username}`, url: shareUrl });
+      try {
+      if ((navigator as any).share) {
+        await (navigator as any).share({ title: `Tip ${username}`, text: `Send a tip to ${username}`, url: shareUrl });
         return;
       }
     } catch (e) {
@@ -73,7 +75,9 @@ export default function SharePage() {
     }
 
     // Desktop fallback: copy link and download PNG as convenience
-    await navigator.clipboard.writeText(shareUrl);
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(shareUrl);
+    }
     alert("Link copied to clipboard");
     downloadPNG();
   };

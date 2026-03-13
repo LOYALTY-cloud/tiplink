@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { CardRow } from "@/types/db";
 
 export const runtime = "nodejs";
 
@@ -46,7 +47,7 @@ export async function POST(req: Request) {
     console.log("Creating card for user:", userId);
 
     // Enforce one card per user
-    const { data: existing } = await supabaseAdmin.from("cards").select("*").eq("user_id", userId).limit(1);
+    const { data: existing } = await supabaseAdmin.from("cards").select("*").eq("user_id", userId).limit(1).returns<CardRow[]>();
     if (existing && existing.length > 0) {
       return NextResponse.json({ success: true, message: "Card already exists", last4: existing[0].last4 || null });
     }
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
     const { name, email } = await req.json();
 
     // Stripe types require a billing field; cast to any to avoid type errors here
-    const cardholder = await (stripe.issuing.cardholders.create as unknown)({
+    const cardholder = await (stripe.issuing.cardholders.create as any)({
       type: "individual",
       name: name || undefined,
       email: email || undefined,
@@ -89,6 +90,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, last4: card.last4 });
   } catch (err: unknown) {
     console.error("Card creation error:", err);
-    return NextResponse.json({ error: err?.message ?? "Server error" }, { status: 500 });
+    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

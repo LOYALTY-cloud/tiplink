@@ -25,6 +25,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, result });
   } catch (e: unknown) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+    const errMsg = e instanceof Error ? e.message : String(e ?? "error");
+    return NextResponse.json({ ok: false, error: errMsg }, { status: 500 });
   }
 }

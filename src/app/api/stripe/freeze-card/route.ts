@@ -10,6 +10,7 @@ export async function POST(req: Request) {
     const card = await stripe.issuing.cards.update(cardId as string, { status });
     return NextResponse.json(card);
   } catch (err: unknown) {
-    return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
+    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

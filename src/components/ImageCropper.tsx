@@ -2,8 +2,14 @@
 
 import { useEffect, useState } from "react";
 
-export default function ImageCropper({ image, onCropComplete, aspect = 1 }: unknown) {
-  const [CropperComp, setCropperComp] = useState<unknown>(null);
+type Props = {
+  image: string;
+  onCropComplete?: ((croppedArea: any, croppedAreaPixels: any) => void) | null;
+  aspect?: number;
+};
+
+export default function ImageCropper({ image, onCropComplete, aspect = 1 }: Props) {
+  const [CropperComp, setCropperComp] = useState<any>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
 

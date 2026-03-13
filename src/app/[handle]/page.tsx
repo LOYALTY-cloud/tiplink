@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import type { ProfileRow } from "@/types/db";
 import TipPublicClient from "./tip-public-client";
 
 export const runtime = "nodejs";
@@ -21,7 +22,8 @@ export default async function PublicTipPage({
     .from("profiles")
     .select("user_id, handle, display_name, bio, location, avatar_url, links")
     .eq("handle", handle)
-    .maybeSingle();
+    .maybeSingle()
+    .returns<ProfileRow | null>();
 
   if (error || !profile) {
     return (
@@ -36,5 +38,15 @@ export default async function PublicTipPage({
     );
   }
 
-  return <TipPublicClient profile={profile} />;
+  const safeProfile = {
+    user_id: profile.user_id,
+    handle: profile.handle ?? "",
+    display_name: profile.display_name ?? null,
+    bio: profile.bio ?? null,
+    location: profile.location ?? null,
+    avatar_url: profile.avatar_url ?? null,
+    links: (profile as any).links ?? null,
+  };
+
+  return <TipPublicClient profile={safeProfile} />;
 }

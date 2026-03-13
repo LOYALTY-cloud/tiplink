@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { ProfileRow } from "@/types/db";
 import { useToast } from "@/lib/useToast";
 
 const RETRY_KEY = "tiplink:card_onboard_retry";
@@ -40,22 +41,29 @@ export default function VerifiedUserHandler() {
 
     async function ensureCardForUser(user: unknown) {
       if (!user) return;
-      const isConfirmed = Boolean((user as unknown).confirmed_at || (user as unknown).email_confirmed_at || (user as unknown).email_confirmed);
+      const u: any = user;
+      const isConfirmed = Boolean(u.confirmed_at || u.email_confirmed_at || u.email_confirmed);
       if (!isConfirmed) return;
 
       try {
-        const { data: prof } = await supabase.from("profiles").select("stripe_card_id").eq("user_id", user.id).maybeSingle();
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("stripe_card_id")
+          .eq("user_id", u.id)
+          .maybeSingle()
+          .returns<ProfileRow | null>();
+
         if (prof?.stripe_card_id) return;
 
         try {
           // Enqueue onboarding; server worker will perform the actual onboarding
-          await enqueueOnboard(user.id);
+          await enqueueOnboard(u.id);
           toast.show("Virtual card creation queued");
-          setRetryCount(user.id, 0);
+          setRetryCount(u.id, 0);
         } catch (err) {
-          const current = getRetryCount(user.id);
+          const current = getRetryCount(u.id);
           const next = current + 1;
-          setRetryCount(user.id, next);
+          setRetryCount(u.id, next);
           toast.show("Your virtual card couldn’t be created. We will retry automatically.");
 
           // schedule retry (exponential-ish backoff)
@@ -74,12 +82,12 @@ export default function VerifiedUserHandler() {
     // Run once on mount
     (async () => {
       const { data } = await supabase.auth.getUser();
-      const user = (data as unknown)?.user;
+      const user = (data as any)?.user;
       if (user) ensureCardForUser(user);
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      const user = (session as unknown)?.user;
+      const user = (session as any)?.user;
       if (user) ensureCardForUser(user);
     });
 

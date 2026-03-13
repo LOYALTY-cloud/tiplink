@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import type { WalletRow } from "@/types/db";
 import LinkDebitCardModal from "@/components/LinkDebitCardModal";
 import { EnablePayoutsModal } from "@/components/EnablePayoutsModal";
 import { ui } from "@/lib/ui";
@@ -38,7 +39,8 @@ export default function WalletPage() {
       .from("wallets")
       .select("available, pending, withdraw_fee")
       .eq("user_id", user.id)
-      .maybeSingle();
+      .maybeSingle()
+      .returns<WalletRow | null>();
 
     if (error || !data) {
       setWallet({ available: 0, pending: 0, withdraw_fee: 0 });

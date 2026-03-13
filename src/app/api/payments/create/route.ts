@@ -82,6 +82,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (err: unknown) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

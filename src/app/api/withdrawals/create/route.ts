@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
 import { createClient } from "@supabase/supabase-js";
 import { addLedgerEntry } from "@/lib/ledger";
+import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
 
@@ -44,7 +45,8 @@ export async function POST(req: Request) {
       .from("profiles")
       .select("stripe_account_id, stripe_payouts_enabled")
       .eq("user_id", userId)
-      .maybeSingle();
+      .maybeSingle()
+      .returns<ProfileRow | null>();
 
     if (profErr) return NextResponse.json({ error: profErr.message }, { status: 500 });
     if (!prof?.stripe_account_id) return NextResponse.json({ error: "Stripe not connected" }, { status: 400 });
@@ -115,7 +117,8 @@ export async function POST(req: Request) {
       );
     } catch (err: unknown) {
       // If instant payout fails, surface the error to the client
-      return NextResponse.json({ error: err?.message || "Instant payout failed" }, { status: 400 });
+      const payoutErr = err instanceof Error ? err.message : String(err ?? "Instant payout failed");
+      return NextResponse.json({ error: payoutErr }, { status: 400 });
     }
 
     await supabaseAdmin
@@ -135,6 +138,7 @@ export async function POST(req: Request) {
       payout_method: payoutMethod,
     });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
+    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

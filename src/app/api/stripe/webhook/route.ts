@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { addLedgerEntry } from "@/lib/ledger";
 import type Stripe from "stripe";
 import type { StripeWebhookEvent } from "@/types/stripe";
+import type { CardRow, WalletRow } from "@/types/db";
 
 export const runtime = "nodejs";
 
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
   try {
     event = stripe.webhooks.constructEvent(Buffer.from(buf), sig, endpointSecret) as unknown as StripeWebhookEvent;
   } catch (err: unknown) {
-    console.error("⚠️ Webhook signature verification failed:", err?.message ?? err);
+    console.error("⚠️ Webhook signature verification failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
@@ -118,7 +119,13 @@ export async function POST(req: NextRequest) {
         const authObj = event.data.object as Stripe.Issuing.Authorization;
         const cardId = typeof authObj.card === "string" ? authObj.card : (authObj.card as Stripe.Issuing.Card)?.id;
 
-        const user = await supabaseAdmin.from("cards").select("user_id,daily_limit,monthly_limit,status").eq("stripe_card_id", cardId).maybeSingle().then(r => r.data);
+        const { data: user } = await supabaseAdmin
+          .from("cards")
+          .select("user_id,daily_limit,monthly_limit,status")
+          .eq("stripe_card_id", cardId)
+          .maybeSingle()
+          .returns<CardRow | null>();
+
         if (!user || user.status !== "active") {
           console.warn(`Card not active or not found: ${cardId}`);
           break;
@@ -128,9 +135,14 @@ export async function POST(req: NextRequest) {
         const { data: monthlySpend } = await supabaseAdmin.rpc("get_monthly_card_spend", { p_user_id: user.user_id });
 
         const amount = (authObj.amount ?? 0) / 100;
-        const walletRes = await supabaseAdmin.from("wallets").select("balance").eq("user_id", user.user_id).maybeSingle();
+        const { data: walletRes } = await supabaseAdmin
+          .from("wallets")
+          .select("balance")
+          .eq("user_id", user.user_id)
+          .maybeSingle()
+          .returns<WalletRow | null>();
 
-        if (!walletRes.data || walletRes.data.balance < amount) {
+        if (!walletRes || walletRes.balance < amount) {
           await supabaseAdmin.from("issuing_logs").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, amount, approved: false, reason: "insufficient_wallet_balance" });
           console.log(`Authorization declined (wallet) for ${user.user_id}`);
           break;
@@ -152,7 +164,7 @@ export async function POST(req: NextRequest) {
         if (user.user_id) {
           await addLedgerEntry({ user_id: user.user_id, type: "card_charge", amount: -amount, reference_id: authObj.id });
         }
-        await supabaseAdmin.from("card_transactions").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, merchant_name: (authObj.merchant_data as Stripe.Issuing.MerchantData)?.name ?? null, amount, currency: authObj.currency ?? "usd", status: "approved" });
+        await supabaseAdmin.from("card_transactions").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, merchant_name: (authObj.merchant_data as any)?.name ?? null, amount, currency: authObj.currency ?? "usd", status: "approved" });
         await supabaseAdmin.from("issuing_logs").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, amount, approved: true });
         console.log(`Card authorization approved for ${user.user_id}`);
         break;

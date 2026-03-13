@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ui } from "@/lib/ui";
 import { supabase } from "@/lib/supabase/client";
+import type { ProfileRow } from "@/types/db";
 import DeleteAccountModal from "@/components/DeleteAccountModal";
 
 export default function SettingsPage() {
@@ -24,7 +25,13 @@ export default function SettingsPage() {
       setEmail(user.email ?? null);
 
       // load profile to check stripe_account_id
-      const { data: profile } = await supabase.from("profiles").select("stripe_account_id").eq("user_id", user.id).maybeSingle();
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("stripe_account_id")
+        .eq("user_id", user.id)
+        .maybeSingle()
+        .returns<ProfileRow | null>();
+
       setStripeConnected(Boolean(profile?.stripe_account_id));
     }
 
@@ -60,7 +67,7 @@ export default function SettingsPage() {
 
         setMsg("Password reset link sent. Check your email.");
       } catch (e: unknown) {
-        setErr(e?.message ?? "Failed to send reset email.");
+        setErr(e instanceof Error ? e.message : String(e ?? "Failed to send reset email."));
       } finally {
         setLoading(false);
       }
@@ -79,7 +86,7 @@ export default function SettingsPage() {
       if (body.url) window.location.href = body.url;
       else alert(body.error || "Unable to start Stripe connect");
     } catch (e: unknown) {
-      alert(e?.message || "Stripe connect failed");
+      alert(e instanceof Error ? e.message : String(e ?? "Stripe connect failed"));
     } finally {
       setLoading(false);
     }
@@ -98,7 +105,7 @@ export default function SettingsPage() {
       if (body.url) window.location.href = body.url;
       else alert(body.error || "Unable to manage Stripe connect");
     } catch (e: unknown) {
-      alert(e?.message || "Stripe connect failed");
+      alert(e instanceof Error ? e.message : String(e ?? "Stripe connect failed"));
     } finally {
       setLoading(false);
     }
@@ -143,7 +150,7 @@ export default function SettingsPage() {
       await supabase.auth.signOut();
       window.location.href = "/login";
     } catch (e: unknown) {
-      alert(e?.message || "Unable to delete account");
+      alert(e instanceof Error ? e.message : String(e ?? "Unable to delete account"));
     } finally {
       setLoading(false);
     }

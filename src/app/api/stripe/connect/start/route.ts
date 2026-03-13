@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
 import { createClient } from "@supabase/supabase-js";
+import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
 
@@ -31,7 +32,8 @@ export async function POST(req: Request) {
       .from("profiles")
       .select("stripe_account_id")
       .eq("user_id", userId)
-      .maybeSingle();
+      .maybeSingle()
+      .returns<ProfileRow | null>();
 
     if (profErr) return NextResponse.json({ error: profErr.message }, { status: 500 });
 
@@ -69,6 +71,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ url: accountLink.url, accountId });
   } catch (e: unknown) {
-    return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
+    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

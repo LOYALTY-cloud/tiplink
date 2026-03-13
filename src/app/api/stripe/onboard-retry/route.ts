@@ -57,17 +57,18 @@ export async function POST() {
 
         processed++;
       } catch (err: unknown) {
-        console.error(`Retry failed for ${userId}:`, err?.message || err);
+        console.error(`Retry failed for ${userId}:`, err instanceof Error ? err.message : err);
         const { data: existing } = await supabaseAdmin.from("stripe_onboard_queue").select("retry_count").eq("user_id", userId).maybeSingle();
         const nextRetry = (existing?.retry_count ?? 0) + 1;
         const newStatus = nextRetry >= MAX_RETRIES ? "failed" : "pending";
-        await supabaseAdmin.from("stripe_onboard_queue").update({ status: newStatus, retry_count: nextRetry, last_attempt: new Date(), error_text: err?.message ?? String(err), updated_at: new Date() }).eq("user_id", userId);
+        await supabaseAdmin.from("stripe_onboard_queue").update({ status: newStatus, retry_count: nextRetry, last_attempt: new Date(), error_text: err instanceof Error ? err.message : String(err ?? ""), updated_at: new Date() }).eq("user_id", userId);
       }
     }
 
     return NextResponse.json({ retried: processed });
   } catch (err: unknown) {
     console.error("onboard-retry error", err);
-    return NextResponse.json({ error: err?.message || String(err) }, { status: 500 });
+    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }
