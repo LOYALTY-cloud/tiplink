@@ -4,7 +4,6 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
 import { ui } from "@/lib/ui";
-import createUserWithCard from "@/lib/createUser";
 
 export default function SignUpPage() {
   const [email, setEmail] = useState("");
@@ -17,27 +16,32 @@ export default function SignUpPage() {
     setMsg(null);
     setLoading(true);
 
+    const redirectBase = process.env.NEXT_PUBLIC_SITE_URL;
+    const signUpOptions = redirectBase ? { options: { emailRedirectTo: `${redirectBase}/verify/callback` } } : {};
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/verify/callback`,
-      },
+      ...signUpOptions,
     });
 
     setLoading(false);
     if (error) return setMsg(error.message);
     setMsg("Check your email to confirm your account.");
 
-    // If Supabase returned a user id immediately, create issuing card and wallet
+    // If Supabase returned a user id immediately, request server to create card and wallet
     try {
       const userId = (data as { user?: { id?: string } } | null)?.user?.id;
       if (userId) {
-        await createUserWithCard(userId, email).catch(() => {});
+        await fetch('/api/create-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, email }),
+        }).catch(() => {});
       }
     } catch (err) {
       // non-fatal: signup succeeded, we'll still prompt to confirm email
-      console.warn("createUserWithCard failed", err);
+      console.warn('createUserWithCard failed', err);
     }
   };
 

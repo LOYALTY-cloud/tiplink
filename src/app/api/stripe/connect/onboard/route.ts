@@ -72,6 +72,7 @@ export async function POST(req: Request) {
         },
         business_type: "individual",
         metadata: {
+          user_id: user.id,
           supabase_user_id: user.id,
           app: "tiplinkme",
         },
