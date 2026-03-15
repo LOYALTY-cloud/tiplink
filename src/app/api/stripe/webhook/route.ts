@@ -299,12 +299,11 @@ export async function handleStripeEvent(
       const { data: monthlySpend } = await supabaseClient.rpc("get_monthly_card_spend", { p_user_id: user.user_id });
 
       const amount = (authObj.amount ?? 0) / 100;
-      const { data: walletRes } = await supabaseClient
+      const { data: walletRes } = await (supabaseClient as any)
         .from("wallets")
         .select("balance")
         .eq("user_id", user.user_id)
-        .maybeSingle()
-        .returns<WalletRow | null>();
+        .single();
 
       if (!walletRes || walletRes.balance < amount) {
         await supabaseClient.from("issuing_logs").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, amount, approved: false, reason: "insufficient_wallet_balance" });
