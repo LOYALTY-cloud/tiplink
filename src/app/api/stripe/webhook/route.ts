@@ -6,12 +6,13 @@ import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 import type { StripeWebhookEvent } from "@/types/stripe";
 import type { CardRow, WalletRow } from "@/types/db";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 
-async function isDuplicate(supabaseClient: any, eventId: string) {
+async function isDuplicate(supabaseClient: SupabaseClient, eventId: string) {
   try {
     const { data } = await supabaseClient.from("stripe_webhook_events").select("id").eq("id", eventId).maybeSingle();
     return !!data;
@@ -21,7 +22,7 @@ async function isDuplicate(supabaseClient: any, eventId: string) {
   }
 }
 
-async function markProcessed(supabaseClient: any, eventId: string, type: string) {
+async function markProcessed(supabaseClient: SupabaseClient, eventId: string, type: string) {
   try {
     await supabaseClient.from("stripe_webhook_events").insert({ id: eventId, type, processed_at: new Date().toISOString() });
   } catch (e) {
@@ -30,8 +31,7 @@ async function markProcessed(supabaseClient: any, eventId: string, type: string)
 }
 
 export async function POST(req: NextRequest) {
-  const { getStripe } = await import("@/lib/stripe/server");
-  const stripe = getStripe();
+  const { stripe } = await import("@/lib/stripe/server");
 
   const buf = await req.arrayBuffer();
   const sig = req.headers.get("stripe-signature")!;
@@ -59,8 +59,8 @@ export async function POST(req: NextRequest) {
 // handles event types, and records the event as processed.
 export async function handleStripeEvent(
   event: StripeWebhookEvent,
-  supabaseClient: any = undefined,
-  ledgerFn: any = undefined
+  supabaseClient?: SupabaseClient,
+  ledgerFn?: any
 ) {
   if (!ledgerFn) {
     const mod = await import("@/lib/ledger");
@@ -68,7 +68,7 @@ export async function handleStripeEvent(
   }
   if (!supabaseClient) {
     const mod = await import("@/lib/supabase/admin");
-    supabaseClient = mod.supabaseAdmin;
+    supabaseClient = mod.supabaseAdmin as SupabaseClient;
   }
   // wallet lock helpers (acquire/release) — lazy import so tests can inject mocks
   const lockMod = await import("@/lib/walletLocks");
@@ -113,23 +113,11 @@ export async function handleStripeEvent(
         break;
       }
 
-      // Resolve profile id for lock (support new `creator_profile_id` or fallback to profiles.user_id)
-      let lockUserId = (tipIntent as any).creator_profile_id ?? null;
-      if (!lockUserId) {
-        const { data: p } = await supabaseClient.from("profiles").select("id").eq("user_id", tipIntent.creator_user_id).maybeSingle();
-        lockUserId = p?.id ?? tipIntent.creator_user_id;
-      }
       // Acquire wallet lock (use same lock type as withdrawals so they serialize)
-      let lock = await acquireWalletLock(supabaseClient, lockUserId, "withdrawal", 300);
+      const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
       if (!lock.ok) {
-        // If FK prevents inserting lock (schema normalized to profiles.id), try creating a minimal profile and retry.
-        if (lock.reason && String(lock.reason).toLowerCase().includes("foreign key")) {
-          try { await supabaseClient.from("profiles").insert({ user_id: tipIntent.creator_user_id, handle: tipIntent.creator_user_id }); } catch (e) {}
-          lock = await acquireWalletLock(supabaseClient, lockUserId, "withdrawal", 300);
-        }
-        if (!lock.ok) {
-          console.warn("Could not acquire wallet lock for tip_intent; proceeding without lock:", tipIntent.id, lock.reason);
-        }
+        console.warn("Could not acquire wallet lock for tip_intent, skipping processing:", tipIntent.id, lock.reason);
+        break;
       }
 
       try {
@@ -142,18 +130,18 @@ export async function handleStripeEvent(
         // Record canonical ledger entry and trigger wallet recalculation
         const receivedAmount = Number(tipIntent.tip_amount ?? (tipIntent.amount as any));
         await ledgerFn({
-          user_id: lockUserId,
+          user_id: tipIntent.creator_user_id,
           type: "tip_received",
           amount: receivedAmount,
           reference_id: tipIntent.id,
           metadata: { currency: pi.currency, receipt_id: receiptId },
         });
 
-        console.log(`Tip succeeded: $${receivedAmount} for user ${lockUserId}`);
+        console.log(`Tip succeeded: $${receivedAmount} for user ${tipIntent.creator_user_id}`);
       } catch (e) {
         console.error("Failed to record ledger entry for tip_intent", tipIntent.id, e);
       } finally {
-        try { await releaseWalletLock(supabaseClient, lockUserId, "withdrawal"); } catch (e) {}
+        try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (e) {}
       }
 
       break;
@@ -194,22 +182,11 @@ export async function handleStripeEvent(
           break;
         }
 
-        // Resolve profile id for lock (support new `creator_profile_id` or fallback to profiles.user_id)
-        let lockUserId = (tipIntent as any).creator_profile_id ?? null;
-        if (!lockUserId) {
-          const { data: p } = await supabaseClient.from("profiles").select("id").eq("user_id", tipIntent.creator_user_id).maybeSingle();
-          lockUserId = p?.id ?? tipIntent.creator_user_id;
-        }
         // Acquire wallet lock before mutating ledger/wallet
-        let lock = await acquireWalletLock(supabaseClient, lockUserId, "withdrawal", 300);
+        const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
         if (!lock.ok) {
-          if (lock.reason && String(lock.reason).toLowerCase().includes("foreign key")) {
-            try { await supabaseClient.from("profiles").insert({ user_id: tipIntent.creator_user_id, handle: tipIntent.creator_user_id }); } catch (e) {}
-            lock = await acquireWalletLock(supabaseClient, lockUserId, "withdrawal", 300);
-          }
-          if (!lock.ok) {
-            console.warn("Could not acquire wallet lock for refund; proceeding without lock:", tipIntent.id, lock.reason);
-          }
+          console.warn("Could not acquire wallet lock for refund, skipping processing:", tipIntent.id, lock.reason);
+          break;
         }
 
         try {
@@ -217,39 +194,30 @@ export async function handleStripeEvent(
           await supabaseClient.from("tip_intents").update({ status: "refunded", stripe_charge_id: charge.id }).eq("id", tipIntent.id);
 
           const refundedAmount = Number(tipIntent.tip_amount ?? (tipIntent.amount as any));
-          await ledgerFn({ user_id: lockUserId, type: "tip_refunded", amount: -refundedAmount, reference_id: tipIntent.id, metadata: { currency: charge.currency } });
-          console.log(`Tip refunded: $${refundedAmount} for user ${lockUserId}`);
+          await ledgerFn({ user_id: tipIntent.creator_user_id, type: "tip_refunded", amount: -refundedAmount, reference_id: tipIntent.id, metadata: { currency: charge.currency } });
+          console.log(`Tip refunded: $${refundedAmount} for user ${tipIntent.creator_user_id}`);
         } catch (e) {
           console.error("Failed to record refund ledger entry for tip_intent", tipIntent.id, e);
         } finally {
-          try { await releaseWalletLock(supabaseClient, lockUserId, "withdrawal"); } catch (e) {}
+          try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (e) {}
         }
       } else {
         const userId = (charge.metadata?.user_id as string) || null;
         if (userId) {
           // Acquire wallet lock for fallback user-based refund
-          // Resolve profile id for lock (userId may be auth.users id)
-          let lockUserId = null;
-          const { data: p } = await supabaseClient.from("profiles").select("id").eq("user_id", userId).maybeSingle();
-          lockUserId = p?.id ?? userId;
-          let lock = await acquireWalletLock(supabaseClient, lockUserId, "withdrawal", 300);
+          const lock = await acquireWalletLock(supabaseClient, userId, "withdrawal", 300);
           if (!lock.ok) {
-            if (lock.reason && String(lock.reason).toLowerCase().includes("foreign key")) {
-              try { await supabaseClient.from("profiles").insert({ user_id: userId, handle: userId }); } catch (e) {}
-              lock = await acquireWalletLock(supabaseClient, lockUserId, "withdrawal", 300);
-            }
-            if (!lock.ok) {
-              console.warn("Could not acquire wallet lock for fallback refund; proceeding without lock:", userId, lock.reason);
-            }
+            console.warn("Could not acquire wallet lock for fallback refund, skipping processing:", userId, lock.reason);
+            break;
           }
 
           try {
-            await ledgerFn({ user_id: lockUserId, type: "tip_refunded", amount: -amount, reference_id: charge.id, metadata: { currency: charge.currency } });
-            console.log(`Tip refunded: $${amount} for user ${lockUserId}`);
+            await ledgerFn({ user_id: userId, type: "tip_refunded", amount: -amount, reference_id: charge.id, metadata: { currency: charge.currency } });
+            console.log(`Tip refunded: $${amount} for user ${userId}`);
           } catch (e) {
-            console.error("Failed to record fallback refund ledger entry for user", lockUserId, e);
+            console.error("Failed to record fallback refund ledger entry for user", userId, e);
           } finally {
-            try { await releaseWalletLock(supabaseClient, lockUserId, "withdrawal"); } catch (e) {}
+            try { await releaseWalletLock(supabaseClient, userId, "withdrawal"); } catch (e) {}
           }
         }
       }
@@ -263,23 +231,19 @@ export async function handleStripeEvent(
       const userId = payout.metadata?.user_id as string | undefined;
       const amount = payout.amount / 100;
       if (userId) {
-        // Resolve profile id for lock (userId may be auth.users id)
-        let lockUserId = null;
-        const { data: p } = await supabaseClient.from("profiles").select("id").eq("user_id", userId).maybeSingle();
-        lockUserId = p?.id ?? userId;
-        const lock = await acquireWalletLock(supabaseClient, lockUserId, "withdrawal", 300);
+        const lock = await acquireWalletLock(supabaseClient, userId, "withdrawal", 300);
         if (!lock.ok) {
           console.warn("Could not acquire wallet lock for payout, skipping ledger entry:", userId, lock.reason);
           break;
         }
 
         try {
-          await ledgerFn({ user_id: lockUserId, type: "payout", amount: -amount, reference_id: payout.id, metadata: { currency: payout.currency } });
-          console.log(`Payout completed: $${amount} for user ${lockUserId}`);
+          await ledgerFn({ user_id: userId, type: "payout", amount: -amount, reference_id: payout.id, metadata: { currency: payout.currency } });
+          console.log(`Payout completed: $${amount} for user ${userId}`);
         } catch (e) {
           console.error("Failed to record payout ledger entry for user", userId, e);
         } finally {
-          try { await releaseWalletLock(supabaseClient, lockUserId, "withdrawal"); } catch (e) {}
+          try { await releaseWalletLock(supabaseClient, userId, "withdrawal"); } catch (e) {}
         }
       }
       break;
@@ -340,7 +304,7 @@ export async function handleStripeEvent(
         .from("wallets")
         .select("balance")
         .eq("user_id", user.user_id)
-        .single();
+        .maybeSingle();
 
       if (!walletRes || walletRes.balance < amount) {
         await supabaseClient.from("issuing_logs").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, amount, approved: false, reason: "insufficient_wallet_balance" });
@@ -362,19 +326,10 @@ export async function handleStripeEvent(
 
       // Approve: record ledger + transaction + log
       if (user.user_id) {
-        // Resolve profile id for lock (user.user_id may be auth.users id)
-        let lockUserId = null;
-        const { data: p } = await supabaseClient.from("profiles").select("id").eq("user_id", user.user_id).maybeSingle();
-        lockUserId = p?.id ?? user.user_id;
-        let lock = await acquireWalletLock(supabaseClient, lockUserId, "withdrawal", 300);
+        const lock = await acquireWalletLock(supabaseClient, user.user_id, "withdrawal", 300);
         if (!lock.ok) {
-          if (lock.reason && String(lock.reason).toLowerCase().includes("foreign key")) {
-            try { await supabaseClient.from("profiles").insert({ user_id: user.user_id, handle: user.user_id }); } catch (e) {}
-            lock = await acquireWalletLock(supabaseClient, lockUserId, "withdrawal", 300);
-          }
-          if (!lock.ok) {
-            console.warn("Could not acquire wallet lock for card charge; proceeding without lock:", user.user_id, lock.reason);
-          }
+          console.warn("Could not acquire wallet lock for card charge, skipping ledger entry:", user.user_id, lock.reason);
+          break;
         }
 
         try {
