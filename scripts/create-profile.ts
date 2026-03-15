@@ -20,7 +20,7 @@ async function run() {
   try {
     // Try to fetch auth user to copy email into profile when available
     const userRes = await (supabase as any).auth.admin.getUserById(id);
-    const handle = `test_${id.replace(/-/g, '').slice(0, 8)}`;
+    const handle = `test_${id!.replace(/-/g, '').slice(0, 8)}`;
     const payload: any = { user_id: id!, handle };
 
     const { data, error } = await supabase.from('profiles').insert(payload).select().single();
