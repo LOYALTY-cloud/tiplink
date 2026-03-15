@@ -1,13 +1,10 @@
-import { createClient } from "@supabase/supabase-js";
+import { supabasePublic } from "@/lib/supabase/public-server";
 import type { ProfileRow } from "@/types/db";
 import TipPublicClient from "./tip-public-client";
 
 export const runtime = "nodejs";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+const supabase = supabasePublic;
 
 export default async function PublicTipPage({
   params,

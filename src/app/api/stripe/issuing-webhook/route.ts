@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe/server";
+import { getStripe } from "@/lib/stripe/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { addLedgerEntry } from "@/lib/ledger";
 import type Stripe from "stripe";
@@ -15,6 +15,8 @@ export async function POST(req: NextRequest) {
   const payload = await req.text();
   const sig = req.headers.get("stripe-signature")!;
   let event: StripeWebhookEvent;
+
+  const stripe = getStripe();
 
   try {
     event = stripe.webhooks.constructEvent(payload, sig, process.env.STRIPE_ISSUING_WEBHOOK_SECRET!) as unknown as StripeWebhookEvent;

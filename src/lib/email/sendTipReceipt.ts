@@ -1,6 +1,4 @@
-import { Resend } from "resend";
-
-const resend = new Resend(process.env.RESEND_API_KEY!);
+import { getResend } from "@/lib/email/getResend";
 
 type SendTipReceiptArgs = {
   to: string;
@@ -38,5 +36,6 @@ export async function sendTipReceipt(args: SendTipReceiptArgs) {
     </div>
   </div>`;
 
+  const resend = getResend();
   return resend.emails.send({ from, to: args.to, subject, html });
 }

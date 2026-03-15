@@ -1,14 +1,11 @@
 import { NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe/server";
+import { getStripe } from "@/lib/stripe/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createClient } from "@supabase/supabase-js";
 import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function POST(req: Request) {
   try {
@@ -40,6 +37,7 @@ export async function POST(req: Request) {
     let accountId = prof?.stripe_account_id as string | null;
 
     if (!accountId) {
+      const stripe = getStripe();
       const acct = await stripe.accounts.create({
         type: "express",
         country: "US",
@@ -62,7 +60,8 @@ export async function POST(req: Request) {
 
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
-    const accountLink = await stripe.accountLinks.create({
+    const stripe2 = getStripe();
+    const accountLink = await stripe2.accountLinks.create({
       account: accountId,
       type: "account_onboarding",
       return_url: `${baseUrl}/dashboard/stripe/return`,
