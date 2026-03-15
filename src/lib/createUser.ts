@@ -1,6 +1,6 @@
 export async function createUserWithCard(userId: string, email: string) {
   const modStripe = await import("@/lib/stripe");
-  const stripe = modStripe.stripe ?? modStripe.default ?? (modStripe as any).getStripe?.();
+  const stripe = (modStripe as any).stripe ?? (modStripe as any).default ?? (modStripe as any).getStripe?.();
 
   // 1) Create issuing cardholder
   const cardholder = await stripe.issuing.cardholders.create({
