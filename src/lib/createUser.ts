@@ -26,7 +26,7 @@ export async function createUserWithCard(userId: string, email: string) {
 
   // Lazy import Supabase admin client to avoid module evaluation during build
   const modSup = await import("@/lib/supabase/admin");
-  const supabaseAdmin = modSup.supabaseAdmin ?? modSup.getSupabaseServerClient?.() ?? (modSup as any).default;
+  const supabaseAdmin = (modSup as any).supabaseAdmin ?? (modSup as any).getSupabaseServerClient?.() ?? (modSup as any).default;
 
   // 3) Persist to Supabase
   await supabaseAdmin.from("profiles").upsert(
