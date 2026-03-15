@@ -55,7 +55,7 @@ export async function POST(req: Request) {
 
     // If profile row doesn't exist, create it (safe)
     if (!profile) {
-      await supabaseAdmin.from("profiles").insert({ user_id: user.id });
+      await supabaseAdmin.from("profiles").upsert({ user_id: user.id, handle: user.id }, { onConflict: "user_id" });
     }
 
     let stripeAccountId = profile?.stripe_account_id || null;

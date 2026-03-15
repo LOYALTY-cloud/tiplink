@@ -7,9 +7,10 @@ import type { ProfileRow, WalletRow } from "@/types/db";
 import { useToast } from "@/lib/useToast";
 import { formatMoney } from "@/lib/walletFees";
 import { useRouter } from "next/navigation";
-import ActivatePayoutsCard from "@/components/ActivatePayoutsCard";
+// ActivatePayoutsCard removed — payouts UI simplified
 import { StripeReturnSync } from "@/components/StripeReturnSync";
 import { ui } from "@/lib/ui";
+import EarningsCard from "@/components/EarningsCard";
 
 export default function DashboardPage() {
   const { toast, show } = useToast();
@@ -102,13 +103,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {userId && (
-        <ActivatePayoutsCard
-          payoutsEnabled={payoutsEnabled}
-          stripeAccountId={stripeAccountId}
-          userId={userId}
-        />
-      )}
+      {/* ActivatePayoutsCard removed — use Dashboard top summary/actions instead */}
 
       {/* Top info card */}
       <div className={`${ui.card} p-6`}>
@@ -121,27 +116,11 @@ export default function DashboardPage() {
               {payoutsEnabled ? "Payouts active" : stripeAccountId ? "Connected" : "Not connected"}
             </div>
             {stripeAccountId ? (
-              <button onClick={async () => {
-                const { data: session } = await supabase.auth.getSession();
-                const token = session.session?.access_token;
-                if (!token) return window.alert("Please sign in to manage payouts");
-                const res = await fetch("/api/stripe/connect/start", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-                const j = await res.json();
-                if (j.url) window.location.href = j.url;
-                else alert(j.error || "Unable to manage Stripe connect");
-              }} className={`${ui.btnGhost} ${ui.btnSmall}`}>
+              <button onClick={() => router.push('/dashboard/onboarding')} className={`${ui.btnGhost} ${ui.btnSmall}`}>
                 Manage payouts
               </button>
             ) : (
-              <button onClick={async () => {
-                const { data: session } = await supabase.auth.getSession();
-                const token = session.session?.access_token;
-                if (!token) return window.alert("Please sign in to connect payouts");
-                const res = await fetch("/api/stripe/connect/start", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` } });
-                const j = await res.json();
-                if (j.url) window.location.href = j.url;
-                else alert(j.error || "Unable to start Stripe connect");
-              }} className={`${ui.btnPrimary} ${ui.btnSmall}`}>
+              <button onClick={() => router.push('/dashboard/onboarding')} className={`${ui.btnPrimary} ${ui.btnSmall}`}>
                 Connect Stripe
               </button>
             )}
@@ -150,6 +129,12 @@ export default function DashboardPage() {
 
         {/* Removed chips: Private by default, Receipts included, No feeds • No DMs */}
       </div>
+
+      {userId && (
+        <div className="mb-4">
+          <EarningsCard userId={userId} />
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         {/* Tiplink card */}
