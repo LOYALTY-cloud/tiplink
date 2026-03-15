@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getSupabaseServerClient } from "@/lib/supabase/safeServerClient";
 import type { ProfileRow, WalletRow } from "@/types/db";
 import { stripe } from "@/lib/stripe/server";
 
@@ -11,6 +11,7 @@ export async function POST(req: Request) {
     }
     const accessToken = authHeader.slice("Bearer ".length);
 
+    const supabaseAdmin = getSupabaseServerClient();
     const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(accessToken as string);
     if (userErr || !userRes?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

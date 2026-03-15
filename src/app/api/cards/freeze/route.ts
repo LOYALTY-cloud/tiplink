@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getSupabaseServerClient } from "@/lib/supabase/safeServerClient";
 import { stripe } from "@/lib/stripe/server";
 
 export async function POST(req: Request) {
@@ -15,6 +15,7 @@ export async function POST(req: Request) {
     }
 
     // Update DB
+    const supabaseAdmin = getSupabaseServerClient();
     await supabaseAdmin.from("cards").update({ status: "inactive" }).eq("stripe_card_id", cardId);
 
     return NextResponse.json({ ok: true });
