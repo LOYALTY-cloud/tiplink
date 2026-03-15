@@ -1,4 +1,4 @@
-import { Resend } from "resend";
+import { getResend } from "@/lib/email/getResend";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import crypto from "crypto";
@@ -65,6 +65,7 @@ export async function POST(req) {
     const origin = req.headers.get("origin") ?? "https://tiplinkme.com";
     const confirmUrl = `${origin}/verify/callback?token=${token}`;
 
+    const resend = getResend();
     await resend.emails.send({
       from: "no-reply@tiplinkme.com",
       to: normalizedEmail,

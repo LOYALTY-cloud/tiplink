@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getSupabaseServerClient } from "@/lib/supabase/safeServerClient";
 import type { ProfileRow, WalletRow } from "@/types/db";
-import { stripe } from "@/lib/stripe/server";
+import { getStripe } from "@/lib/stripe/server";
 
 export async function POST(req: Request) {
   try {
@@ -11,6 +11,7 @@ export async function POST(req: Request) {
     }
     const accessToken = authHeader.slice("Bearer ".length);
 
+    const supabaseAdmin = getSupabaseServerClient();
     const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(accessToken as string);
     if (userErr || !userRes?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -78,6 +79,7 @@ export async function POST(req: Request) {
 
     if (stripeAccountId) {
       try {
+        const stripe = getStripe();
         await stripe.accounts.del(stripeAccountId);
       } catch (e: unknown) {
         const stripeErrMsg = e instanceof Error ? e.message : String(e ?? "Stripe error");

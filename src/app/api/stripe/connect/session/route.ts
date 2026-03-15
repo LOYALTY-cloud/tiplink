@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { stripe } from "@/lib/stripe/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getStripe } from "@/lib/stripe/server";
 
 export const runtime = "nodejs";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabase = supabaseAdmin;
 
 export async function POST(req: Request) {
   try {
@@ -36,6 +33,8 @@ export async function POST(req: Request) {
     if (authErr) return NextResponse.json({ error: authErr.message }, { status: 500 });
 
     const email = authUserRes?.user?.email ?? undefined;
+
+    const stripe = getStripe();
 
     if (!stripeAccountId) {
       const acct = await stripe.accounts.create({
