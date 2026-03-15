@@ -1,11 +1,4 @@
-import { Resend } from "resend";
-
-const resendApiKey = process.env.RESEND_API_KEY;
-if (!resendApiKey) {
-  throw new Error("Missing RESEND_API_KEY");
-}
-
-const resend = new Resend(resendApiKey);
+import { getResend } from "@/lib/email/getResend";
 
 export async function sendTipReceiptEmail(args: {
   to: string;
@@ -41,6 +34,7 @@ export async function sendTipReceiptEmail(args: {
   </div>
   `;
 
+  const resend = getResend();
   return await resend.emails.send({
     from,
     to: args.to,
