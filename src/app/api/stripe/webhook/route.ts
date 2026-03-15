@@ -6,12 +6,13 @@ import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 import type { StripeWebhookEvent } from "@/types/stripe";
 import type { CardRow, WalletRow } from "@/types/db";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 
-async function isDuplicate(supabaseClient: any, eventId: string) {
+async function isDuplicate(supabaseClient: SupabaseClient, eventId: string) {
   try {
     const { data } = await supabaseClient.from("stripe_webhook_events").select("id").eq("id", eventId).maybeSingle();
     return !!data;
@@ -21,7 +22,7 @@ async function isDuplicate(supabaseClient: any, eventId: string) {
   }
 }
 
-async function markProcessed(supabaseClient: any, eventId: string, type: string) {
+async function markProcessed(supabaseClient: SupabaseClient, eventId: string, type: string) {
   try {
     await supabaseClient.from("stripe_webhook_events").insert({ id: eventId, type, processed_at: new Date().toISOString() });
   } catch (e) {
@@ -58,8 +59,8 @@ export async function POST(req: NextRequest) {
 // handles event types, and records the event as processed.
 export async function handleStripeEvent(
   event: StripeWebhookEvent,
-  supabaseClient: any = undefined,
-  ledgerFn: any = undefined
+  supabaseClient?: SupabaseClient,
+  ledgerFn?: any
 ) {
   if (!ledgerFn) {
     const mod = await import("@/lib/ledger");
@@ -67,7 +68,7 @@ export async function handleStripeEvent(
   }
   if (!supabaseClient) {
     const mod = await import("@/lib/supabase/admin");
-    supabaseClient = mod.supabaseAdmin;
+    supabaseClient = mod.supabaseAdmin as SupabaseClient;
   }
   // wallet lock helpers (acquire/release) — lazy import so tests can inject mocks
   const lockMod = await import("@/lib/walletLocks");
