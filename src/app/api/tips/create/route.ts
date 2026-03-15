@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendTipReceipt } from "@/lib/email/sendTipReceipt";
 import { addLedgerEntry } from "@/lib/ledger";
+import { canCreatorAcceptTips, blockedReason } from "@/lib/payouts";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,6 +24,36 @@ export async function POST(req: Request) {
     const amt = Number(amount);
     if (!receiver_user_id || !Number.isFinite(amt) || amt <= 0) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    }
+
+    // Protect creators: require connected Stripe account, finished onboarding, and charges enabled.
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from("profiles")
+      .select(`
+        stripe_onboarding_complete,
+        stripe_charges_enabled,
+        stripe_account_id
+      `)
+      .eq("user_id", receiver_user_id)
+      .single();
+
+    if (profileError) {
+      return NextResponse.json({ error: profileError.message }, { status: 500 });
+    }
+
+    // Simplified production guard: require `stripe_charges_enabled`.
+    if (!canCreatorAcceptTips(profile)) {
+      console.warn("Tip blocked: creator payouts inactive", {
+        creator: receiver_user_id,
+        stripe_account_id: profile?.stripe_account_id,
+        charges_enabled: profile?.stripe_charges_enabled,
+        reason: blockedReason(profile),
+      });
+
+      return NextResponse.json(
+        { error: "Creator can't accept tips yet." },
+        { status: 400 }
+      );
     }
 
     const rid = receiptId();

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
 import { createClient } from "@supabase/supabase-js";
 import { addLedgerEntry } from "@/lib/ledger";
+import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
 import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
@@ -54,7 +55,21 @@ export async function POST(req: Request) {
 
     const stripeAccount = prof.stripe_account_id;
 
-    // Check connected account balance
+    // Enforce platform-side available balance (respect 7-day pending delay)
+    const { data: walletRow, error: walletErr } = await supabaseAdmin
+      .from("wallets")
+      .select("available")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (walletErr) return NextResponse.json({ error: walletErr.message }, { status: 500 });
+
+    const available = Number((walletRow?.available ?? 0) || 0);
+    if (amt > available) {
+      return NextResponse.json({ error: "Insufficient available balance", available }, { status: 400 });
+    }
+
+    // Also check connected Stripe account balance as a secondary guard
     const bal = await stripe.balance.retrieve({ stripeAccount });
     const availableUsdCents =
       (bal.available || [])
@@ -65,9 +80,15 @@ export async function POST(req: Request) {
 
     if (reqCents > availableUsdCents) {
       return NextResponse.json(
-        { error: "Insufficient available balance", available: fromCents(availableUsdCents) },
+        { error: "Insufficient connected Stripe balance", available: fromCents(availableUsdCents) },
         { status: 400 }
       );
+    }
+
+    // Acquire a per-user wallet lock to prevent concurrent withdrawals/refund races
+    const lock = await acquireWalletLock(supabaseAdmin, userId, "withdrawal", 300);
+    if (!lock.ok) {
+      return NextResponse.json({ error: "Withdrawal already in progress" }, { status: 409 });
     }
 
     // Create withdrawal row first
@@ -83,7 +104,11 @@ export async function POST(req: Request) {
       .select("id")
       .single();
 
-    if (wErr) return NextResponse.json({ error: wErr.message }, { status: 500 });
+    if (wErr) {
+      // release lock on failure to create row
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
+      return NextResponse.json({ error: wErr.message }, { status: 500 });
+    }
 
     // Log withdrawal to ledger (debit)
     try {
@@ -97,6 +122,7 @@ export async function POST(req: Request) {
     } catch (err: unknown) {
       // Attempt to rollback withdrawal row if ledger logging fails
       try { await supabaseAdmin.from("withdrawals").delete().eq("id", w.id); } catch (e) {}
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
       return NextResponse.json({ error: "Failed to log ledger entry" }, { status: 500 });
     }
 
@@ -118,6 +144,7 @@ export async function POST(req: Request) {
     } catch (err: unknown) {
       // If instant payout fails, surface the error to the client
       const payoutErr = err instanceof Error ? err.message : String(err ?? "Instant payout failed");
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
       return NextResponse.json({ error: payoutErr }, { status: 400 });
     }
 
@@ -129,6 +156,8 @@ export async function POST(req: Request) {
         status: payout.status, // usually 'pending' then webhook updates to 'paid'
       })
       .eq("id", w.id);
+    // Release the wallet lock now that withdrawal + ledger + payout initiated
+    try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
 
     return NextResponse.json({
       ok: true,

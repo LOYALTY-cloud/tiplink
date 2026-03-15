@@ -125,6 +125,46 @@ scripts/reconcileWallets.ts
 
 This ensures wallet balances remain consistent with the financial ledger.
 
+## Webhook Tests
+
+TipLinkMe includes automated tests to validate Stripe webhook behavior and wallet safety.
+
+These tests cover:
+
+- `payment_intent.succeeded`
+- `charge.refunded`
+- webhook deduplication
+- concurrent withdrawal/refund race conditions
+- ledger entry creation
+
+Run Locally
+
+Run all webhook tests:
+
+```bash
+npm run test-webhook-all
+```
+
+Individual tests:
+
+```bash
+tsx tests/webhook/payment-intent.test.ts
+tsx tests/webhook/refund.test.ts
+tsx tests/concurrent/withdraw-refund.test.ts
+```
+
+Continuous Integration
+
+GitHub Actions automatically runs these tests on push to `main`, push to `develop`, and pull requests.
+
+Workflow file:
+
+```
+.github/workflows/webhook-tests.yml
+```
+
+This ensures changes cannot break the payment or ledger system.
+
 ## Next steps and important rules
 
 2️⃣ What we should implement next (VERY important)

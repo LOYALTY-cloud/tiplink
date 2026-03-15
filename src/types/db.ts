@@ -6,6 +6,7 @@ export interface ProfileRow {
   stripe_customer_id?: string | null;
   stripe_cardholder_id?: string | null;
   stripe_account_id?: string | null;
+  stripe_charges_enabled?: boolean | null;
   email?: string | null;
   payouts_enabled?: boolean | null;
   stripe_payouts_enabled?: boolean | null;

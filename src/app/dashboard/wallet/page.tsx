@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import type { WalletRow } from "@/types/db";
 import LinkDebitCardModal from "@/components/LinkDebitCardModal";
@@ -17,6 +18,7 @@ export default function WalletPage() {
   const [loadingWallet, setLoadingWallet] = useState(true);
   const [showEnableModal, setShowEnableModal] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
+  const router = useRouter();
   
   const [payout, setPayout] = useState<{
     id: string;
@@ -138,6 +140,7 @@ export default function WalletPage() {
   }
 
   async function startStripeConnect() {
+    // keep existing helper for backwards compatibility, but prefer navigating
     const token = await getAuthToken();
     if (!token) {
       alert("Please log in again.");
@@ -375,7 +378,9 @@ export default function WalletPage() {
       <EnablePayoutsModal
         open={showEnableModal}
         onClose={() => setShowEnableModal(false)}
-        onEnable={startStripeConnect}
+        onEnable={async () => {
+          router.push("/dashboard/onboarding");
+        }}
         balanceText={formatMoney(availableBalance)}
       />
     </div>
