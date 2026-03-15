@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStripe } from "@/lib/stripe/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { stripe } from "@/lib/stripe/server";
 import { createClient } from "@supabase/supabase-js";
 import { addLedgerEntry } from "@/lib/ledger";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
@@ -8,6 +7,10 @@ import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
 
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 const toCents = (n: number) => Math.round(n * 100);
 const fromCents = (n: number) => Number((n / 100).toFixed(2));
@@ -67,7 +70,6 @@ export async function POST(req: Request) {
     }
 
     // Also check connected Stripe account balance as a secondary guard
-    const stripe = getStripe();
     const bal = await stripe.balance.retrieve({ stripeAccount });
     const availableUsdCents =
       (bal.available || [])

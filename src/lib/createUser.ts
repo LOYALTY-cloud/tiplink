@@ -1,7 +1,7 @@
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { stripe } from "@/lib/stripe";
-
 export async function createUserWithCard(userId: string, email: string) {
+  const modStripe = await import("@/lib/stripe");
+  const stripe = (modStripe as any).stripe ?? (modStripe as any).default ?? (modStripe as any).getStripe?.();
+
   // 1) Create issuing cardholder
   const cardholder = await stripe.issuing.cardholders.create({
     type: "individual",
@@ -23,6 +23,10 @@ export async function createUserWithCard(userId: string, email: string) {
     currency: "usd",
     type: "virtual",
   });
+
+  // Lazy import Supabase admin client to avoid module evaluation during build
+  const modSup = await import("@/lib/supabase/admin");
+  const supabaseAdmin = (modSup as any).supabaseAdmin ?? (modSup as any).getSupabaseServerClient?.() ?? (modSup as any).default;
 
   // 3) Persist to Supabase
   await supabaseAdmin.from("profiles").upsert(

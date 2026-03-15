@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getStripe } from "@/lib/stripe/server";
+import { createClient } from "@supabase/supabase-js";
+import { stripe } from "@/lib/stripe/server";
 
 export const runtime = "nodejs";
 
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: Request) {
   try {
@@ -21,7 +25,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ payouts_enabled: false, reason: "no_account" });
     }
 
-    const stripe = getStripe();
     const acct = await stripe.accounts.retrieve(profile.stripe_account_id);
 
     // "Ready enough" heuristic:

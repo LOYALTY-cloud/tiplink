@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStripe } from "@/lib/stripe/server";
+import { stripe } from "@/lib/stripe/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { CardRow } from "@/types/db";
@@ -45,8 +45,6 @@ export async function POST(req: Request) {
     if (isRateLimited(ip)) return NextResponse.json({ error: "Rate limited" }, { status: 429 });
 
     console.log("Creating card for user:", userId);
-
-    const stripe = getStripe();
 
     // Enforce one card per user
     const { data: existing } = await supabaseAdmin.from("cards").select("*").eq("user_id", userId).limit(1).returns<CardRow[]>();
