@@ -7,14 +7,21 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test-guard": "node scripts/test-guard.js",
+    "test-webhook": "node scripts/test-webhook.js",
+    "test-webhook-int": "tsx tests/webhook/payment-intent.test.ts",
+    "test-webhook-all": "tsx tests/webhook/payment-intent.test.ts && tsx tests/webhook/refund.test.ts && tsx tests/concurrent/withdraw-refund.test.ts"
+    ,"test-tip-flow": "tsx scripts/test-tip-flow.ts"
   },
   "dependencies": {
+    "@stripe/connect-js": "^1.0.0",
     "@stripe/react-stripe-js": "^5.6.1",
     "@stripe/stripe-js": "^8.9.0",
     "@supabase/auth-helpers-nextjs": "^0.15.0",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.95.3",
+    "lucide-react": "^0.577.0",
     "next": "16.1.6",
     "qrcode.react": "^4.2.0",
     "react": "19.2.3",
@@ -31,6 +38,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }
