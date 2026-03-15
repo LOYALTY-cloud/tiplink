@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createClient } from "@supabase/supabase-js";
 import { stripe } from "@/lib/stripe/server";
 
 export const runtime = "nodejs";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 function siteUrl(path: string) {
   const base = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");

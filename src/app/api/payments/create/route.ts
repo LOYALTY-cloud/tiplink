@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // Fee structure (UI estimate)
 const STRIPE_PERCENT = 0.029;

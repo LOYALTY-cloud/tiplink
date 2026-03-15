@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createClient } from "@supabase/supabase-js";
 import { addLedgerEntry } from "@/lib/ledger";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
@@ -7,10 +8,6 @@ import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const toCents = (n: number) => Math.round(n * 100);
 const fromCents = (n: number) => Number((n / 100).toFixed(2));
