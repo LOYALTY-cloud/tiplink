@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
-import { getStripe } from "@/lib/stripe/getServerStripe";
-import { getSupabaseServerClient } from "@/lib/supabase/safeServerClient";
+import { stripe } from "@/lib/stripe/server";
+import { createClient } from "@supabase/supabase-js";
 
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 // Fee structure (UI estimate)
 const STRIPE_PERCENT = 0.029;
@@ -13,8 +17,6 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export async function POST(req: Request) {
   try {
-    const supabaseAdmin = getSupabaseServerClient();
-    const stripe = getStripe();
     const body = await req.json();
     const tipAmount = Number(body.tipAmount);
     const creatorUserId = String(body.creatorUserId || "");

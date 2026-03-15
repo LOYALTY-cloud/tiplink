@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createClient } from "@supabase/supabase-js";
 import { sendTipReceipt } from "@/lib/email/sendTipReceipt";
 import { addLedgerEntry } from "@/lib/ledger";
 import { canCreatorAcceptTips, blockedReason } from "@/lib/payouts";
 
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 function money(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });

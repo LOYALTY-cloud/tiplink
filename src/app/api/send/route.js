@@ -1,7 +1,8 @@
-import { getResend } from "@/lib/email/getResend";
+import { Resend } from "resend";
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function GET() {
-  const resend = getResend();
   const data = await resend.emails.send({
     from: "no-reply@tiplinkme.com",
     to: "money2loyal@gmail.com",
