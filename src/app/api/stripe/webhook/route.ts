@@ -282,12 +282,13 @@ export async function handleStripeEvent(
       const authObj = event.data.object as Stripe.Issuing.Authorization;
       const cardId = typeof authObj.card === "string" ? authObj.card : (authObj.card as Stripe.Issuing.Card)?.id;
 
-      const { data: user } = await supabaseClient
+      const userRes = await supabaseClient
         .from("cards")
         .select("user_id,daily_limit,monthly_limit,status")
         .eq("stripe_card_id", cardId)
-        .maybeSingle()
-        .returns<CardRow | null>();
+        .maybeSingle();
+
+      const user = userRes.data as CardRow | null;
 
       if (!user || user.status !== "active") {
         console.warn(`Card not active or not found: ${cardId}`);
