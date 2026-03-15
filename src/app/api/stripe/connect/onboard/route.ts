@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createClient } from "@supabase/supabase-js";
-import { stripe } from "@/lib/stripe/server";
+import { getStripe } from "@/lib/stripe/server";
 
 export const runtime = "nodejs";
 
@@ -59,6 +59,7 @@ export async function POST(req: Request) {
 
     // 3) Create Express account if missing
     if (!stripeAccountId) {
+      const stripe = getStripe();
       const acct = await stripe.accounts.create({
         type: "express",
         country: "US",
@@ -91,7 +92,8 @@ export async function POST(req: Request) {
     const refresh_url = siteUrl("/dashboard?stripe=refresh");
     const return_url = siteUrl("/dashboard?stripe=return");
 
-    const accountLink = await stripe.accountLinks.create({
+    const stripe2 = getStripe();
+    const accountLink = await stripe2.accountLinks.create({
       account: stripeAccountId,
       refresh_url,
       return_url,

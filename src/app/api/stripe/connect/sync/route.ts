@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { stripe } from "@/lib/stripe/server";
+import { getStripe } from "@/lib/stripe/server";
 
 export const runtime = "nodejs";
 
@@ -21,6 +21,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ payouts_enabled: false, reason: "no_account" });
     }
 
+    const stripe = getStripe();
     const acct = await stripe.accounts.retrieve(profile.stripe_account_id);
 
     // "Ready enough" heuristic:

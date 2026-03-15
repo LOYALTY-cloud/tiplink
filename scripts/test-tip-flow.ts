@@ -1,10 +1,23 @@
 import { createClient } from "@supabase/supabase-js";
 import { handleStripeEvent } from "../src/app/api/stripe/webhook/route";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Load .env.local values into process.env for local test runs (non-blocking)
+try {
+  const fs = require("fs");
+  if (fs.existsSync(".env.local")) {
+    const lines = fs.readFileSync(".env.local", "utf8").split(/\r?\n/);
+    for (const line of lines) {
+      if (!line || line.trim().startsWith("#")) continue;
+      const idx = line.indexOf("=");
+      if (idx <= 0) continue;
+      const key = line.slice(0, idx);
+      const val = line.slice(idx + 1);
+      process.env[key] = val;
+    }
+  }
+} catch (e) {}
+
+let supabase: any;
 
 async function ledgerFn(entry: any) {
   const insertPayload: any = {
@@ -15,6 +28,27 @@ async function ledgerFn(entry: any) {
     metadata: entry.meta ?? entry.metadata ?? {},
     created_at: new Date().toISOString(),
   };
+
+  // Resolve profile.id if transactions_ledger.user_id now references profiles(id)
+  try {
+    const { data: pById } = await supabase.from("profiles").select("id").eq("id", insertPayload.user_id).maybeSingle();
+    console.log("debug: pById=", pById);
+    if (pById && pById.id) {
+      insertPayload.user_id = pById.id;
+    } else {
+      const { data: pByUser } = await supabase.from("profiles").select("id").eq("user_id", insertPayload.user_id).maybeSingle();
+      console.log("debug: pByUser=", pByUser);
+      if (pByUser && pByUser.id) insertPayload.user_id = pByUser.id;
+      else {
+        // Try to create a minimal profile for testing environments
+        try {
+          const { data: ins, error: insErr } = await supabase.from("profiles").insert({ user_id: insertPayload.user_id, handle: insertPayload.user_id }).select("id").maybeSingle();
+          console.log("debug: insert profile result=", ins, insErr);
+          if (ins && ins.id) insertPayload.user_id = ins.id;
+        } catch (e) { console.log("debug: insert profile caught", e); }
+      }
+    }
+  } catch (e) {}
 
   const { data, error } = await supabase.from("transactions_ledger").insert(insertPayload).select().single();
   if (error) throw new Error(`Ledger insert failed: ${error.message}`);
@@ -29,7 +63,12 @@ const KEEP_TEST_DATA = process.env.KEEP_TEST_DATA === "1";
 
 async function run() {
   console.log("Running tip flow test...");
+  console.log("debug env TEST_CREATOR_ID=", process.env.TEST_CREATOR_ID);
   const creatorId = process.env.TEST_CREATOR_ID || "00000000-0000-4000-8000-000000000000";
+  supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
   const receiptId = crypto.randomUUID();
   let tipIntentId: string | null = null;
 

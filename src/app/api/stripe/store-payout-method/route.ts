@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe/server";
+import { getStripe } from "@/lib/stripe/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 
@@ -12,6 +12,8 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+
+  const stripe = getStripe();
 
   const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
 

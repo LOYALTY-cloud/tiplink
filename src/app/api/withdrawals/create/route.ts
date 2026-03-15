@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe/server";
+import { getStripe } from "@/lib/stripe/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createClient } from "@supabase/supabase-js";
 import { addLedgerEntry } from "@/lib/ledger";
@@ -67,6 +67,7 @@ export async function POST(req: Request) {
     }
 
     // Also check connected Stripe account balance as a secondary guard
+    const stripe = getStripe();
     const bal = await stripe.balance.retrieve({ stripeAccount });
     const availableUsdCents =
       (bal.available || [])

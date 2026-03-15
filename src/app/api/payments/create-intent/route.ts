@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { ProfileRow } from "@/types/db";
-import { stripe } from "@/lib/stripe/server";
+import { getStripe } from "@/lib/stripe/server";
 
 export const runtime = "nodejs";
 
@@ -217,6 +217,8 @@ export async function POST(req: Request) {
     }
 
     // Create PaymentIntent (use idempotency key derived from DB id)
+    const stripe = getStripe();
+
     const pi = await stripe.paymentIntents.create(
       {
         amount: money(totalCharge),

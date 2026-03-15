@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { stripe } from "@/lib/stripe/server";
+import { getStripe } from "@/lib/stripe/server";
 
 export const runtime = "nodejs";
 
@@ -33,6 +33,8 @@ export async function POST(req: Request) {
     if (authErr) return NextResponse.json({ error: authErr.message }, { status: 500 });
 
     const email = authUserRes?.user?.email ?? undefined;
+
+    const stripe = getStripe();
 
     if (!stripeAccountId) {
       const acct = await stripe.accounts.create({

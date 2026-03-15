@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/safeServerClient";
 import type { ProfileRow, WalletRow } from "@/types/db";
-import { stripe } from "@/lib/stripe/server";
+import { getStripe } from "@/lib/stripe/server";
 
 export async function POST(req: Request) {
   try {
@@ -79,6 +79,7 @@ export async function POST(req: Request) {
 
     if (stripeAccountId) {
       try {
+        const stripe = getStripe();
         await stripe.accounts.del(stripeAccountId);
       } catch (e: unknown) {
         const stripeErrMsg = e instanceof Error ? e.message : String(e ?? "Stripe error");
