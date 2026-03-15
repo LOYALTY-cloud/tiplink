@@ -10,14 +10,6 @@ export async function acquireWalletLock(
 ): Promise<LockResult> {
   const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
 
-  // Map auth.user id -> profiles.id when profiles table uses separate PK.
-  try {
-    const { data: profile } = await supabase.from('profiles').select('id,user_id').eq('user_id', userId).maybeSingle();
-    if (profile && (profile as any).id) {
-      userId = (profile as any).id;
-    }
-  } catch (e) {}
-
   // Try to insert a lock row. Unique constraint on (user_id, lock_type) prevents duplicates.
   try {
     const { data, error } = await supabase
@@ -68,14 +60,6 @@ export async function releaseWalletLock(
   lockType = "withdrawal"
 ): Promise<void> {
   try {
-    // Map auth.user id -> profiles.id when profiles table uses separate PK.
-    try {
-      const { data: profile } = await supabase.from('profiles').select('id,user_id').eq('user_id', userId).maybeSingle();
-      if (profile && (profile as any).id) {
-        userId = (profile as any).id;
-      }
-    } catch (e) {}
-
     await supabase.from("wallet_locks").delete().eq("user_id", userId).eq("lock_type", lockType);
   } catch (e) {}
 }

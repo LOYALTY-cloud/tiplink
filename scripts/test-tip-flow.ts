@@ -12,7 +12,7 @@ async function ledgerFn(entry: any) {
     type: entry.type,
     amount: entry.amount,
     reference_id: entry.reference_id ?? null,
-    meta: entry.meta ?? entry.metadata ?? {},
+    metadata: entry.meta ?? entry.metadata ?? {},
     created_at: new Date().toISOString(),
   };
 
@@ -30,12 +30,6 @@ const KEEP_TEST_DATA = process.env.KEEP_TEST_DATA === "1";
 async function run() {
   console.log("Running tip flow test...");
   const creatorId = process.env.TEST_CREATOR_ID || "00000000-0000-4000-8000-000000000000";
-  // Determine which id to use for profile-linked tables: prefer profiles.id when available
-  let creatorProfileId: string | null = null;
-  try {
-    const { data: profile } = await supabase.from('profiles').select('id,user_id').eq('user_id', creatorId).maybeSingle();
-    if (profile && (profile as any).id) creatorProfileId = (profile as any).id;
-  } catch (e) {}
   const receiptId = crypto.randomUUID();
   let tipIntentId: string | null = null;
 
@@ -69,10 +63,19 @@ async function run() {
     // Call the handler with our supabase client and ledger function
     await handleStripeEvent(mockEvent, supabase, ledgerFn);
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("transactions_ledger")
       .select("*")
       .eq("reference_id", receiptId);
+
+    // Fallback: some ledger entries store receipt_id inside metadata
+    if ((!data || data.length === 0) && !error) {
+      const fallback = await supabase.from('transactions_ledger').select('*').eq("metadata->>receipt_id", receiptId);
+      if (fallback.error) throw new Error(`Failed to query ledger (fallback): ${fallback.error.message}`);
+      if (fallback.data && fallback.data.length) {
+        data = fallback.data;
+      }
+    }
 
     if (error) throw new Error(`Failed to query ledger: ${error.message}`);
     if (!data || data.length === 0) {
