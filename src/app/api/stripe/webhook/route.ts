@@ -303,8 +303,7 @@ export async function handleStripeEvent(
         .from("wallets")
         .select("balance")
         .eq("user_id", user.user_id)
-        .maybeSingle()
-        .returns<WalletRow | null>();
+        .maybeSingle();
 
       if (!walletRes || walletRes.balance < amount) {
         await supabaseClient.from("issuing_logs").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, amount, approved: false, reason: "insufficient_wallet_balance" });
