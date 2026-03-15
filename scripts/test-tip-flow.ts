@@ -30,6 +30,12 @@ const KEEP_TEST_DATA = process.env.KEEP_TEST_DATA === "1";
 async function run() {
   console.log("Running tip flow test...");
   const creatorId = process.env.TEST_CREATOR_ID || "00000000-0000-4000-8000-000000000000";
+  // Determine which id to use for profile-linked tables: prefer profiles.id when available
+  let creatorProfileId: string | null = null;
+  try {
+    const { data: profile } = await supabase.from('profiles').select('id,user_id').eq('user_id', creatorId).maybeSingle();
+    if (profile && (profile as any).id) creatorProfileId = (profile as any).id;
+  } catch (e) {}
   const receiptId = crypto.randomUUID();
   let tipIntentId: string | null = null;
 
@@ -40,9 +46,12 @@ async function run() {
       tip_amount: 10,
       receipt_id: receiptId,
       status: "pending",
+      stripe_fee: 0,
+      platform_fee: 0,
+      total_charge: 10,
     }).select().single();
     if (insertErr || !insertData) throw new Error(`Failed to insert tip_intent: ${insertErr?.message}`);
-    tipIntentId = insertData.id;
+    tipIntentId = insertData.id ?? insertData.receipt_id ?? null;
 
     const mockEvent = {
       id: "evt_test_" + Date.now(),
