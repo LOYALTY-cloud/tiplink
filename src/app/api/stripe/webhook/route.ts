@@ -176,11 +176,119 @@ export async function handleStripeEvent(
       break;
     }
 
+    // REFUNDS — primary handler via refund.created (one event per slice, cleanest for partials)
+    case "refund.created": {
+      const refund = event.data.object as Stripe.Refund;
+      const refundId = refund.id;
+      const paymentIntentId = typeof refund.payment_intent === "string"
+        ? refund.payment_intent
+        : (refund.payment_intent as Stripe.PaymentIntent)?.id ?? null;
+      const sliceAmount = (refund.amount ?? 0) / 100;
+
+      if (!paymentIntentId) {
+        console.warn("refund.created missing payment_intent", refundId);
+        break;
+      }
+
+      const { data: tipIntent, error: tipErr } = await supabaseClient
+        .from("tip_intents")
+        .select("*")
+        .eq("stripe_payment_intent_id", paymentIntentId)
+        .maybeSingle();
+
+      if (tipErr) { console.error("refund.created: tip lookup failed", tipErr); break; }
+      if (!tipIntent) { console.warn("refund.created: no tip for PI", paymentIntentId); break; }
+
+      // Per-refund-id idempotency — Stripe retries same event, skip if already processed
+      if ((tipIntent.processed_refund_ids ?? []).includes(refundId)) {
+        console.log("refund.created: already processed refund slice", refundId);
+        break;
+      }
+
+      // Already fully refunded — nothing left to debit
+      if (tipIntent.refund_status === "full") {
+        console.log("refund.created: tip already fully refunded", tipIntent.id);
+        break;
+      }
+
+      const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
+      if (!lock.ok) {
+        console.warn("refund.created: could not acquire wallet lock", tipIntent.id, lock.reason);
+        break;
+      }
+
+      try {
+        const tipAmount = Number(tipIntent.tip_amount ?? (tipIntent.amount as any));
+        const previouslyRefunded = Number(tipIntent.refunded_amount ?? 0);
+        const newRefundedTotal = Number((previouslyRefunded + sliceAmount).toFixed(2));
+        const isFull = newRefundedTotal >= tipAmount;
+        const newRefundStatus = isFull ? "full" : "partial";
+
+        // Check current balance — if negative would result, flag account instead of blocking (refund is owed)
+        const { data: walletRow } = await supabaseClient
+          .from("wallets")
+          .select("balance")
+          .eq("user_id", tipIntent.creator_user_id)
+          .maybeSingle();
+        const currentBalance = Number(walletRow?.balance ?? 0);
+        if (currentBalance < sliceAmount) {
+          console.warn(
+            `refund.created: balance $${currentBalance} < refund $${sliceAmount} for user ${tipIntent.creator_user_id}. Flagging account.`
+          );
+          await supabaseClient
+            .from("profiles")
+            .update({ account_status: "restricted", status_reason: "balance_below_refund_obligation" })
+            .eq("user_id", tipIntent.creator_user_id);
+        }
+
+        // Write ledger debit first — only mark processed after success (atomic ordering)
+        await ledgerFn({
+          user_id: tipIntent.creator_user_id,
+          type: "tip_refunded",
+          amount: -sliceAmount,
+          reference_id: tipIntent.id,
+          meta: {
+            action: "refund",
+            tip_intent_id: tipIntent.id,
+            refund_id: refundId,
+            payment_intent_id: paymentIntentId,
+            slice_amount: sliceAmount,
+            refund_type: newRefundStatus,
+            total_refunded: newRefundedTotal,
+            fee: 0,
+            net: -sliceAmount,
+            currency: refund.currency,
+            event_id: event.id,
+          },
+        });
+
+        // Only update tip_intent after ledger write succeeds
+        await supabaseClient
+          .from("tip_intents")
+          .update({
+            status: isFull ? "refunded" : "partially_refunded",
+            refunded_amount: newRefundedTotal,
+            refund_status: newRefundStatus,
+            last_refund_id: refundId,
+            processed_refund_ids: [...(tipIntent.processed_refund_ids ?? []), refundId],
+          })
+          .eq("id", tipIntent.id);
+
+        console.log(`Tip ${newRefundStatus} refund: $${sliceAmount} for user ${tipIntent.creator_user_id}`);
+      } catch (e) {
+        console.error("refund.created: failed to process slice", tipIntent.id, e);
+      } finally {
+        try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (_e) {}
+      }
+      break;
+    }
+
     case "charge.refunded": {
       const charge = event.data.object as Stripe.Charge;
       const receiptId = (charge.metadata?.receipt_id as string) || null;
       // Use only the latest refund amount (partial support)
       const latestRefund = (charge.refunds?.data?.[0]?.amount ?? charge.amount_refunded ?? 0);
+      const refundId = charge.refunds?.data?.[0]?.id ?? null;
       const refundAmount = latestRefund / 100;
 
       if (receiptId) {
@@ -203,6 +311,12 @@ export async function handleStripeEvent(
         // Guard: already fully refunded — skip
         if (tipIntent.refund_status === "full") {
           console.log("Tip already fully refunded, skipping:", tipIntent.id);
+          break;
+        }
+
+        // Per-refund-id idempotency (fallback path)
+        if (refundId && (tipIntent.processed_refund_ids ?? []).includes(refundId)) {
+          console.log("charge.refunded: slice already processed", refundId);
           break;
         }
 
@@ -229,6 +343,7 @@ export async function handleStripeEvent(
               refund_status: newRefundStatus,
               last_refund_id: charge.id,
               stripe_charge_id: charge.id,
+              ...(refundId ? { processed_refund_ids: [...(tipIntent.processed_refund_ids ?? []), refundId] } : {}),
             })
             .eq("id", tipIntent.id);
 
@@ -240,10 +355,12 @@ export async function handleStripeEvent(
             reference_id: tipIntent.id,
             meta: {
               action: "refund",
+              tip_intent_id: tipIntent.id,
+              refund_id: refundId ?? charge.id,
+              payment_intent_id: tipIntent.stripe_payment_intent_id ?? null,
+              slice_amount: refundAmount,
               refund_type: newRefundStatus,
-              refunded_amount: refundAmount,
               total_refunded: newRefundedTotal,
-              original_tip: tipIntent.id,
               fee: 0,
               net: -refundAmount,
               currency: charge.currency,

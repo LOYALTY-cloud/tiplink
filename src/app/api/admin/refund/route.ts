@@ -66,22 +66,29 @@ export async function POST(req: Request) {
     // 7. Mark as initiated so withdrawal protection can see it before webhook fires
     await supabaseAdmin
       .from("tip_intents")
-      .update({ refund_status: "initiated" })
+      .update({
+        refund_status: "initiated",
+        refund_initiated_at: new Date().toISOString(),
+      })
       .eq("id", tip.id);
 
-    // 8. Create Stripe refund — webhook handles ledger debit
+    // 8. Create Stripe refund — pass idempotency key to prevent duplicate calls on admin double-click
+    const idempotencyKey = req.headers.get("idempotency-key") ?? `refund-${tip.id}-${Math.round(refundAmt * 100)}`;
     const { stripe } = await import("@/lib/stripe/server");
     let stripeRefund;
     try {
-      stripeRefund = await stripe.refunds.create({
-        payment_intent: tip.stripe_payment_intent_id,
-        amount: Math.round(refundAmt * 100),
-        metadata: {
-          tip_intent_id: tip.id,
-          admin_id: adminId,
-          initiated_at: new Date().toISOString(),
+      stripeRefund = await stripe.refunds.create(
+        {
+          payment_intent: tip.stripe_payment_intent_id,
+          amount: Math.round(refundAmt * 100),
+          metadata: {
+            tip_intent_id: tip.id,
+            admin_id: adminId,
+            initiated_at: new Date().toISOString(),
+          },
         },
-      });
+        { idempotencyKey }
+      );
     } catch (e: unknown) {
       // Roll back initiated status if Stripe call fails
       await supabaseAdmin
