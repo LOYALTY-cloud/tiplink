@@ -179,7 +179,9 @@ export async function handleStripeEvent(
     case "charge.refunded": {
       const charge = event.data.object as Stripe.Charge;
       const receiptId = (charge.metadata?.receipt_id as string) || null;
-      const amount = (charge.amount_refunded ?? 0) / 100;
+      // Use only the latest refund amount (partial support)
+      const latestRefund = (charge.refunds?.data?.[0]?.amount ?? charge.amount_refunded ?? 0);
+      const refundAmount = latestRefund / 100;
 
       if (receiptId) {
         const { data: tipIntent, error: tipErr } = await supabaseClient
@@ -198,9 +200,9 @@ export async function handleStripeEvent(
           break;
         }
 
-        // Avoid double-processing refunds
-        if (tipIntent.status === "refunded") {
-          console.log("Refund already processed for tip_intent", tipIntent.id);
+        // Guard: already fully refunded — skip
+        if (tipIntent.refund_status === "full") {
+          console.log("Tip already fully refunded, skipping:", tipIntent.id);
           break;
         }
 
@@ -212,12 +214,44 @@ export async function handleStripeEvent(
         }
 
         try {
-          // Mark intent refunded
-          await supabaseClient.from("tip_intents").update({ status: "refunded", stripe_charge_id: charge.id }).eq("id", tipIntent.id);
+          const tipAmount = Number(tipIntent.tip_amount ?? (tipIntent.amount as any));
+          const previouslyRefunded = Number(tipIntent.refunded_amount ?? 0);
+          const newRefundedTotal = Number((previouslyRefunded + refundAmount).toFixed(2));
+          const isFull = newRefundedTotal >= tipAmount;
+          const newRefundStatus = isFull ? "full" : "partial";
 
-          const refundedAmount = Number(tipIntent.tip_amount ?? (tipIntent.amount as any));
-          await ledgerFn({ user_id: tipIntent.creator_user_id, type: "tip_refunded", amount: -refundedAmount, reference_id: tipIntent.id, meta: { action: "refund", fee: 0, net: -refundedAmount, currency: charge.currency, event_id: event.id, external_id: charge.id } });
-          console.log(`Tip refunded: $${refundedAmount} for user ${tipIntent.creator_user_id}`);
+          // Update tip_intent with running refund totals
+          await supabaseClient
+            .from("tip_intents")
+            .update({
+              status: isFull ? "refunded" : "partially_refunded",
+              refunded_amount: newRefundedTotal,
+              refund_status: newRefundStatus,
+              last_refund_id: charge.id,
+              stripe_charge_id: charge.id,
+            })
+            .eq("id", tipIntent.id);
+
+          // Ledger debit — only the new refund slice, not the cumulative total
+          await ledgerFn({
+            user_id: tipIntent.creator_user_id,
+            type: "tip_refunded",
+            amount: -refundAmount,
+            reference_id: tipIntent.id,
+            meta: {
+              action: "refund",
+              refund_type: newRefundStatus,
+              refunded_amount: refundAmount,
+              total_refunded: newRefundedTotal,
+              original_tip: tipIntent.id,
+              fee: 0,
+              net: -refundAmount,
+              currency: charge.currency,
+              event_id: event.id,
+              external_id: charge.id,
+            },
+          });
+          console.log(`Tip ${newRefundStatus} refund: $${refundAmount} for user ${tipIntent.creator_user_id}`);
         } catch (e) {
           console.error("Failed to record refund ledger entry for tip_intent", tipIntent.id, e);
         } finally {
@@ -234,8 +268,8 @@ export async function handleStripeEvent(
           }
 
           try {
-            await ledgerFn({ user_id: userId, type: "tip_refunded", amount: -amount, reference_id: charge.id, meta: { action: "refund", fee: 0, net: -amount, currency: charge.currency, event_id: event.id, external_id: charge.id } });
-            console.log(`Tip refunded: $${amount} for user ${userId}`);
+            await ledgerFn({ user_id: userId, type: "tip_refunded", amount: -refundAmount, reference_id: charge.id, meta: { action: "refund", fee: 0, net: -refundAmount, currency: charge.currency, event_id: event.id, external_id: charge.id } });
+            console.log(`Tip refunded: $${refundAmount} for user ${userId}`);
           } catch (e) {
             console.error("Failed to record fallback refund ledger entry for user", userId, e);
           } finally {

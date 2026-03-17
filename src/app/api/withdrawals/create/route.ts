@@ -95,6 +95,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No balance remaining" }, { status: 400 });
     }
 
+    // Block withdrawal if pending refunds would push balance negative
+    const { data: pendingRefunds } = await supabaseAdmin
+      .from("tip_intents")
+      .select("tip_amount, refunded_amount")
+      .eq("creator_user_id", userId)
+      .eq("refund_status", "initiated");
+
+    const pendingRefundTotal = (pendingRefunds ?? []).reduce((sum, t) => {
+      const owed = Number(t.tip_amount ?? 0) - Number(t.refunded_amount ?? 0);
+      return sum + Math.max(0, owed);
+    }, 0);
+
+    if (balance - amt < pendingRefundTotal) {
+      return NextResponse.json(
+        { error: `Withdrawal blocked: $${pendingRefundTotal.toFixed(2)} in pending refunds must be covered by remaining balance` },
+        { status: 409 }
+      );
+    }
+
     if (amt > balance) {
       return NextResponse.json({ error: "Insufficient balance", balance }, { status: 400 });
     }
