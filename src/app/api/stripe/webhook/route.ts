@@ -113,6 +113,28 @@ export async function handleStripeEvent(
         break;
       }
 
+      // Block tip credits to non-active accounts (closed, suspended, etc.)
+      const { data: creatorProfile } = await supabaseClient
+        .from("profiles")
+        .select("account_status")
+        .eq("user_id", tipIntent.creator_user_id)
+        .maybeSingle();
+
+      if (creatorProfile?.account_status && creatorProfile.account_status !== "active") {
+        console.warn(
+          `Blocked tip credit to ${creatorProfile.account_status} account: ${tipIntent.creator_user_id}. PaymentIntent ${pi.id} may need manual refund.`
+        );
+        await supabaseClient
+          .from("tip_intents")
+          .update({
+            status: "blocked_account",
+            needs_refund: true,
+            failure_reason: "account_not_active",
+          })
+          .eq("id", tipIntent.id);
+        break;
+      }
+
       // Acquire wallet lock (use same lock type as withdrawals so they serialize)
       const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
       if (!lock.ok) {
@@ -134,7 +156,7 @@ export async function handleStripeEvent(
           type: "tip_received",
           amount: receivedAmount,
           reference_id: tipIntent.id,
-          metadata: { currency: pi.currency, receipt_id: receiptId },
+          meta: { action: "tip", fee: 0, net: receivedAmount, currency: pi.currency, receipt_id: receiptId, event_id: event.id, external_id: pi.id },
         });
 
         console.log(`Tip succeeded: $${receivedAmount} for user ${tipIntent.creator_user_id}`);
@@ -194,7 +216,7 @@ export async function handleStripeEvent(
           await supabaseClient.from("tip_intents").update({ status: "refunded", stripe_charge_id: charge.id }).eq("id", tipIntent.id);
 
           const refundedAmount = Number(tipIntent.tip_amount ?? (tipIntent.amount as any));
-          await ledgerFn({ user_id: tipIntent.creator_user_id, type: "tip_refunded", amount: -refundedAmount, reference_id: tipIntent.id, metadata: { currency: charge.currency } });
+          await ledgerFn({ user_id: tipIntent.creator_user_id, type: "tip_refunded", amount: -refundedAmount, reference_id: tipIntent.id, meta: { action: "refund", fee: 0, net: -refundedAmount, currency: charge.currency, event_id: event.id, external_id: charge.id } });
           console.log(`Tip refunded: $${refundedAmount} for user ${tipIntent.creator_user_id}`);
         } catch (e) {
           console.error("Failed to record refund ledger entry for tip_intent", tipIntent.id, e);
@@ -212,7 +234,7 @@ export async function handleStripeEvent(
           }
 
           try {
-            await ledgerFn({ user_id: userId, type: "tip_refunded", amount: -amount, reference_id: charge.id, metadata: { currency: charge.currency } });
+            await ledgerFn({ user_id: userId, type: "tip_refunded", amount: -amount, reference_id: charge.id, meta: { action: "refund", fee: 0, net: -amount, currency: charge.currency, event_id: event.id, external_id: charge.id } });
             console.log(`Tip refunded: $${amount} for user ${userId}`);
           } catch (e) {
             console.error("Failed to record fallback refund ledger entry for user", userId, e);
@@ -238,7 +260,7 @@ export async function handleStripeEvent(
         }
 
         try {
-          await ledgerFn({ user_id: userId, type: "payout", amount: -amount, reference_id: payout.id, metadata: { currency: payout.currency } });
+          await ledgerFn({ user_id: userId, type: "payout", amount: -amount, reference_id: payout.id, meta: { action: "payout", fee: 0, net: -amount, currency: payout.currency, event_id: event.id, external_id: payout.id } });
           console.log(`Payout completed: $${amount} for user ${userId}`);
         } catch (e) {
           console.error("Failed to record payout ledger entry for user", userId, e);
@@ -343,7 +365,7 @@ export async function handleStripeEvent(
         }
 
         try {
-          await ledgerFn({ user_id: user.user_id, type: "card_charge", amount: -amount, reference_id: authObj.id });
+          await ledgerFn({ user_id: user.user_id, type: "card_charge", amount: -amount, reference_id: authObj.id, meta: { action: "card_charge", fee: 0, net: -amount, currency: authObj.currency ?? "usd", event_id: event.id, external_id: authObj.id } });
           await supabaseClient.from("card_transactions").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, merchant_name: (authObj.merchant_data as any)?.name ?? null, amount, currency: authObj.currency ?? "usd", status: "approved" });
           await supabaseClient.from("issuing_logs").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, amount, approved: true });
           console.log(`Card authorization approved for ${user.user_id}`);

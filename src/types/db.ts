@@ -21,6 +21,10 @@ export interface ProfileRow {
   handle_change_window_start?: string | null;
   created_at?: string;
   role?: string | null;
+  is_flagged?: boolean | null;
+  account_status?: "active" | "restricted" | "suspended" | "closed" | "closed_finalized" | null;
+  status_reason?: string | null;
+  closed_at?: string | null;
 }
 
 export interface CardRow {

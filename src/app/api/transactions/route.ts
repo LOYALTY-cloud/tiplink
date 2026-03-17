@@ -16,14 +16,9 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
 
-  const user_id = searchParams.get("user_id");
   const type = searchParams.get("type");
   const limit = Math.min(Number(searchParams.get("limit") ?? 25), 100);
   const cursor = searchParams.get("cursor");
-
-  if (!user_id) {
-    return NextResponse.json({ error: "user_id required" }, { status: 400 });
-  }
 
   if (type && !ALLOWED_TYPES.includes(type)) {
     return NextResponse.json({ error: "invalid transaction type" }, { status: 400 });
@@ -46,9 +41,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "invalid session" }, { status: 401 });
   }
 
-  if (authUser.user.id !== user_id) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  // Always derive user_id from the authenticated session — never trust client input
+  const user_id = authUser.user.id;
 
   /* ---------- QUERY ---------- */
   let query: any = supabase

@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "test-guard": "node scripts/test-guard.js",
-    "test-webhook": "node scripts/test-webhook.js",
+    "test-webhook": "node --env-file=.env.local scripts/test-webhook.js",
     "test-webhook-int": "tsx tests/webhook/payment-intent.test.ts",
     "test-webhook-all": "tsx tests/webhook/payment-intent.test.ts && tsx tests/webhook/refund.test.ts && tsx tests/concurrent/withdraw-refund.test.ts",
     "test-tip-flow": "tsx scripts/test-tip-flow.ts"

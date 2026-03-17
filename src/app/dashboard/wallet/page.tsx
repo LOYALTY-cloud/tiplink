@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import type { WalletRow } from "@/types/db";
@@ -9,15 +9,26 @@ import { EnablePayoutsModal } from "@/components/EnablePayoutsModal";
 import { ui } from "@/lib/ui";
 import { formatMoney, getWithdrawalFee } from "@/lib/walletFees";
 
+interface WithdrawalReceipt {
+  withdrawal_id: string;
+  amount: number;
+  fee: number;
+  net: number;
+  payout_status: string;
+  payout_method: string;
+}
+
 export default function WalletPage() {
   const [wallet, setWallet] = useState<{
-    available: number;
-    pending: number;
+    balance: number;
     withdraw_fee: number;
   } | null>(null);
   const [loadingWallet, setLoadingWallet] = useState(true);
   const [showEnableModal, setShowEnableModal] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
+  const [receipt, setReceipt] = useState<WithdrawalReceipt | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const router = useRouter();
   
   const [payout, setPayout] = useState<{
@@ -32,35 +43,33 @@ export default function WalletPage() {
     const { data: userRes } = await supabase.auth.getUser();
     const user = userRes.user;
     if (!user) {
-      setWallet({ available: 0, pending: 0, withdraw_fee: 0 });
+      setWallet({ balance: 0, withdraw_fee: 0 });
       setLoadingWallet(false);
       return;
     }
 
     const { data, error } = await supabase
       .from("wallets")
-      .select("available, pending, withdraw_fee")
+      .select("balance, withdraw_fee")
       .eq("user_id", user.id)
       .maybeSingle()
       .returns<WalletRow | null>();
 
     if (error || !data) {
-      setWallet({ available: 0, pending: 0, withdraw_fee: 0 });
+      setWallet({ balance: 0, withdraw_fee: 0 });
       setLoadingWallet(false);
       return;
     }
 
     setWallet({
-      available: Number(data.available ?? 0),
-      pending: Number(data.pending ?? 0),
+      balance: Number(data.balance ?? 0),
       withdraw_fee: Number(data.withdraw_fee ?? 0),
     });
 
     setLoadingWallet(false);
   };
 
-  const availableBalance = wallet?.available ?? 0;
-  const pendingBalance = wallet?.pending ?? 0;
+  const availableBalance = wallet?.balance ?? 0;
   const totalWithdrawFees = wallet?.withdraw_fee ?? 0;
 
   const [amountStr, setAmountStr] = useState("");
@@ -98,12 +107,49 @@ export default function WalletPage() {
   };
 
   useEffect(() => {
-    const t = setTimeout(() => {
+    (async () => {
+      const { data: userRes } = await supabase.auth.getUser();
+      const user = userRes.user;
+      if (user) setUserId(user.id);
       reloadWallet();
       loadPayout();
-    }, 0);
-    return () => clearTimeout(t);
+    })();
   }, []);
+
+  // Real-time balance refresh on new ledger entries — single subscription per user
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel(`wallet-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "transactions_ledger",
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          // Optimistic balance merge for snappy UX
+          const tx = payload.new as { type?: string; amount?: number };
+          if (tx.amount != null) {
+            setWallet((prev) => {
+              if (!prev) return prev;
+              const delta = Number(tx.amount);
+              return { ...prev, balance: prev.balance + delta };
+            });
+          }
+          // Source-of-truth refresh
+          reloadWallet();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   const hasCard = !!payout?.last4;
 
@@ -181,6 +227,8 @@ export default function WalletPage() {
       return;
     }
 
+    setWithdrawing(true);
+
     const res = await fetch("/api/withdrawals/create", {
       method: "POST",
       headers: {
@@ -191,30 +239,39 @@ export default function WalletPage() {
     });
 
     const json = await res.json();
+    setWithdrawing(false);
+
     if (!res.ok) {
       alert(json.error || "Withdrawal failed.");
       return;
     }
 
     await reloadWallet();
-    alert("Withdrawal started ✅");
+    setAmountStr("");
+    const newReceipt: WithdrawalReceipt = {
+      withdrawal_id: json.withdrawal_id,
+      amount: json.amount,
+      fee: json.fee,
+      net: json.net,
+      payout_status: json.payout_status,
+      payout_method: json.payout_method,
+    };
+    setReceipt(newReceipt);
+
+    // Auto-dismiss receipt after 8 seconds
+    setTimeout(() => {
+      setReceipt((current) => (current === newReceipt ? null : current));
+    }, 8000);
   };
 
   return (
     <div>
       {/* Balances row */}
-      <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className={`${ui.cardInner} p-4`}>
-          <div className="text-xs text-white/50">Available</div>
+          <div className="text-xs text-white/50">Balance</div>
           <div className="mt-1 text-2xl font-semibold text-emerald-400">
             {loadingWallet ? "…" : formatMoney(availableBalance)}
-          </div>
-        </div>
-
-        <div className={`${ui.cardInner} p-4`}>
-          <div className="text-xs text-white/50">Pending</div>
-          <div className="mt-1 text-2xl font-semibold text-white/90">
-            {loadingWallet ? "…" : formatMoney(pendingBalance)}
           </div>
         </div>
 
@@ -365,12 +422,58 @@ export default function WalletPage() {
         </div>
 
         {/* CTA */}
-        <button onClick={onWithdraw} disabled={invalid} className={`${ui.btnPrimary} w-full mt-5`}>
-          Withdraw to bank
+        <button onClick={onWithdraw} disabled={invalid || withdrawing} className={`${ui.btnPrimary} w-full mt-5`}>
+          {withdrawing ? "Processing…" : "Withdraw to bank"}
         </button>
 
         <div className="mt-3 text-xs text-white/45">You’ll be prompted to complete payouts onboarding if needed.</div>
       </div>
+
+      {/* Withdrawal confirmation receipt */}
+      {receipt && (
+        <div className={`${ui.card} mt-6 p-6 border border-emerald-500/30`}>
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-emerald-400 text-lg">✅</span>
+            <h2 className="text-lg font-semibold text-white/90">Withdrawal Started</h2>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-white/60">Amount</span>
+              <span className="text-sm font-semibold text-white/90">{formatMoney(receipt.amount)}</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-white/60">Fee (Instant: 5%)</span>
+              <span className="text-sm font-semibold text-white/90">-{formatMoney(receipt.fee)}</span>
+            </div>
+
+            <div className="border-t border-white/10 pt-3 flex items-center justify-between">
+              <span className="text-sm text-white/80 font-semibold">You will receive</span>
+              <span className="text-lg font-semibold text-emerald-400">{formatMoney(receipt.net)}</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-white/60">Status</span>
+              <span className={`text-sm font-semibold ${receipt.payout_status === "paid" ? "text-emerald-400" : "text-amber-400"}`}>
+                {receipt.payout_status === "paid" ? "Paid" : "Processing"}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-white/60">Method</span>
+              <span className="text-sm text-white/70 capitalize">{receipt.payout_method}</span>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setReceipt(null)}
+            className={`${ui.btnGhost} w-full mt-5`}
+          >
+            Done
+          </button>
+        </div>
+      )}
 
       {/* Modals (unchanged) */}
       <LinkDebitCardModal open={linkOpen} onClose={() => setLinkOpen(false)} onLinked={loadPayout} />

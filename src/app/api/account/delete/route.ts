@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     // Check wallet balances first
     const { data: wallet, error: walletErr } = await supabaseAdmin
       .from("wallets")
-      .select("available, pending, withdraw_fee")
+      .select("balance, withdraw_fee")
       .eq("user_id", user.id)
       .maybeSingle()
       .returns<WalletRow | null>();
@@ -43,15 +43,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: walletErr.message }, { status: 500 });
     }
 
-    const available = Number(wallet?.available ?? 0);
-    const pending = Number(wallet?.pending ?? 0);
+    const balance = Number(wallet?.balance ?? 0);
     const withdrawFee = Number(wallet?.withdraw_fee ?? 0);
 
-    if (available > 0 || pending > 0 || withdrawFee > 0) {
+    if (balance > 0 || withdrawFee > 0) {
       return NextResponse.json(
         {
-          error: "You can’t delete your account while you have a balance, pending funds, or fees owed.",
-          details: { available, pending, withdrawFee },
+          error: "You can't delete your account while you have a balance or fees owed.",
+          details: { balance, withdrawFee },
         },
         { status: 409 }
       );
