@@ -266,6 +266,16 @@ export async function handleStripeEvent(
         stripe_onboarding_complete: Boolean(account.charges_enabled && account.payouts_enabled),
       }).eq("stripe_account_id", account.id);
       console.log(`Account updated: ${account.id}`);
+
+      // If onboarding is complete, try to auto-create a virtual card for the user
+      if (account.charges_enabled && account.payouts_enabled) {
+        try {
+          const mod = await import("@/lib/stripe/createVirtualCardForUser");
+          await mod.createVirtualCardForUser(account.id);
+        } catch (e) {
+          console.error("Auto-create virtual card failed:", e);
+        }
+      }
       break;
     }
 
