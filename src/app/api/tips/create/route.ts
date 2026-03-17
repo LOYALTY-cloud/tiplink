@@ -32,13 +32,19 @@ export async function POST(req: Request) {
       .select(`
         stripe_onboarding_complete,
         stripe_charges_enabled,
-        stripe_account_id
+        stripe_account_id,
+        account_status
       `)
       .eq("user_id", receiver_user_id)
       .single();
 
     if (profileError) {
       return NextResponse.json({ error: profileError.message }, { status: 500 });
+    }
+
+    // Block tips to non-active accounts
+    if (profile?.account_status && profile.account_status !== "active") {
+      return NextResponse.json({ error: "Account not accepting payments" }, { status: 403 });
     }
 
     // Simplified production guard: require `stripe_charges_enabled`.
@@ -84,7 +90,7 @@ export async function POST(req: Request) {
         type: "tip_received",
         amount: Number(net.toFixed(2)),
         reference_id: tip.id,
-        metadata: { tipper_name: tipper_name ?? null, receipt_email: receipt_email?.trim().toLowerCase() ?? null },
+        meta: { action: "tip", fee: 0, net: Number(net.toFixed(2)), currency: "usd", receipt_id: rid, tipper_name: tipper_name ?? null, receipt_email: receipt_email?.trim().toLowerCase() ?? null },
       });
     } catch (err: unknown) {
       // Attempt to rollback tip row to avoid inconsistent state

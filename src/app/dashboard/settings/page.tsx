@@ -131,9 +131,9 @@ export default function SettingsPage() {
       if (!r.ok) {
         if (r.status === 409) {
           if (j.details) {
-            const { available, pending, withdrawFee } = j.details;
+            const { balance, withdrawFee } = j.details;
             alert(
-              `Withdraw your balance first\nAvailable: $${Number(available).toFixed(2)}\nPending: $${Number(pending).toFixed(2)}\nFees: $${Number(
+              `Withdraw your balance first\nBalance: $${Number(balance).toFixed(2)}\nFees: $${Number(
                 withdrawFee
               ).toFixed(2)}`
             );

@@ -10,7 +10,8 @@ export type LedgerEntryType =
   | "withdrawal"
   | "deposit"
   | "fee"
-  | "card_reversal";
+  | "card_reversal"
+  | "system";
 
 export interface LedgerEntry {
   user_id: string;
@@ -23,6 +24,7 @@ export interface LedgerEntry {
   performed_by?: string | null;
   action?: string | null;
   reason?: string | null;
+  status?: string | null;
 }
 
 export async function addLedgerEntry(entry: LedgerEntry) {
@@ -33,6 +35,7 @@ export async function addLedgerEntry(entry: LedgerEntry) {
     amount: entry.amount,
     reference_id: entry.reference_id ?? null,
     meta: entry.meta ?? entry.metadata ?? {},
+    status: entry.status ?? "completed",
     created_at: new Date().toISOString(),
   };
 

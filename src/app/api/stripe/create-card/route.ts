@@ -18,10 +18,14 @@ export async function POST(req: Request) {
       // try to read from profile
       const { data: prof } = await supabase
         .from("profiles")
-        .select("stripe_cardholder_id")
+        .select("stripe_cardholder_id, account_status")
         .eq("user_id", user.id)
         .maybeSingle()
         .returns<ProfileRow | null>();
+      // Block card creation if account not active
+      if (prof?.account_status && prof.account_status !== "active") {
+        return NextResponse.json({ error: "Account not allowed to create cards" }, { status: 403 });
+      }
       chId = prof?.stripe_cardholder_id ?? undefined;
     }
 

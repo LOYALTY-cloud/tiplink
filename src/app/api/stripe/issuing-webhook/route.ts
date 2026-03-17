@@ -43,6 +43,20 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ received: true, approved: false });
         }
 
+        // Block card usage for non-active accounts
+        if (card.user_id) {
+          const { data: cardProfile } = await supabaseAdmin
+            .from("profiles")
+            .select("account_status")
+            .eq("user_id", card.user_id)
+            .maybeSingle();
+          if (cardProfile?.account_status && cardProfile.account_status !== "active") {
+            await logDecline(card.user_id, auth.id, "account_not_active");
+            try { await stripe.issuing.authorizations.decline(auth.id); } catch (e) {}
+            return NextResponse.json({ received: true, approved: false });
+          }
+        }
+
         const { data: wallet } = await supabaseAdmin
           .from("wallets")
           .select("available")
@@ -114,7 +128,7 @@ export async function POST(req: NextRequest) {
               type: "card_charge",
               amount: Number((-amountUsd).toFixed(2)),
               reference_id: auth.id,
-              metadata: { card_id: cardId }
+              meta: { action: "card_charge", fee: 0, net: Number((-amountUsd).toFixed(2)), currency: auth.currency ?? "usd", card_id: cardId, event_id: event.id, external_id: auth.id }
             });
           } else {
             console.warn("Skipping ledger entry: missing user_id for card", cardId);
@@ -171,7 +185,7 @@ export async function POST(req: NextRequest) {
               type: "card_charge",
               amount: Number((-amountUsd).toFixed(2)),
               reference_id: tx.id,
-              metadata: { authorization_id: (tx.authorization as Stripe.Issuing.Authorization)?.id ?? null, card_id: cardId }
+              meta: { action: "card_charge", fee: 0, net: Number((-amountUsd).toFixed(2)), currency: tx.currency ?? "usd", authorization_id: (tx.authorization as Stripe.Issuing.Authorization)?.id ?? null, card_id: cardId, event_id: event.id, external_id: tx.id }
             });
           } else {
             console.warn("Skipping ledger entry for issuing_transaction.created: missing userId", tx.id);
@@ -215,7 +229,7 @@ export async function POST(req: NextRequest) {
               } catch (e) { console.error("Failed to lookup user for reversal ledger entry:", e); }
 
               if (reversalUserId) {
-                await addLedgerEntry({ user_id: reversalUserId, type: "card_reversal", amount: Number((amountUsd).toFixed(2)), reference_id: tx.id, metadata: { authorization_id: (tx.authorization as Stripe.Issuing.Authorization)?.id ?? null } });
+                await addLedgerEntry({ user_id: reversalUserId, type: "card_reversal", amount: Number((amountUsd).toFixed(2)), reference_id: tx.id, meta: { action: "card_reversal", fee: 0, net: Number((amountUsd).toFixed(2)), currency: tx.currency ?? "usd", authorization_id: (tx.authorization as Stripe.Issuing.Authorization)?.id ?? null, event_id: event.id, external_id: tx.id } });
               } else {
                 console.warn("Skipping reversal ledger entry: no user found for transaction", tx.id);
               }

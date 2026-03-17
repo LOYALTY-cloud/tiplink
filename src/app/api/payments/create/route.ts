@@ -114,7 +114,7 @@ export async function POST(req: Request) {
     // Get creator profile
     const { data: profile } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_account_id, stripe_charges_enabled")
+      .select("stripe_account_id, stripe_charges_enabled, account_status")
       .eq("user_id", creatorUserId)
       .single();
 
@@ -123,6 +123,11 @@ export async function POST(req: Request) {
     }
     if (!profile.stripe_charges_enabled) {
       return NextResponse.json({ error: "Creator charges not enabled" }, { status: 409 });
+    }
+
+    // Enforce account status: only active creators can receive tips
+    if (profile.account_status && profile.account_status !== "active") {
+      return NextResponse.json({ error: "Creator not accepting payments" }, { status: 403 });
     }
 
     // Stripe processing fee (estimate)

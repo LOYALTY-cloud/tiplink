@@ -16,6 +16,17 @@ export async function POST(req: Request) {
     const user = userRes.user;
     if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
+    // Check profile account status before creating a cardholder
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("account_status")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (prof?.account_status && prof.account_status !== "active") {
+      return NextResponse.json({ error: "Account not allowed to create cardholder" }, { status: 403 });
+    }
+
     const cardholder = await stripe.issuing.cardholders.create({
       type: "individual",
       name,

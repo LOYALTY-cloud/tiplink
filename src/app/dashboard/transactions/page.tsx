@@ -2,12 +2,21 @@
 
 import React, { useEffect, useRef, useState } from "react"
 import { ArrowDownCircle, ArrowUpCircle, CreditCard, RotateCcw } from "lucide-react"
+import { supabase } from "@/lib/supabase/client"
+import { formatMoney } from "@/lib/walletFees"
 
 type Transaction = {
   id: string
   type: string
   amount: number
   created_at: string
+  meta?: {
+    fee?: number
+    net?: number
+    receipt_id?: string
+    method?: string
+    [key: string]: unknown
+  } | null
 }
 
 function formatType(type: string) {
@@ -52,9 +61,16 @@ export default function TransactionsPage() {
     const params = new URLSearchParams()
     if (cursor) params.append("cursor", cursor)
 
-    const token = typeof localStorage !== "undefined" ? localStorage.getItem("access_token") : null
+    const { data: sess } = await supabase.auth.getSession()
+    const token = sess.session?.access_token
 
-    const res = await fetch(`/api/transactions?user_id=me&${params.toString()}`, {
+    if (!token) {
+      setLoading(false)
+      setHasMore(false)
+      return
+    }
+
+    const res = await fetch(`/api/transactions?${params.toString()}`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -128,6 +144,12 @@ export default function TransactionsPage() {
                   <div>
                     <p className="text-sm font-medium">{formatType(tx.type)}</p>
                     <p className="text-xs text-neutral-500">{new Date(tx.created_at).toLocaleTimeString()}</p>
+                    {tx.meta?.fee != null && (
+                      <p className="text-xs text-neutral-400 mt-0.5">
+                        Fee: {formatMoney(tx.meta.fee)}
+                        {tx.meta.net != null && <> · Net: {formatMoney(tx.meta.net)}</>}
+                      </p>
+                    )}
                   </div>
                 </div>
 
