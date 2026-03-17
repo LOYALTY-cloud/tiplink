@@ -95,12 +95,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No balance remaining" }, { status: 400 });
     }
 
-    // Block withdrawal if pending refunds would push balance negative
+    // Block withdrawal if pending refunds (initiated within last 10 min) would push balance negative
+    const initiatedCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const { data: pendingRefunds } = await supabaseAdmin
       .from("tip_intents")
       .select("tip_amount, refunded_amount")
       .eq("creator_user_id", userId)
-      .eq("refund_status", "initiated");
+      .eq("refund_status", "initiated")
+      .gte("refund_initiated_at", initiatedCutoff);
 
     const pendingRefundTotal = (pendingRefunds ?? []).reduce((sum, t) => {
       const owed = Number(t.tip_amount ?? 0) - Number(t.refunded_amount ?? 0);
