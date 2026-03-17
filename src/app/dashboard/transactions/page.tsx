@@ -144,6 +144,12 @@ export default function TransactionsPage() {
                   <div>
                     <p className="text-sm font-medium">{formatType(tx.type)}</p>
                     <p className="text-xs text-neutral-500">{new Date(tx.created_at).toLocaleTimeString()}</p>
+                    {tx.type === "tip_refunded" && (
+                      <p className="text-xs text-yellow-600 mt-0.5">
+                        {tx.meta?.refund_type === "partial" ? "Partial refund" : "Refund"}
+                        {tx.meta?.total_refunded != null && <> · Total refunded: ${Number(tx.meta.total_refunded).toFixed(2)}</>}
+                      </p>
+                    )}
                     {tx.meta?.fee != null && (
                       <p className="text-xs text-neutral-400 mt-0.5">
                         Fee: {formatMoney(tx.meta.fee)}
