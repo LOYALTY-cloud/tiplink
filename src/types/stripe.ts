@@ -4,6 +4,8 @@ export type StripeWebhookEvent =
   | (Stripe.Event & { type: "payment_intent.succeeded"; data: { object: Stripe.PaymentIntent } })
   | (Stripe.Event & { type: "payment_intent.payment_failed"; data: { object: Stripe.PaymentIntent } })
   | (Stripe.Event & { type: "charge.refunded"; data: { object: Stripe.Charge } })
+  | (Stripe.Event & { type: "refund.created"; data: { object: Stripe.Refund } })
+  | (Stripe.Event & { type: "charge.dispute.created"; data: { object: Stripe.Dispute } })
   | (Stripe.Event & { type: "payout.paid"; data: { object: Stripe.Payout } })
   | (Stripe.Event & { type: "payout.failed"; data: { object: Stripe.Payout } })
   | (Stripe.Event & { type: "account.updated"; data: { object: Stripe.Account } })

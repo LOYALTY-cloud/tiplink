@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import StripeEmbeddedOnboarding from "@/components/StripeEmbeddedOnboarding";
 import { supabase } from "@/lib/supabase/client";
 
 export default function OnboardingPage() {
+  const searchParams = useSearchParams();
+  const isManage = searchParams.get("manage") === "1";
   const [clientSecret, setClientSecret] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +23,7 @@ export default function OnboardingPage() {
         const res = await fetch("/api/stripe/connect/session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_id: user.id }),
+          body: JSON.stringify({ user_id: user.id, mode: isManage ? "manage" : "onboarding" }),
         });
 
         const j = await res.json();
@@ -38,7 +41,7 @@ export default function OnboardingPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [isManage]);
 
   if (loading) return <p>Loading onboarding...</p>;
   if (error) return <p className="text-red-400">Error: {error}</p>;
@@ -46,9 +49,9 @@ export default function OnboardingPage() {
 
   return (
     <div className="max-w-3xl mx-auto p-6">
-      <h1 className="text-2xl font-semibold mb-4">Activate your payouts</h1>
+      <h1 className="text-2xl font-semibold mb-4">{isManage ? "Payout settings" : "Activate your payouts"}</h1>
 
-      <StripeEmbeddedOnboarding clientSecret={clientSecret} />
+      <StripeEmbeddedOnboarding clientSecret={clientSecret} mode={isManage ? "manage" : "onboarding"} />
     </div>
   );
 }

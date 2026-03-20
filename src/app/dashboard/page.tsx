@@ -17,8 +17,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [handle, setHandle] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
-  const [payoutsEnabled, setPayoutsEnabled] = useState(false);
+
   const [accountStatus, setAccountStatus] = useState<string | null>(null);
   const [wallet, setWallet] = useState<{
     balance: number;
@@ -59,14 +58,12 @@ export default function DashboardPage() {
 
       const { data: prof } = await supabase
         .from("profiles")
-        .select("handle, stripe_account_id, payouts_enabled, account_status")
+        .select("handle, account_status")
         .eq("user_id", user.id)
         .maybeSingle()
         .returns<ProfileRow | null>();
 
       setHandle(prof?.handle ?? null);
-      setStripeAccountId(prof?.stripe_account_id ?? null);
-      setPayoutsEnabled(Boolean(prof?.payouts_enabled));
       setAccountStatus(prof?.account_status ?? null);
 
       await reloadWallet(user.id);
@@ -155,37 +152,12 @@ export default function DashboardPage() {
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
           <div className="rounded-xl bg-gray-900 text-white px-4 py-2 text-sm shadow-lg">
-            {toast}
+            {toast.message}
           </div>
         </div>
       )}
 
       {/* ActivatePayoutsCard removed — use Dashboard top summary/actions instead */}
-
-      {/* Top info card */}
-      <div className={`${ui.card} p-6`}>
-        <h1 className={ui.h1}>Dashboard</h1>
-        <p className={`mt-1 ${ui.muted}`}>Update your profile and share your TIPLINK to start receiving private support.</p>
-        <div className="mt-4 flex items-center justify-between">
-          <div className="text-sm text-white/80">Payouts</div>
-          <div className="flex items-center gap-3">
-            <div className={`${ui.chip} ${payoutsEnabled ? "bg-emerald-500/10 border-emerald-400/20 text-emerald-200" : "bg-white/5 border-white/10 text-white/70"}`}>
-              {payoutsEnabled ? "Payouts active" : stripeAccountId ? "Connected" : "Not connected"}
-            </div>
-            {stripeAccountId ? (
-              <button onClick={() => router.push('/dashboard/onboarding')} className={`${ui.btnGhost} ${ui.btnSmall}`} disabled={isClosed}>
-                Manage payouts
-              </button>
-            ) : (
-              <button onClick={() => router.push('/dashboard/onboarding')} className={`${ui.btnPrimary} ${ui.btnSmall}`} disabled={isClosed}>
-                Connect Stripe
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Removed chips: Private by default, Receipts included, No feeds • No DMs */}
-      </div>
 
       {userId && (
         <div className="mb-4">

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { addLedgerEntry } from "@/lib/ledger";
 import { getAdminFromSession } from "@/lib/auth/getAdminFromSession";
+import { requireRole } from "@/lib/auth/requireRole";
 
 export const runtime = "nodejs";
 
@@ -9,11 +10,13 @@ const ALLOWED_REASONS = ["fraud", "user_request", "tos_violation"] as const;
 
 export async function POST(req: Request) {
   try {
-    // 1. Authenticate caller and verify admin role (role = 'admin' in profiles)
+    // 1. Authenticate caller and verify admin role
     const authHeader = req.headers.get("authorization") ?? "";
     const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const adminId = await getAdminFromSession(jwt);
-    if (!adminId) return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 });
+    const session = await getAdminFromSession(jwt);
+    if (!session) return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 });
+    requireRole(session.role, "close");
+    const adminId = session.userId;
 
     // 2. Parse and validate body
     const body = await req.json();

@@ -13,6 +13,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const user_id = body?.user_id;
+    const mode = body?.mode; // "manage" for existing accounts
     if (!user_id) return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
 
     const { data: profile, error } = await supabase
@@ -55,9 +56,13 @@ export async function POST(req: Request) {
         .eq("user_id", user_id);
     }
 
+    const components = mode === "manage"
+      ? { account_management: { enabled: true as const } }
+      : { account_onboarding: { enabled: true as const } };
+
     const accountSession = await stripe.accountSessions.create({
       account: stripeAccountId,
-      components: { account_onboarding: { enabled: true } },
+      components,
     });
 
     return NextResponse.json({ client_secret: accountSession.client_secret });

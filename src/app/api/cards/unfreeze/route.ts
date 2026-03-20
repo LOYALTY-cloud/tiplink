@@ -1,6 +1,3 @@
-export async function POST() {
-  return new Response(
-    JSON.stringify({ error: "Card controls not implemented yet" }),
-    { status: 501 }
-  );
-}
+import { NextResponse } from "next/server";
+export async function POST() { return NextResponse.json({ error: "Card issuing is disabled" }, { status: 403 }); }
+export async function GET() { return NextResponse.json({ error: "Card issuing is disabled" }, { status: 403 }); }

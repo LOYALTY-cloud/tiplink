@@ -69,10 +69,10 @@ export async function POST(req: Request) {
       const since60s = new Date(Date.now() - 60 * 1000).toISOString();
       let recentCount = 0;
       if (supporter_user_id) {
-        const { count } = await supabaseAdmin.from("tip_intents").select("id", { count: "exact" }).eq("supporter_user_id", supporter_user_id).gt("created_at", since60s);
+        const { count } = await supabaseAdmin.from("tip_intents").select("receipt_id", { count: "exact" }).eq("supporter_user_id", supporter_user_id).gt("created_at", since60s);
         recentCount = count ?? 0;
       } else if (supporter_ip) {
-        const { count } = await supabaseAdmin.from("tip_intents").select("id", { count: "exact" }).eq("supporter_ip", supporter_ip).gt("created_at", since60s);
+        const { count } = await supabaseAdmin.from("tip_intents").select("receipt_id", { count: "exact" }).eq("supporter_ip", supporter_ip).gt("created_at", since60s);
         recentCount = count ?? 0;
       }
       if (recentCount > 5) {
@@ -101,7 +101,7 @@ export async function POST(req: Request) {
     try {
       if (supporter_ip) {
         const since5m = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-        const { count } = await supabaseAdmin.from("tip_intents").select("id", { count: "exact" }).eq("supporter_ip", supporter_ip).lt("tip_amount", 2).gt("created_at", since5m);
+        const { count } = await supabaseAdmin.from("tip_intents").select("receipt_id", { count: "exact" }).eq("supporter_ip", supporter_ip).lt("tip_amount", 2).gt("created_at", since5m);
         if ((count ?? 0) > 10) {
           await supabaseAdmin.from("fraud_events").insert({ user_id: null, ip: supporter_ip, type: "card_testing", reason: "high small-amount attempts" });
           return NextResponse.json({ error: "Too many payment attempts from your IP" }, { status: 429 });
@@ -183,7 +183,7 @@ export async function POST(req: Request) {
       },
       {
         // Use DB idempotency key derived from tip_intents primary key
-        idempotencyKey: `tip-${intentRow.id}`,
+        idempotencyKey: `tip-${intentRow.receipt_id}`,
       }
     );
 
@@ -191,7 +191,7 @@ export async function POST(req: Request) {
     await supabaseAdmin
       .from("tip_intents")
       .update({ stripe_payment_intent_id: paymentIntent.id, status: "created" })
-      .eq("id", intentRow.id);
+      .eq("receipt_id", intentRow.receipt_id);
 
     return NextResponse.json({
       clientSecret: paymentIntent.client_secret,

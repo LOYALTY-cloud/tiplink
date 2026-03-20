@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-export default function StripeEmbeddedOnboarding({ clientSecret }: { clientSecret: string }) {
+export default function StripeEmbeddedOnboarding({ clientSecret, mode = "onboarding" }: { clientSecret: string; mode?: "onboarding" | "manage" }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -21,7 +21,8 @@ export default function StripeEmbeddedOnboarding({ clientSecret }: { clientSecre
         clientSecret,
       });
 
-      onboardingInstance = connect.create("account-onboarding");
+      const componentType = mode === "manage" ? "account-management" : "account-onboarding";
+      onboardingInstance = connect.create(componentType);
       // Some versions of Connect.js return a component with a `mount` method,
       // other times it returns an HTMLElement to be appended into the DOM.
       if (typeof onboardingInstance?.mount === "function") {
