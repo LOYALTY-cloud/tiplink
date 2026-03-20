@@ -12,6 +12,7 @@ type Profile = {
   location: string | null;
   avatar_url: string | null;
   links?: string[] | null;
+  canAcceptTips?: boolean;
 };
 
 const PRESETS = [5, 10, 20];
@@ -162,6 +163,14 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
             </div>
           </div>
 
+          {/* Setup banner */}
+          {profile.canAcceptTips === false && (
+            <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-center">
+              <p className="text-sm font-medium text-amber-300">This creator is finishing account setup</p>
+              <p className="mt-1 text-xs text-amber-300/70">Tips will be available once verification is complete.</p>
+            </div>
+          )}
+
           {/* Presets */}
           <div className="mt-4 grid grid-cols-3 gap-3">
             {PRESETS.map((p) => {
@@ -169,14 +178,17 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
               return (
                 <button
                   key={p}
+                  disabled={profile.canAcceptTips === false}
                   onClick={() => {
                     setAmount(p);
                     setCustom("");
                   }}
                   className={
-                    active
-                      ? `${ui.btnPrimary} ${ui.btnSmall}`
-                      : `${ui.btnGhost} ${ui.btnSmall}`
+                    profile.canAcceptTips === false
+                      ? `${ui.btnGhost} ${ui.btnSmall} opacity-50 cursor-not-allowed`
+                      : active
+                        ? `${ui.btnPrimary} ${ui.btnSmall}`
+                        : `${ui.btnGhost} ${ui.btnSmall}`
                   }
                 >
                   ${p}
@@ -251,14 +263,14 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
             {!showPayment ? (
               <button
                 onClick={handleContinueToPayment}
-                disabled={chosenAmount <= 0 || loadingIntent}
+                disabled={chosenAmount <= 0 || loadingIntent || profile.canAcceptTips === false}
                 className={
-                  chosenAmount > 0 && !loadingIntent
+                  chosenAmount > 0 && !loadingIntent && profile.canAcceptTips !== false
                     ? `${ui.btnPrimary} w-full mt-3`
                     : "mt-3 w-full rounded-xl py-3 font-semibold transition bg-white/20 text-white/50 cursor-not-allowed"
                 }
               >
-                {loadingIntent ? "Loading payment..." : "Continue to payment"}
+                {loadingIntent ? "Loading payment..." : profile.canAcceptTips === false ? "Tips unavailable" : "Continue to payment"}
               </button>
             ) : null}
 
