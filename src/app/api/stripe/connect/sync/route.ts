@@ -27,24 +27,26 @@ export async function POST(req: Request) {
 
     const acct = await stripe.accounts.retrieve(profile.stripe_account_id);
 
-    // "Ready enough" heuristic:
-    const payoutsEnabled =
-      Boolean((acct as any).payouts_enabled) &&
-      Boolean((acct as any).charges_enabled);
+    const chargesEnabled = Boolean(acct.charges_enabled);
+    const payoutsEnabledStripe = Boolean(acct.payouts_enabled);
+    const onboardingComplete = chargesEnabled && payoutsEnabledStripe;
 
     await supabaseAdmin
       .from("profiles")
       .update({
-        payouts_enabled: payoutsEnabled,
-        payouts_enabled_at: payoutsEnabled ? new Date().toISOString() : null,
+        stripe_charges_enabled: chargesEnabled,
+        stripe_payouts_enabled: payoutsEnabledStripe,
+        stripe_onboarding_complete: onboardingComplete,
+        payouts_enabled: onboardingComplete,
+        payouts_enabled_at: onboardingComplete ? new Date().toISOString() : null,
       })
       .eq("user_id", user_id);
 
     return NextResponse.json({
-      payouts_enabled: payoutsEnabled,
-      charges_enabled: (acct as any).charges_enabled,
-      payouts_enabled_stripe: (acct as any).payouts_enabled,
-      details_submitted: (acct as any).details_submitted,
+      payouts_enabled: onboardingComplete,
+      charges_enabled: chargesEnabled,
+      payouts_enabled_stripe: payoutsEnabledStripe,
+      details_submitted: acct.details_submitted,
     });
   } catch (e: unknown) {
     console.log("stripe connect sync error:", e instanceof Error ? e.message : e);

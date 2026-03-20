@@ -58,13 +58,22 @@ export default function DashboardPage() {
 
       const { data: prof } = await supabase
         .from("profiles")
-        .select("handle, account_status")
+        .select("handle, account_status, stripe_account_id, stripe_charges_enabled")
         .eq("user_id", user.id)
         .maybeSingle()
         .returns<ProfileRow | null>();
 
       setHandle(prof?.handle ?? null);
       setAccountStatus(prof?.account_status ?? null);
+
+      // Auto-sync Stripe status if account exists but charges not enabled in DB
+      if (prof?.stripe_account_id && !prof?.stripe_charges_enabled) {
+        fetch("/api/stripe/connect/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: user.id }),
+        }).catch(() => {});
+      }
 
       await reloadWallet(user.id);
     })();
