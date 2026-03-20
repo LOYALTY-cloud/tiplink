@@ -1,15 +1,3 @@
 import { NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe";
-
-export async function POST(req: Request) {
-  try {
-    const { cardId } = await req.json();
-    if (!cardId) return NextResponse.json({ error: "Missing cardId" }, { status: 400 });
-
-    const card = await stripe.issuing.cards.retrieve(cardId as string);
-    return NextResponse.json(card);
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
-  }
-}
+export async function POST() { return NextResponse.json({ error: "Card issuing is disabled" }, { status: 403 }); }
+export async function GET() { return NextResponse.json({ error: "Card issuing is disabled" }, { status: 403 }); }

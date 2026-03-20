@@ -60,10 +60,21 @@ export async function GET(request) {
     .eq("id", record.id);
 
   if (record.user_id) {
+    // Mark verified AND sync email to profile so notifications work
     await supabaseAdmin
       .from("profiles")
-      .update({ email_verified: true })
+      .update({ email_verified: true, email: record.email })
       .eq("user_id", record.user_id);
+
+    // Ensure user_settings row exists with defaults
+    await supabaseAdmin
+      .from("user_settings")
+      .upsert(
+        { user_id: record.user_id, notify_tips: true, notify_payouts: true, notify_security: true },
+        { onConflict: "user_id", ignoreDuplicates: true }
+      )
+      .then(() => {})
+      .catch(() => {});
   }
 
   return NextResponse.redirect(`${origin}/verify?status=success`);

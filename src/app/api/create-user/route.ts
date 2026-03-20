@@ -1,17 +1,38 @@
-import createUserWithCard from '@/lib/createUser';
+import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
+/**
+ * POST /api/create-user
+ * Called after signup to ensure profile has email synced
+ * and user_settings row exists with default notification prefs.
+ */
 export async function POST(req: Request) {
   try {
     const { userId, email } = await req.json();
-    if (!userId || !email) {
-      return new Response(JSON.stringify({ error: 'userId and email required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    if (!userId || typeof userId !== "string") {
+      return NextResponse.json({ error: "Missing userId" }, { status: 400 });
     }
 
-    // Run server-side only: create issuing card and persist wallet/card records
-    await createUserWithCard(userId, email).catch(() => {});
+    // Sync email to profile (only if not already set)
+    if (email && typeof email === "string") {
+      await supabaseAdmin
+        .from("profiles")
+        .update({ email })
+        .eq("user_id", userId)
+        .is("email", null);
+    }
 
-    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: 'server error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    // Ensure user_settings row exists with notification defaults
+    await supabaseAdmin
+      .from("user_settings")
+      .upsert(
+        { user_id: userId, notify_tips: true, notify_payouts: true, notify_security: true },
+        { onConflict: "user_id", ignoreDuplicates: true }
+      );
+
+    return NextResponse.json({ ok: true });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

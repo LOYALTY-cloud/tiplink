@@ -2,9 +2,7 @@ export interface ProfileRow {
   id: string;
   user_id: string;
   stripe_account_status?: "verified" | "incomplete" | "disconnected";
-  stripe_card_id?: string | null;
   stripe_customer_id?: string | null;
-  stripe_cardholder_id?: string | null;
   stripe_account_id?: string | null;
   stripe_charges_enabled?: boolean | null;
   email?: string | null;
@@ -20,38 +18,12 @@ export interface ProfileRow {
   handle_change_count?: number | null;
   handle_change_window_start?: string | null;
   created_at?: string;
-  role?: string | null;
+  role?: "owner" | "super_admin" | "finance_admin" | "support_admin" | "user" | "system" | null;
   is_flagged?: boolean | null;
   account_status?: "active" | "restricted" | "suspended" | "closed" | "closed_finalized" | null;
   status_reason?: string | null;
   closed_at?: string | null;
-}
-
-export interface CardRow {
-  id: string;
-  user_id: string;
-  stripe_card_id: string;
-  status: "active" | "frozen";
-  daily_limit?: number | null;
-  monthly_limit?: number | null;
-  weekly_limit?: number | null;
-  brand?: string | null;
-  last4?: string | null;
-  exp_month?: number | null;
-  exp_year?: number | null;
-  stripe_cardholder_id?: string | null;
-  created_at: string;
-}
-
-export interface CardTransactionRow {
-  id: string;
-  user_id: string;
-  stripe_authorization_id: string;
-  merchant_name: string;
-  amount: number;
-  currency: string;
-  status: "approved" | "declined";
-  created_at: string;
+  owed_balance?: number | null;
 }
 
 export interface WalletRow {

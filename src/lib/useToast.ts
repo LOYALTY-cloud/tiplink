@@ -2,8 +2,12 @@
 
 import { useEffect, useState } from "react";
 
-export function useToast(timeoutMs = 1800) {
-  const [toast, setToast] = useState<string | null>(null);
+export type ToastType = "success" | "error" | "info";
+
+export type Toast = { message: string; type: ToastType };
+
+export function useToast(timeoutMs = 2500) {
+  const [toast, setToast] = useState<Toast | null>(null);
 
   useEffect(() => {
     if (!toast) return;
@@ -13,7 +17,8 @@ export function useToast(timeoutMs = 1800) {
 
   return {
     toast,
-    show: (msg: string) => setToast(msg),
+    show: (message: string, type: ToastType = "info") =>
+      setToast({ message, type }),
     clear: () => setToast(null),
   };
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseRouteClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -7,7 +8,8 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
 
   if (code) {
-    await supabase.auth.exchangeCodeForSession(code);
+    const { data } = await supabase.auth.exchangeCodeForSession(code);
+    if (data?.user) await syncProfileEmail(data.user.id, data.user.email ?? null);
     return NextResponse.redirect(`${origin}/dashboard`);
   }
 
@@ -20,9 +22,33 @@ export async function GET(request: Request) {
     | null;
 
   if (token_hash && type) {
-    await supabase.auth.verifyOtp({ type, token_hash });
+    const { data } = await supabase.auth.verifyOtp({ type, token_hash });
+    if (data?.user) await syncProfileEmail(data.user.id, data.user.email ?? null);
     return NextResponse.redirect(`${origin}/dashboard`);
   }
 
   return NextResponse.redirect(`${origin}/login`);
+}
+
+/**
+ * Ensures profiles.email is populated and user_settings row exists.
+ * Non-blocking: failures don't break the auth flow.
+ */
+async function syncProfileEmail(userId: string, email: string | null) {
+  try {
+    if (email) {
+      await supabaseAdmin
+        .from("profiles")
+        .update({ email })
+        .eq("user_id", userId)
+        .is("email", null);
+    }
+    // Ensure user_settings row exists with defaults
+    await supabaseAdmin
+      .from("user_settings")
+      .upsert(
+        { user_id: userId, notify_tips: true, notify_payouts: true, notify_security: true },
+        { onConflict: "user_id", ignoreDuplicates: true }
+      );
+  } catch (_) {}
 }

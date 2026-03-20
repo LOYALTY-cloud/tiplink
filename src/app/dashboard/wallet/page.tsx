@@ -185,31 +185,6 @@ export default function WalletPage() {
     return true;
   }
 
-  async function startStripeConnect() {
-    // keep existing helper for backwards compatibility, but prefer navigating
-    const token = await getAuthToken();
-    if (!token) {
-      alert("Please log in again.");
-      return;
-    }
-
-    const res = await fetch("/api/stripe/connect/start", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    const json = await res.json();
-    if (!res.ok) {
-      alert(json.error || "Could not start Stripe onboarding.");
-      return;
-    }
-
-    window.location.href = json.url;
-  }
-
   const onWithdraw = async () => {
     // Check if Stripe payouts are enabled first
     const payoutsOk = await ensurePayoutsEnabled();

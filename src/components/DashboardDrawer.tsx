@@ -38,7 +38,6 @@ export function DashboardDrawer({
     { label: "Share", href: "/dashboard/share" },
     { label: "Transactions", href: "/dashboard/transactions" },
     { label: "Wallet", href: "/dashboard/wallet" },
-    { label: "Virtual Card", href: "/dashboard/virtual-card" },
     { label: "Settings", href: "/dashboard/settings" },
     // Subscription removed
     { label: "Log out", onClick: handleLogout },
@@ -51,12 +50,12 @@ export function DashboardDrawer({
       {/* Backdrop */}
       <button
         aria-label="Close menu"
-        className="absolute inset-0 bg-black/40"
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
         onClick={onClose}
       />
 
       {/* Drawer */}
-      <aside className={`${ui.card} absolute left-0 top-0 h-full w-[290px] border-r border-white/10`}>
+      <aside className={`${ui.card} absolute left-0 top-0 h-full w-[80%] max-w-[300px] border-r border-white/10 transform transition-transform duration-300 translate-x-0`}>
         <div className={`flex items-center justify-between px-4 py-4 border-b border-white/10`}>
           <div>
             <div className={`text-xs font-medium ${ui.muted}`}>TIPLINKME</div>

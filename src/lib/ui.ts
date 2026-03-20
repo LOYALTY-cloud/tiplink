@@ -37,6 +37,8 @@ export const ui = {
   // inputs
   input:
     "w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-white placeholder:text-white/35 outline-none focus:border-blue-400/40 focus:ring-2 focus:ring-blue-500/15 transition",
+  select:
+    "w-full rounded-xl bg-zinc-900 border border-white/10 px-4 py-3 text-white outline-none focus:border-blue-400/40 focus:ring-2 focus:ring-blue-500/15 transition cursor-pointer",
 
   // chips / pills
   chip:

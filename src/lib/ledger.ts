@@ -3,14 +3,12 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export type LedgerEntryType =
   | "tip_received"
   | "tip_refunded"
+  | "dispute"
   | "payout"
-  | "card_charge"
-  | "card_refund"
   | "adjustment"
   | "withdrawal"
   | "deposit"
   | "fee"
-  | "card_reversal"
   | "system";
 
 export interface LedgerEntry {

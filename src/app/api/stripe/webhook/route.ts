@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 // ledger helper will be lazy-imported when needed so tests can inject a mock
 import type Stripe from "stripe";
 import type { StripeWebhookEvent } from "@/types/stripe";
-import type { CardRow, WalletRow } from "@/types/db";
+import type { WalletRow } from "@/types/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -159,12 +159,46 @@ export async function handleStripeEvent(
           meta: { action: "tip", fee: 0, net: receivedAmount, currency: pi.currency, receipt_id: receiptId, event_id: event.id, external_id: pi.id },
         });
 
+        // Auto-offset owed_balance if creator had a negative obligation
+        const { data: creatorProf } = await supabaseClient
+          .from("profiles")
+          .select("owed_balance")
+          .eq("user_id", tipIntent.creator_user_id)
+          .maybeSingle();
+        const owed = Number(creatorProf?.owed_balance ?? 0);
+        if (owed > 0) {
+          const newOwed = Math.max(0, Number((owed - receivedAmount).toFixed(2)));
+          await supabaseClient
+            .from("profiles")
+            .update({ owed_balance: newOwed })
+            .eq("user_id", tipIntent.creator_user_id);
+          console.log(`Auto-offset owed_balance for user ${tipIntent.creator_user_id}: was $${owed}, now $${newOwed}`);
+        }
+
         console.log(`Tip succeeded: $${receivedAmount} for user ${tipIntent.creator_user_id}`);
+
+        // Fire notification (best-effort, don't block webhook)
+        try {
+          const { createNotification } = await import("@/lib/notifications");
+          await createNotification({
+            userId: tipIntent.creator_user_id,
+            type: "tip",
+            title: "💸 You got paid!",
+            body: `You received $${receivedAmount.toFixed(2)}`,
+            meta: { amount: receivedAmount, fee: 0, net: receivedAmount },
+          });
+        } catch (_) {}
       } catch (e) {
         console.error("Failed to record ledger entry for tip_intent", tipIntent.id, e);
       } finally {
         try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (e) {}
       }
+
+      // Risk engine: evaluate after tip (catches owed_balance auto-offset edge cases)
+      try {
+        const { evaluateRisk } = await import("@/lib/riskEngine");
+        await evaluateRisk(supabaseClient, tipIntent.creator_user_id);
+      } catch (_e) {}
 
       break;
     }
@@ -180,6 +214,7 @@ export async function handleStripeEvent(
     case "refund.created": {
       const refund = event.data.object as Stripe.Refund;
       const refundId = refund.id;
+      // Prefer refund.payment_intent — avoid charge mapping fallbacks
       const paymentIntentId = typeof refund.payment_intent === "string"
         ? refund.payment_intent
         : (refund.payment_intent as Stripe.PaymentIntent)?.id ?? null;
@@ -199,14 +234,25 @@ export async function handleStripeEvent(
       if (tipErr) { console.error("refund.created: tip lookup failed", tipErr); break; }
       if (!tipIntent) { console.warn("refund.created: no tip for PI", paymentIntentId); break; }
 
-      // Per-refund-id idempotency — Stripe retries same event, skip if already processed
+      // Hard idempotency: check processed_refunds table (unique constraint)
+      const { data: alreadyProcessed } = await supabaseClient
+        .from("processed_refunds")
+        .select("refund_id")
+        .eq("refund_id", refundId)
+        .maybeSingle();
+      if (alreadyProcessed) {
+        console.log("refund.created: already processed (unique table)", refundId);
+        break;
+      }
+
+      // Soft idempotency: also check array (fast path, no extra query in most cases)
       if ((tipIntent.processed_refund_ids ?? []).includes(refundId)) {
         console.log("refund.created: already processed refund slice", refundId);
         break;
       }
 
-      // Already fully refunded — nothing left to debit
-      if (tipIntent.refund_status === "full") {
+      // Already fully refunded — nothing left to debit (also handles out-of-order webhooks)
+      if (tipIntent.refund_status === "full" || (Number(tipIntent.refunded_amount ?? 0) >= Number(tipIntent.tip_amount ?? (tipIntent.amount as any)))) {
         console.log("refund.created: tip already fully refunded", tipIntent.id);
         break;
       }
@@ -224,7 +270,7 @@ export async function handleStripeEvent(
         const isFull = newRefundedTotal >= tipAmount;
         const newRefundStatus = isFull ? "full" : "partial";
 
-        // Check current balance — if negative would result, flag account instead of blocking (refund is owed)
+        // Check current balance — if negative would result, flag account + track owed_balance
         const { data: walletRow } = await supabaseClient
           .from("wallets")
           .select("balance")
@@ -232,54 +278,75 @@ export async function handleStripeEvent(
           .maybeSingle();
         const currentBalance = Number(walletRow?.balance ?? 0);
         if (currentBalance < sliceAmount) {
-          console.warn(
-            `refund.created: balance $${currentBalance} < refund $${sliceAmount} for user ${tipIntent.creator_user_id}. Flagging account.`
+          const owedAmount = Number((sliceAmount - currentBalance).toFixed(2));
+          console.error(
+            `[ALERT] refund.created: balance $${currentBalance} < refund $${sliceAmount} for user ${tipIntent.creator_user_id}. Account going negative by $${owedAmount}.`
           );
           await supabaseClient
             .from("profiles")
-            .update({ account_status: "restricted", status_reason: "balance_below_refund_obligation" })
+            .update({
+              account_status: "restricted",
+              status_reason: "balance_below_refund_obligation",
+              owed_balance: owedAmount,
+            })
             .eq("user_id", tipIntent.creator_user_id);
         }
 
-        // Write ledger debit first — only mark processed after success (atomic ordering)
-        await ledgerFn({
-          user_id: tipIntent.creator_user_id,
-          type: "tip_refunded",
-          amount: -sliceAmount,
-          reference_id: tipIntent.id,
-          meta: {
-            action: "refund",
-            tip_intent_id: tipIntent.id,
-            refund_id: refundId,
-            payment_intent_id: paymentIntentId,
-            slice_amount: sliceAmount,
-            refund_type: newRefundStatus,
-            total_refunded: newRefundedTotal,
-            fee: 0,
-            net: -sliceAmount,
-            currency: refund.currency,
-            event_id: event.id,
-          },
+        // Alert on multiple refunds for the same tip
+        if (previouslyRefunded > 0) {
+          console.warn(
+            `[ALERT] refund.created: multiple refund slices on tip ${tipIntent.id}. Previous: $${previouslyRefunded}, new slice: $${sliceAmount}, total: $${newRefundedTotal}`
+          );
+        }
+
+        // Build normalized meta for audit
+        const refundMeta = {
+          action: "refund",
+          tip_intent_id: tipIntent.id,
+          refund_id: refundId,
+          payment_intent_id: paymentIntentId,
+          amount: sliceAmount,
+          currency: refund.currency,
+          reason: refund.reason || "unspecified",
+          slice_amount: sliceAmount,
+          refund_type: newRefundStatus,
+          total_refunded: newRefundedTotal,
+          fee: 0,
+          net: -sliceAmount,
+          event_id: event.id,
+        };
+
+        // Atomic: ledger insert + tip_intent update + processed_refunds insert in one DB transaction
+        const { error: rpcError } = await supabaseClient.rpc("apply_refund_slice", {
+          p_tip_id: tipIntent.id,
+          p_user_id: tipIntent.creator_user_id,
+          p_amount: sliceAmount,
+          p_refund_id: refundId,
+          p_meta: refundMeta,
         });
 
-        // Only update tip_intent after ledger write succeeds
-        await supabaseClient
-          .from("tip_intents")
-          .update({
-            status: isFull ? "refunded" : "partially_refunded",
-            refunded_amount: newRefundedTotal,
-            refund_status: newRefundStatus,
-            last_refund_id: refundId,
-            processed_refund_ids: [...(tipIntent.processed_refund_ids ?? []), refundId],
-          })
-          .eq("id", tipIntent.id);
+        if (rpcError) {
+          // If unique constraint violation on processed_refunds → idempotent skip
+          if (rpcError.message?.includes("processed_refunds_pkey") || rpcError.code === "23505") {
+            console.log("refund.created: duplicate caught by unique constraint", refundId);
+            break;
+          }
+          throw new Error(`apply_refund_slice RPC failed: ${rpcError.message}`);
+        }
 
         console.log(`Tip ${newRefundStatus} refund: $${sliceAmount} for user ${tipIntent.creator_user_id}`);
       } catch (e) {
-        console.error("refund.created: failed to process slice", tipIntent.id, e);
+        console.error(`[ALERT] refund.created: failed to process slice for tip ${tipIntent.id}:`, e);
       } finally {
         try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (_e) {}
       }
+
+      // Risk engine: evaluate after refund (catches refund velocity + owed_balance)
+      try {
+        const { evaluateRisk } = await import("@/lib/riskEngine");
+        await evaluateRisk(supabaseClient, tipIntent.creator_user_id);
+      } catch (_e) {}
+
       break;
     }
 
@@ -344,6 +411,7 @@ export async function handleStripeEvent(
               last_refund_id: charge.id,
               stripe_charge_id: charge.id,
               ...(refundId ? { processed_refund_ids: [...(tipIntent.processed_refund_ids ?? []), refundId] } : {}),
+              refund_initiated_at: null, // clear gap window so withdrawal guard releases
             })
             .eq("id", tipIntent.id);
 
@@ -413,6 +481,18 @@ export async function handleStripeEvent(
         try {
           await ledgerFn({ user_id: userId, type: "payout", amount: -amount, reference_id: payout.id, meta: { action: "payout", fee: 0, net: -amount, currency: payout.currency, event_id: event.id, external_id: payout.id } });
           console.log(`Payout completed: $${amount} for user ${userId}`);
+
+          // Fire notification (best-effort)
+          try {
+            const { createNotification } = await import("@/lib/notifications");
+            await createNotification({
+              userId,
+              type: "payout",
+              title: "🏦 Payout Sent",
+              body: `$${amount.toFixed(2)} has been sent to your bank`,
+              meta: { amount },
+            });
+          } catch (_) {}
         } catch (e) {
           console.error("Failed to record payout ledger entry for user", userId, e);
         } finally {
@@ -439,16 +519,6 @@ export async function handleStripeEvent(
         stripe_onboarding_complete: Boolean(account.charges_enabled && account.payouts_enabled),
       }).eq("stripe_account_id", account.id);
       console.log(`Account updated: ${account.id}`);
-
-      // If onboarding is complete, try to auto-create a virtual card for the user
-      if (account.charges_enabled && account.payouts_enabled) {
-        try {
-          const mod = await import("@/lib/stripe/createVirtualCardForUser");
-          await mod.createVirtualCardForUser(account.id);
-        } catch (e) {
-          console.error("Auto-create virtual card failed:", e);
-        }
-      }
       break;
     }
 
@@ -459,73 +529,114 @@ export async function handleStripeEvent(
       break;
     }
 
-    // CARD ISSUING EVENTS
-    case "issuing_authorization.request":
-    case "issuing_authorization.created":
-    case "issuing_authorization.updated": {
-      const authObj = event.data.object as Stripe.Issuing.Authorization;
-      const cardId = typeof authObj.card === "string" ? authObj.card : (authObj.card as Stripe.Issuing.Card)?.id;
+    // DISPUTES / CHARGEBACKS
+    case "charge.dispute.created": {
+      const dispute = event.data.object as Stripe.Dispute;
+      const charge = dispute.charge;
+      const chargeId = typeof charge === "string" ? charge : charge?.id ?? null;
+      const disputeAmount = (dispute.amount ?? 0) / 100;
+      const paymentIntentId = typeof dispute.payment_intent === "string"
+        ? dispute.payment_intent
+        : (dispute.payment_intent as Stripe.PaymentIntent)?.id ?? null;
 
-      const userRes = await supabaseClient
-        .from("cards")
-        .select("user_id,daily_limit,monthly_limit,status")
-        .eq("stripe_card_id", cardId)
-        .maybeSingle();
+      // Try to find the tip via payment_intent first, then charge
+      let tipIntent: any = null;
+      if (paymentIntentId) {
+        const { data } = await supabaseClient
+          .from("tip_intents")
+          .select("*")
+          .eq("stripe_payment_intent_id", paymentIntentId)
+          .maybeSingle();
+        tipIntent = data;
+      }
+      if (!tipIntent && chargeId) {
+        const { data } = await supabaseClient
+          .from("tip_intents")
+          .select("*")
+          .eq("stripe_charge_id", chargeId)
+          .maybeSingle();
+        tipIntent = data;
+      }
 
-      const user = userRes.data as CardRow | null;
-
-      if (!user || user.status !== "active") {
-        console.warn(`Card not active or not found: ${cardId}`);
+      if (!tipIntent) {
+        console.error(`[ALERT] charge.dispute.created: no tip found for dispute ${dispute.id} (PI: ${paymentIntentId}, charge: ${chargeId})`);
         break;
       }
 
-      const { data: dailySpend } = await supabaseClient.rpc("get_daily_card_spend", { p_user_id: user.user_id });
-      const { data: monthlySpend } = await supabaseClient.rpc("get_monthly_card_spend", { p_user_id: user.user_id });
+      console.error(
+        `[ALERT] CHARGEBACK: dispute ${dispute.id} for $${disputeAmount} on tip ${tipIntent.id}, user ${tipIntent.creator_user_id}. Reason: ${dispute.reason}`
+      );
 
-      const amount = (authObj.amount ?? 0) / 100;
-      const { data: walletRes } = await (supabaseClient as any)
-        .from("wallets")
-        .select("balance")
-        .eq("user_id", user.user_id)
-        .maybeSingle();
-
-      if (!walletRes || walletRes.balance < amount) {
-        await supabaseClient.from("issuing_logs").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, amount, approved: false, reason: "insufficient_wallet_balance" });
-        console.log(`Authorization declined (wallet) for ${user.user_id}`);
+      const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
+      if (!lock.ok) {
+        console.error(`[ALERT] charge.dispute.created: could not acquire wallet lock for user ${tipIntent.creator_user_id}`);
         break;
       }
 
-      if ((dailySpend || 0) + amount > (user.daily_limit || 5000)) {
-        await supabaseClient.from("issuing_logs").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, amount, approved: false, reason: "daily_limit_exceeded" });
-        console.log(`Authorization declined (daily limit) for ${user.user_id}`);
-        break;
+      try {
+        // Debit the disputed amount (same as refund flow)
+        await ledgerFn({
+          user_id: tipIntent.creator_user_id,
+          type: "tip_refunded",
+          amount: -disputeAmount,
+          reference_id: tipIntent.id,
+          meta: {
+            action: "dispute",
+            tip_intent_id: tipIntent.id,
+            dispute_id: dispute.id,
+            payment_intent_id: paymentIntentId,
+            charge_id: chargeId,
+            amount: disputeAmount,
+            currency: dispute.currency,
+            reason: dispute.reason || "unspecified",
+            event_id: event.id,
+          },
+        });
+
+        // Mark tip as disputed
+        await supabaseClient
+          .from("tip_intents")
+          .update({
+            status: "disputed",
+            refund_status: "full",
+            refunded_amount: Number(tipIntent.tip_amount ?? (tipIntent.amount as any)),
+            refund_initiated_at: null,
+          })
+          .eq("id", tipIntent.id);
+
+        // Restrict creator account immediately
+        const { data: walletRow } = await supabaseClient
+          .from("wallets")
+          .select("balance")
+          .eq("user_id", tipIntent.creator_user_id)
+          .maybeSingle();
+        const newBalance = Number(walletRow?.balance ?? 0);
+        const owedAmount = newBalance < 0 ? Math.abs(newBalance) : 0;
+
+        await supabaseClient
+          .from("profiles")
+          .update({
+            account_status: "restricted",
+            status_reason: `chargeback_dispute_${dispute.id}`,
+            ...(owedAmount > 0 ? { owed_balance: owedAmount } : {}),
+          })
+          .eq("user_id", tipIntent.creator_user_id);
+
+        console.error(
+          `[ALERT] Dispute processed: $${disputeAmount} debited from user ${tipIntent.creator_user_id}. Account restricted. Owed: $${owedAmount}`
+        );
+      } catch (e) {
+        console.error(`[ALERT] charge.dispute.created: failed to process dispute ${dispute.id}:`, e);
+      } finally {
+        try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (_e) {}
       }
 
-      if ((monthlySpend || 0) + amount > (user.monthly_limit || 20000)) {
-        await supabaseClient.from("issuing_logs").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, amount, approved: false, reason: "monthly_limit_exceeded" });
-        console.log(`Authorization declined (monthly limit) for ${user.user_id}`);
-        break;
-      }
+      // Risk engine: evaluate after dispute (will catch compound risk signals)
+      try {
+        const { evaluateRisk } = await import("@/lib/riskEngine");
+        await evaluateRisk(supabaseClient, tipIntent.creator_user_id);
+      } catch (_e) {}
 
-      // Approve: record ledger + transaction + log
-      if (user.user_id) {
-        const lock = await acquireWalletLock(supabaseClient, user.user_id, "withdrawal", 300);
-        if (!lock.ok) {
-          console.warn("Could not acquire wallet lock for card charge, skipping ledger entry:", user.user_id, lock.reason);
-          break;
-        }
-
-        try {
-          await ledgerFn({ user_id: user.user_id, type: "card_charge", amount: -amount, reference_id: authObj.id, meta: { action: "card_charge", fee: 0, net: -amount, currency: authObj.currency ?? "usd", event_id: event.id, external_id: authObj.id } });
-          await supabaseClient.from("card_transactions").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, merchant_name: (authObj.merchant_data as any)?.name ?? null, amount, currency: authObj.currency ?? "usd", status: "approved" });
-          await supabaseClient.from("issuing_logs").insert({ user_id: user.user_id, stripe_authorization_id: authObj.id, amount, approved: true });
-          console.log(`Card authorization approved for ${user.user_id}`);
-        } catch (e) {
-          console.error("Failed to process card authorization for user", user.user_id, e);
-        } finally {
-          try { await releaseWalletLock(supabaseClient, user.user_id, "withdrawal"); } catch (e) {}
-        }
-      }
       break;
     }
 
