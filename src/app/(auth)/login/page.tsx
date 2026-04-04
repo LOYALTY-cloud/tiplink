@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
@@ -11,6 +11,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -29,7 +33,8 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/dashboard");
+    setSuccess(true);
+    setTimeout(() => router.push("/dashboard"), 1200);
   };
 
   return (
@@ -41,8 +46,12 @@ export default function LoginPage() {
         <div className="absolute w-[500px] h-[500px] bg-purple-600/20 blur-[120px] bottom-[-100px] right-[-100px] animate-pulse" />
       </div>
 
-      {/* Card */}
-      <div className="relative z-10 w-full max-w-md">
+      {/* Card — fade + slide up on mount */}
+      <div
+        className={`relative z-10 w-full max-w-md transform transition-all duration-700 ${
+          mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
+        }`}
+      >
         <form
           onSubmit={onSubmit}
           className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-2xl p-8 shadow-xl"
@@ -56,55 +65,74 @@ export default function LoginPage() {
             />
           </div>
 
-          {/* Title */}
-          <h1 className="text-2xl font-semibold text-white text-center">
-            Log in
-          </h1>
-          <p className="text-sm text-gray-400 text-center mb-6">
-            Welcome back to 1neLink.
-          </p>
+          {/* Success state */}
+          {success ? (
+            <div className="text-center py-4">
+              <div className="text-4xl mb-3">👋</div>
+              <h2 className="text-xl text-emerald-400 font-semibold">Welcome back</h2>
+              <p className="text-gray-400 mt-2 text-sm">Redirecting to dashboard...</p>
+            </div>
+          ) : (
+            <>
+              {/* Title */}
+              <h1 className="text-2xl font-semibold text-white text-center">
+                Log in
+              </h1>
+              <p className="text-sm text-gray-400 text-center mb-6">
+                Welcome back to 1neLink.
+              </p>
 
-          {/* Inputs */}
-          <div className="space-y-4">
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition"
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition"
-            />
-          </div>
+              {/* Inputs with glow */}
+              <div className="space-y-4">
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400
+                    focus:outline-none focus:border-cyan-400
+                    focus:shadow-[0_0_12px_rgba(0,224,255,0.4)]
+                    transition-all duration-200"
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400
+                    focus:outline-none focus:border-purple-400
+                    focus:shadow-[0_0_12px_rgba(168,85,247,0.4)]
+                    transition-all duration-200"
+                />
+              </div>
 
-          {/* Error */}
-          {msg && <p className="text-sm text-red-400 mt-3">{msg}</p>}
+              {/* Error */}
+              {msg && <p className="text-sm text-red-400 mt-3">{msg}</p>}
 
-          {/* Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full mt-6 py-3 rounded-lg bg-gradient-to-r from-cyan-400 to-purple-500 text-white font-medium hover:opacity-90 active:scale-[0.98] transition-all duration-200 disabled:opacity-60"
-          >
-            {loading ? "Signing in..." : "Log in"}
-          </button>
+              {/* Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full mt-6 py-3 rounded-lg bg-gradient-to-r from-cyan-400 to-purple-500 text-white font-medium
+                  hover:opacity-90 active:scale-[0.97] transition-all duration-200
+                  disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? "Signing in..." : "Log in"}
+              </button>
 
-          {/* Links */}
-          <div className="flex justify-between mt-4 text-sm text-gray-400">
-            <Link href="/forgot-password" className="hover:text-white transition">
-              Forgot password?
-            </Link>
-            <Link href="/signup" className="hover:text-white transition">
-              Create account
-            </Link>
-          </div>
+              {/* Links */}
+              <div className="flex justify-between mt-4 text-sm text-gray-400">
+                <Link href="/forgot-password" className="hover:text-white transition">
+                  Forgot password?
+                </Link>
+                <Link href="/signup" className="hover:text-white transition">
+                  Create account
+                </Link>
+              </div>
+            </>
+          )}
         </form>
       </div>
     </div>

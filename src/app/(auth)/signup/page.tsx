@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
 
 export default function SignUpPage() {
@@ -12,6 +12,9 @@ export default function SignUpPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [handleErr, setHandleErr] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   const handleRe = /^[a-zA-Z0-9_]{3,30}$/;
 
@@ -70,8 +73,12 @@ export default function SignUpPage() {
         <div className="absolute w-[500px] h-[500px] bg-purple-600/20 blur-[120px] bottom-[-100px] right-[-100px] animate-pulse" />
       </div>
 
-      {/* Card */}
-      <div className="relative z-10 w-full max-w-md">
+      {/* Card — fade + slide up on mount */}
+      <div
+        className={`relative z-10 w-full max-w-md transform transition-all duration-700 ${
+          mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
+        }`}
+      >
         <form
           onSubmit={onSubmit}
           className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-2xl p-8 shadow-xl"
@@ -85,83 +92,113 @@ export default function SignUpPage() {
             />
           </div>
 
-          {/* Title */}
-          <h1 className="text-2xl font-semibold text-white text-center">
-            Create your account
-          </h1>
-          <p className="text-sm text-gray-400 text-center mb-6">
-            Start receiving tips in minutes.
-          </p>
+          {/* Success state */}
+          {msg ? (
+            <div className="text-center py-4">
+              <div className="text-4xl mb-3">🎉</div>
+              <h2 className="text-xl text-emerald-400 font-semibold">You&apos;re in!</h2>
+              <p className="text-gray-400 mt-2 text-sm">{msg}</p>
+              <Link
+                href="/login"
+                className="inline-block mt-4 px-6 py-2 rounded-lg bg-gradient-to-r from-cyan-400 to-purple-500 text-white font-medium hover:opacity-90 active:scale-[0.97] transition-all duration-200"
+              >
+                Log in
+              </Link>
+            </div>
+          ) : (
+            <>
+              {/* Title */}
+              <h1 className="text-2xl font-semibold text-white text-center">
+                Create your account
+              </h1>
+              <p className="text-sm text-gray-400 text-center mb-6">
+                Start receiving tips in minutes.
+              </p>
 
-          {/* Inputs */}
-          <div className="space-y-4">
-            <input
-              type="text"
-              placeholder="Display Name"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              required
-              maxLength={50}
-              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition"
-            />
-
-            <div>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">@</span>
+              {/* Inputs with glow */}
+              <div className="space-y-4">
                 <input
                   type="text"
-                  placeholder="handle"
-                  value={handle}
-                  onChange={(e) => onHandleChange(e.target.value)}
+                  placeholder="Display Name"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
                   required
-                  maxLength={30}
-                  className="w-full pl-7 pr-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition"
+                  maxLength={50}
+                  className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400
+                    focus:outline-none focus:border-cyan-400
+                    focus:shadow-[0_0_12px_rgba(0,224,255,0.4)]
+                    transition-all duration-200"
+                />
+
+                <div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">@</span>
+                    <input
+                      type="text"
+                      placeholder="handle"
+                      value={handle}
+                      onChange={(e) => onHandleChange(e.target.value)}
+                      required
+                      maxLength={30}
+                      className="w-full pl-7 pr-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400
+                        focus:outline-none focus:border-cyan-400
+                        focus:shadow-[0_0_12px_rgba(0,224,255,0.4)]
+                        transition-all duration-200"
+                    />
+                  </div>
+                  {handleErr && <p className="text-xs text-red-400 mt-1">{handleErr}</p>}
+                  {handle && !handleErr && <p className="text-xs text-gray-500 mt-1">1nelink.com/{handle}</p>}
+                </div>
+
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400
+                    focus:outline-none focus:border-cyan-400
+                    focus:shadow-[0_0_12px_rgba(0,224,255,0.4)]
+                    transition-all duration-200"
+                />
+
+                <input
+                  type="password"
+                  placeholder="Password (min 8 chars)"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400
+                    focus:outline-none focus:border-purple-400
+                    focus:shadow-[0_0_12px_rgba(168,85,247,0.4)]
+                    transition-all duration-200"
                 />
               </div>
-              {handleErr && <p className="text-xs text-red-400 mt-1">{handleErr}</p>}
-              {handle && !handleErr && <p className="text-xs text-gray-500 mt-1">1nelink.com/{handle}</p>}
-            </div>
 
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition"
-            />
+              {/* Error */}
+              {err && <p className="text-sm text-red-400 mt-3">{err}</p>}
 
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={8}
-              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition"
-            />
-          </div>
+              {/* Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full mt-6 py-3 rounded-lg bg-gradient-to-r from-cyan-400 to-purple-500 text-white font-medium
+                  hover:opacity-90 active:scale-[0.97] transition-all duration-200
+                  disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? "Creating..." : "Sign up"}
+              </button>
 
-          {/* Errors / Success */}
-          {err && <p className="text-sm text-red-400 mt-3">{err}</p>}
-          {msg && <p className="text-sm text-emerald-400 mt-3">{msg}</p>}
-
-          {/* Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full mt-6 py-3 rounded-lg bg-gradient-to-r from-cyan-400 to-purple-500 text-white font-medium hover:opacity-90 active:scale-[0.98] transition-all duration-200 disabled:opacity-60"
-          >
-            {loading ? "Creating..." : "Sign up"}
-          </button>
-
-          {/* Link */}
-          <p className="text-sm text-gray-400 text-center mt-4">
-            Already have an account?{" "}
-            <Link href="/login" className="text-white hover:text-cyan-400 transition">
-              Log in
-            </Link>
-          </p>
+              {/* Link */}
+              <p className="text-sm text-gray-400 text-center mt-4">
+                Already have an account?{" "}
+                <Link href="/login" className="text-white hover:text-cyan-400 transition">
+                  Log in
+                </Link>
+              </p>
+            </>
+          )}
         </form>
       </div>
     </div>
