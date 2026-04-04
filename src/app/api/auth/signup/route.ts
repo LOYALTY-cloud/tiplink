@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { Resend } from "resend";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { trackLogin } from "@/lib/loginTracker";
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
@@ -150,6 +151,9 @@ export async function POST(req: Request) {
         `,
       });
     }
+
+    // Track signup for fraud analytics
+    trackLogin({ userId: authData.user.id, eventType: "signup", ip, userAgent: req.headers.get("user-agent") || "", success: true });
 
     return NextResponse.json({ ok: true, userId: authData.user.id });
   } catch (e: unknown) {

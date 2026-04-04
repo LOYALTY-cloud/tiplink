@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { trackLogin } from "@/lib/loginTracker";
 
 export const runtime = "nodejs";
 
@@ -33,6 +34,7 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (error || !profile) {
+      trackLogin({ userId: "unknown", eventType: "login", ip, userAgent: req.headers.get("user-agent") || "", success: false, failureReason: "invalid_credentials" });
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
@@ -40,6 +42,7 @@ export async function POST(req: Request) {
     const dbFirst = (profile.first_name ?? "").toLowerCase();
     const dbLast = (profile.last_name ?? "").toLowerCase();
     if (dbFirst !== fn || dbLast !== ln) {
+      trackLogin({ userId: "unknown", eventType: "login", ip, userAgent: req.headers.get("user-agent") || "", success: false, failureReason: "name_mismatch" });
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
@@ -97,6 +100,9 @@ export async function POST(req: Request) {
         admin_id_used: profile.admin_id,
       },
     }).then(() => {}, () => {});
+
+    // Track login for fraud analytics
+    trackLogin({ userId: profile.user_id, eventType: "login", ip, userAgent: req.headers.get("user-agent") || "", success: true });
 
     return NextResponse.json({
       ok: true,

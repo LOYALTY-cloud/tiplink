@@ -7,6 +7,7 @@ import type Stripe from "stripe";
 import type { StripeWebhookEvent } from "@/types/stripe";
 import type { WalletRow } from "@/types/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { logCaughtError } from "@/lib/errorLogger";
 
 export const runtime = "nodejs";
 
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest) {
     event = stripe.webhooks.constructEvent(Buffer.from(buf), sig, endpointSecret) as unknown as StripeWebhookEvent;
   } catch (err: unknown) {
     console.error("⚠️ Webhook signature verification failed:", err instanceof Error ? err.message : err);
+    logCaughtError("stripe/webhook", err, { severity: "critical", metadata: { reason: "signature_verification_failed" } });
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
@@ -49,6 +51,7 @@ export async function POST(req: NextRequest) {
     await handleStripeEvent(event as StripeWebhookEvent);
   } catch (err: unknown) {
     console.error("Webhook processing failed:", err);
+    logCaughtError("stripe/webhook", err, { severity: "critical", metadata: { reason: "processing_failed" } });
     return NextResponse.json({ error: "Processing failed" }, { status: 500 });
   }
 

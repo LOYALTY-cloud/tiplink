@@ -9,6 +9,8 @@ import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 import { checkSoftRestrictions } from "@/lib/softRestrictions";
 import { calculateTrustScore, type TrustInput } from "@/lib/trustScore";
 import { shouldAutoFreeze, executeAutoFreeze, type FreezeContext } from "@/lib/autoFreeze";
+import { hasSuspiciousLogins } from "@/lib/loginTracker";
+import { logCaughtError } from "@/lib/errorLogger";
 import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
@@ -58,6 +60,15 @@ export async function POST(req: Request) {
     const restriction = await checkSoftRestrictions(userId);
     if (restriction.blocked) {
       return NextResponse.json({ error: restriction.reason }, { status: 403 });
+    }
+
+    // Block withdrawal if user has suspicious login patterns (3+ IPs in 1 hour)
+    const suspicious = await hasSuspiciousLogins(userId);
+    if (suspicious) {
+      return NextResponse.json(
+        { error: "Unusual login activity detected. Withdrawal blocked for security. Contact support." },
+        { status: 403 }
+      );
     }
 
     // Load profile (Stripe status + account state)
@@ -408,6 +419,7 @@ export async function POST(req: Request) {
       release_at: releaseAt,
     });
   } catch (e: unknown) {
+    logCaughtError("api/withdrawals/create", e);
     const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
     return NextResponse.json({ error: errMsg }, { status: 500 });
   }

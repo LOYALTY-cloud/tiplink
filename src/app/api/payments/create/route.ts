@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
 import { createClient } from "@supabase/supabase-js";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { logCaughtError } from "@/lib/errorLogger";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -209,6 +210,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (err: unknown) {
+    logCaughtError("api/payments/create", err);
     const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
     return NextResponse.json({ error: errMsg }, { status: 500 });
   }

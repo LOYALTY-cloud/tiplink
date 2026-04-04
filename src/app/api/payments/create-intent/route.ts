@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { ProfileRow } from "@/types/db";
 import { stripe } from "@/lib/stripe/server";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { logCaughtError } from "@/lib/errorLogger";
 
 export const runtime = "nodejs";
 
@@ -442,7 +443,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (e: unknown) {
-    console.error("create-intent error:", e instanceof Error ? e.message : e);
+    logCaughtError("api/payments/create-intent", e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
