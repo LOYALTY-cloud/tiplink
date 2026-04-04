@@ -114,8 +114,8 @@ export async function POST(req: Request) {
 <div style="background:#f7f7f8;padding:40px 20px;font-family:Inter,Arial,sans-serif;">
   <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e5e7eb;">
 
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;"><tr><td align="center" style="padding:30px 20px 10px 20px;"><img src="https://raw.githubusercontent.com/LOYALTY-cloud/tiplink/main/public/1nelink-logo.png" alt="1neLink" width="150" style="display:block;width:150px;max-width:180px;height:auto;border-radius:14px;" /></td></tr><tr><td style="height:2px;background:linear-gradient(to right,#00E0FF,#7B3FE4);"></td></tr><tr><td height="10"></td></tr></table>
     <div style="text-align:center;margin-bottom:20px;">
-      <img src="https://1nelink.com/1nelink-logo.png" alt="1neLink" width="60" height="60" style="border-radius:14px;margin-bottom:12px;" />
       <h1 style="font-size:20px;color:#111827;margin:8px 0 0;">Confirm your email</h1>
     </div>
 
