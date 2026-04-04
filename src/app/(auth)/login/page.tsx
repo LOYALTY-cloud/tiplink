@@ -52,7 +52,7 @@ export default function LoginPage() {
             <img
               src="/1nelink-logo.png"
               alt="1neLink"
-              className="h-14 sm:h-16 drop-shadow-[0_0_12px_rgba(0,224,255,0.4)]"
+              className="h-20 sm:h-24 drop-shadow-[0_0_16px_rgba(0,224,255,0.4)]"
             />
           </div>
 
