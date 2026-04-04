@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase/client";
+import { getAdminHeaders } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
 
 type ActionLog = {
@@ -23,41 +23,23 @@ export default function AdminLogsPage() {
   useEffect(() => {
     fetchLogs();
 
-    const channel = supabase
-      .channel("admin-logs")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "admin_actions" }, () => {
-        fetchLogs();
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    // Poll for new logs every 10 seconds (realtime blocked by RLS)
+    const interval = setInterval(fetchLogs, 10_000);
+    return () => clearInterval(interval);
   }, []);
 
   async function fetchLogs() {
     setLoading(true);
-    const { data } = await supabase
-      .from("admin_actions")
-      .select("id, admin_id, action, target_user, metadata, severity, created_at")
-      .order("created_at", { ascending: false })
-      .limit(100);
-
-    const rows = data ?? [];
-    setLogs(rows);
-
-    // Batch-fetch profiles for all admin + target user IDs
-    const ids = [...new Set(rows.flatMap((r) => [r.admin_id, r.target_user].filter(Boolean) as string[]))];
-    if (ids.length > 0) {
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("user_id, handle, display_name")
-        .in("user_id", ids);
-      const map: Record<string, { handle: string | null; display_name: string | null }> = {};
-      for (const p of profiles ?? []) {
-        map[p.user_id] = { handle: p.handle, display_name: p.display_name };
+    try {
+      const res = await fetch("/api/admin/logs", {
+        headers: getAdminHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data.logs || []);
+        setProfileMap(data.profileMap || {});
       }
-      setProfileMap(map);
-    }
-
+    } catch {}
     setLoading(false);
   }
 

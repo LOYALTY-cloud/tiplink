@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseRouteClient } from "@/lib/supabase/server";
 import { createClient } from "@supabase/supabase-js";
+import { rateLimit, getClientIp } from "@/lib/rateLimit";
 
 type Body = {
   bucket: string;
@@ -18,6 +19,13 @@ export async function POST(req: Request) {
 
     if (!bucket || !fileName || !fileBase64) {
       return NextResponse.json({ error: "Missing params" }, { status: 400 });
+    }
+
+    // Rate limit: 10 uploads per hour per IP
+    const ip = getClientIp(req);
+    const { allowed: withinLimit } = await rateLimit(`upload:${ip}`, 10, 3600);
+    if (!withinLimit) {
+      return NextResponse.json({ error: "Too many uploads. Try again later." }, { status: 429 });
     }
 
     // Basic validation: reject non-image extensions

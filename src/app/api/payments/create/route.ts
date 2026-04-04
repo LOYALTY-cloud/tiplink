@@ -7,10 +7,8 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Fee structure (UI estimate)
-const STRIPE_PERCENT = 0.029;
-const STRIPE_FLAT = 0.30;
-const PLATFORM_PERCENT = 0.0; // platform fee disabled (0%)
+// Fee structure — must match src/lib/fees.ts
+import { STRIPE_PERCENT, STRIPE_FLAT, PLATFORM_PERCENT } from "@/lib/fees";
 
 const toCents = (n: number) => Math.round(n * 100);
 const round2 = (n: number) => Math.round(n * 100) / 100;

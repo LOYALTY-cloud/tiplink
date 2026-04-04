@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getAdminFromSession } from "@/lib/auth/getAdminFromSession";
+import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
 
 export const runtime = "nodejs";
@@ -8,9 +8,7 @@ export const runtime = "nodejs";
 /** POST — add a support note to a user */
 export async function POST(req: Request) {
   try {
-    const authHeader = req.headers.get("authorization") ?? "";
-    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const session = await getAdminFromSession(jwt);
+    const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     requireRole(session.role, ["owner", "super_admin", "support_admin"]);
 
@@ -43,9 +41,7 @@ export async function POST(req: Request) {
 /** GET — list support notes for a user */
 export async function GET(req: Request) {
   try {
-    const authHeader = req.headers.get("authorization") ?? "";
-    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const session = await getAdminFromSession(jwt);
+    const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     requireRole(session.role, "view_admin");
 

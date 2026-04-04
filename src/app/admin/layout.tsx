@@ -3,8 +3,15 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
-import { supabase } from "@/lib/supabase/client";
 import { ui } from "@/lib/ui";
+import SupportTransferModal from "@/components/admin/SupportTransferModal";
+import { useInactivity } from "@/hooks/useInactivity";
+import SessionWarningModal from "@/components/SessionWarningModal";
+import { guardFetch, unguardFetch } from "@/lib/guardedFetch";
+import AIAssistToggle from "@/components/admin/AIAssistToggle";
+import AIAssistPanel from "@/components/admin/AIAssistPanel";
+import FraudAlertsBanner from "@/components/admin/FraudAlertsBanner";
+import AdminAlertProvider from "@/components/admin/AdminAlertProvider";
 
 type SearchResult = {
   type: "user" | "transaction" | "tip";
@@ -22,45 +29,134 @@ export default function AdminLayout({
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [adminStatus, setAdminStatus] = useState<string | null>(null);
+  const [restrictedUntil, setRestrictedUntil] = useState<string | null>(null);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [adminDrawerOpen, setAdminDrawerOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [sessionWarning, setSessionWarning] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  // Admin: tighter 5-min timeout, 4-min warning
+  useInactivity(5 * 60 * 1000, 4 * 60 * 1000);
+
   useEffect(() => {
-    (async () => {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) {
-        router.replace("/login");
-        return;
-      }
+    const onWarning = () => setSessionWarning(true);
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("user_id", userData.user.id)
-        .single();
+    window.addEventListener("session_warning", onWarning);
 
-      const adminRoles = ["owner", "super_admin", "finance_admin", "support_admin"];
-      if (!profile?.role || !adminRoles.includes(profile.role)) {
-        router.replace("/dashboard");
-        return;
-      }
+    return () => {
+      window.removeEventListener("session_warning", onWarning);
+    };
+  }, []);
 
-      setEmail(userData.user.email ?? "");
+  useEffect(() => {
+    // Skip auth check for login page
+    if (pathname === "/admin/login") {
       setLoading(false);
+      return;
+    }
+
+    // Check admin session from localStorage
+    const raw = localStorage.getItem("admin_session");
+    if (!raw) {
+      router.replace("/admin/login");
+      return;
+    }
+
+    (async () => {
+    try {
+      const session = JSON.parse(raw);
+      const adminRoles = ["owner", "super_admin", "finance_admin", "support_admin"];
+      if (!session?.role || !adminRoles.includes(session.role) || !session?.admin_id) {
+        localStorage.removeItem("admin_session");
+        router.replace("/admin/login");
+        return;
+      }
+
+      // Check session expiry (8-hour max lifetime)
+      // Sessions without expires_at are from before this check — force re-login
+      if (!session.expires_at || Date.now() > session.expires_at) {
+        localStorage.removeItem("admin_session");
+        router.replace("/admin/login");
+        return;
+      }
+
+      setEmail(session.name || "Admin");
+      setUserRole(session.role);
+
+      // Check admin status (restricted / suspended / terminated)
+      try {
+        const statusRes = await fetch("/api/admin/status", {
+          headers: { "X-Admin-Id": session.admin_id },
+        });
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          setAdminStatus(statusData.status);
+          setRestrictedUntil(statusData.restricted_until ?? null);
+          if (statusData.status === "suspended" || statusData.status === "terminated") {
+            if (pathname !== "/admin/blocked") {
+              router.replace("/admin/blocked");
+              return;
+            }
+          }
+        }
+      } catch {}
+
+      setLoading(false);
+    } catch {
+      localStorage.removeItem("admin_session");
+      router.replace("/admin/login");
+    }
     })();
-  }, [router]);
+  }, [pathname, router]);
+
+  const adminLogout = () => {
+    localStorage.removeItem("admin_session");
+    router.replace("/admin/login");
+  };
+
+  // Heartbeat: ping availability API every 2 min to stay online
+  useEffect(() => {
+    if (pathname === "/admin/login") return;
+    const raw = localStorage.getItem("admin_session");
+    if (!raw) return;
+    const session = JSON.parse(raw);
+    if (!session?.admin_id) return;
+
+    // Initial ping on mount
+    fetch("/api/admin/availability", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Admin-Id": session.admin_id },
+      body: JSON.stringify({ heartbeat: true }),
+    }).catch(() => {});
+
+    const interval = setInterval(() => {
+      fetch("/api/admin/availability", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Admin-Id": session.admin_id },
+        body: JSON.stringify({ heartbeat: true }),
+      }).catch(() => {});
+    }, 2 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [pathname]);
 
   // Close search dropdown on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
         setSearchOpen(false);
+      }
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setMoreMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClick);
@@ -80,12 +176,13 @@ export default function AdminLayout({
   }, [searchQuery]);
 
   async function runSearch(q: string) {
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) return;
+    const raw = localStorage.getItem("admin_session");
+    if (!raw) return;
+    const session = JSON.parse(raw);
+    if (!session?.admin_id) return;
 
     const res = await fetch(`/api/admin/search?q=${encodeURIComponent(q)}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { "X-Admin-Id": session.admin_id },
     });
     if (!res.ok) return;
 
@@ -123,6 +220,11 @@ export default function AdminLayout({
     setSearchOpen(results.length > 0);
   }
 
+  // Login and blocked pages render without admin chrome
+  if (pathname === "/admin/login" || pathname === "/admin/blocked") {
+    return <>{children}</>;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -136,15 +238,36 @@ export default function AdminLayout({
       pathname === href ? ui.navActive : ui.navIdle
     }`;
 
+  const revenueRoles = ["owner", "super_admin"];
+
   const adminNavItems = [
     { label: "Overview", href: "/admin" },
     { label: "Users", href: "/admin/users" },
     { label: "Transactions", href: "/admin/transactions" },
+    ...(userRole && revenueRoles.includes(userRole)
+      ? [{ label: "Revenue", href: "/admin/revenue" }]
+      : []),
+    ...(userRole === "owner"
+      ? [{ label: "Staff", href: "/admin/staff" }]
+      : []),
+  ];
+
+  const moreNavItems = [
     { label: "Refunds", href: "/admin/refunds" },
     { label: "Approvals", href: "/admin/approvals" },
+    { label: "Verifications", href: "/admin/verifications" },
     { label: "Disputes", href: "/admin/disputes" },
+    { label: "Support", href: "/admin/support" },
+    { label: "Tickets", href: "/admin/tickets" },
+    { label: "Support Analytics", href: "/admin/support/analytics" },
+    { label: "Overrides", href: "/admin/overrides" },
     { label: "Logs", href: "/admin/logs" },
+    { label: "Activity", href: "/admin/activity" },
+    { label: "Fraud", href: "/admin/fraud" },
+    { label: "Guide", href: "/admin/guide" },
   ];
+
+  const allNavItems = [...adminNavItems, ...moreNavItems];
 
   return (
     <div className="min-h-screen">
@@ -159,33 +282,46 @@ export default function AdminLayout({
               ☰
             </button>
 
-            <Link href="/admin" className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-xl bg-red-600/80" />
-              <span className={`${ui.h2} tracking-tight`}>ADMIN</span>
-            </Link>
+            <div ref={moreMenuRef} className="relative flex items-center gap-2">
+              <Link href="/admin" className="flex items-center gap-2">
+                <span className={`${ui.h2} tracking-tight`}>ADMIN</span>
+              </Link>
+
+              <button
+                onClick={() => setMoreMenuOpen((v) => !v)}
+                className="text-white/60 hover:text-white text-lg px-2 py-1 transition flex-shrink-0"
+                aria-label="More pages"
+              >
+                ☰
+              </button>
+
+              {moreMenuOpen && (
+                <div className="absolute top-10 left-0 bg-black border border-white/10 rounded-xl shadow-lg p-2 w-48 z-50">
+                  {moreNavItems.map((it) => {
+                    const active = pathname === it.href || pathname?.startsWith(it.href);
+                    return (
+                      <button
+                        key={it.href}
+                        id={`nav-${it.href.split("/").pop()}`}
+                        onClick={() => { router.push(it.href); setMoreMenuOpen(false); }}
+                        className={`w-full text-left px-3 py-2 text-sm rounded-lg transition ${
+                          active ? "text-white bg-white/10" : "text-white/70 hover:bg-white/10 hover:text-white"
+                        }`}
+                      >
+                        {it.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             <nav className="hidden md:flex items-center gap-1">
-              <Link className={tabClass("/admin")} href="/admin">
-                Overview
-              </Link>
-              <Link className={tabClass("/admin/users")} href="/admin/users">
-                Users
-              </Link>
-              <Link className={tabClass("/admin/transactions")} href="/admin/transactions">
-                Transactions
-              </Link>
-              <Link className={tabClass("/admin/refunds")} href="/admin/refunds">
-                Refunds
-              </Link>
-              <Link className={tabClass("/admin/approvals")} href="/admin/approvals">
-                Approvals
-              </Link>
-              <Link className={tabClass("/admin/disputes")} href="/admin/disputes">
-                Disputes
-              </Link>
-              <Link className={tabClass("/admin/logs")} href="/admin/logs">
-                Logs
-              </Link>
+              {adminNavItems.map((it) => (
+                <Link key={it.href} id={`nav-${it.href.split("/").pop()}`} className={tabClass(it.href)} href={it.href}>
+                  {it.label}
+                </Link>
+              ))}
             </nav>
           </div>
 
@@ -229,9 +365,16 @@ export default function AdminLayout({
               <div className={`text-xs ${ui.muted2}`}>Admin</div>
               <div className={`text-sm ${ui.muted}`}>{email}</div>
             </div>
+            <AIAssistToggle />
             <Link href="/dashboard" className={ui.btnGhost}>
               ← Dashboard
             </Link>
+            <button
+              onClick={adminLogout}
+              className={`${ui.btnGhost} text-red-400 hover:text-red-300`}
+            >
+              Log out
+            </button>
           </div>
         </div>
       </header>
@@ -259,7 +402,7 @@ export default function AdminLayout({
               </button>
             </div>
             <nav className="p-2">
-              {adminNavItems.map((it) => {
+              {allNavItems.map((it) => {
                 const active = pathname === it.href || (it.href !== "/admin" && pathname?.startsWith(it.href));
                 return (
                   <Link
@@ -282,13 +425,52 @@ export default function AdminLayout({
                   <span className="h-2 w-2 rounded-full bg-current opacity-60" />
                   ← Dashboard
                 </Link>
+                <button
+                  onClick={() => { setAdminDrawerOpen(false); adminLogout(); }}
+                  className={`${ui.navIdle} w-full flex items-center gap-3 text-red-400`}
+                >
+                  <span className="h-2 w-2 rounded-full bg-current opacity-60" />
+                  Log out
+                </button>
               </div>
             </nav>
           </aside>
         </div>
       )}
 
+      <FraudAlertsBanner />
+
+      {/* Restricted mode banner */}
+      {adminStatus === "restricted" && (
+        <div className="max-w-7xl mx-auto px-4 md:px-8 pt-4">
+          <div className="p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-300 text-sm flex items-center gap-2">
+            <span>⚠️</span>
+            <span>
+              Your account is in <strong>restricted mode</strong> — view-only access.
+              {restrictedUntil && (
+                <span className="ml-1 text-yellow-200/70">
+                  Expires {new Date(restrictedUntil).toLocaleString()}
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-7xl mx-auto px-4 md:px-8 py-6">{children}</main>
+
+      {/* Global transfer notification modal */}
+      <SupportTransferModal />
+      <AIAssistPanel />
+      <AdminAlertProvider />
+
+      <SessionWarningModal
+        open={sessionWarning}
+        onStay={() => {
+          setSessionWarning(false);
+          window.dispatchEvent(new Event("mousemove"));
+        }}
+      />
     </div>
   );
 }

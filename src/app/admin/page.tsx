@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase/client";
+import { supabaseAdmin as supabase } from "@/lib/supabase/adminBrowserClient";
+import { getAdminHeaders } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
 import Link from "next/link";
 import { getRoleBadge } from "@/lib/ui/roleBadge";
+import { dispatchAIContext } from "@/lib/dispatchAIContext";
 
 type Stats = {
   totalUsers: number;
@@ -54,11 +56,13 @@ export default function AdminPage() {
   const [riskAlerts, setRiskAlerts] = useState<RiskAlert[]>([]);
   const [riskAlertsLoading, setRiskAlertsLoading] = useState(false);
   const [dismissing, setDismissing] = useState<string | null>(null);
+  const [supportStats, setSupportStats] = useState({ tickets: 0, activeChats: 0, waitingChats: 0 });
 
   useEffect(() => {
     loadStats();
     loadFeed();
     loadRiskAlerts();
+    loadSupportStats();
 
     // Real-time: listen for tip_intents + profiles changes
     const tipChannel = supabase
@@ -79,9 +83,25 @@ export default function AdminPage() {
       )
       .subscribe();
 
+    // Real-time: support sessions + tickets
+    const supportChannel = supabase
+      .channel("admin-support-overview")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "support_sessions" },
+        () => loadSupportStats()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "support_tickets" },
+        () => loadSupportStats()
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(tipChannel);
       supabase.removeChannel(profileChannel);
+      supabase.removeChannel(supportChannel);
     };
   }, []);
 
@@ -120,6 +140,13 @@ export default function AdminPage() {
       totalOwed,
     };
     setStats(newStats);
+    dispatchAIContext({
+      total_users: newStats.totalUsers,
+      restricted_users: newStats.restrictedUsers,
+      pending_refunds: newStats.pendingRefunds,
+      active_disputes: newStats.activeDisputes,
+      total_owed: newStats.totalOwed,
+    });
 
     // Build system alerts
     const newAlerts: Alert[] = [];
@@ -175,11 +202,10 @@ export default function AdminPage() {
 
   async function loadFeed() {
     setFeedLoading(true);
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) { setFeedLoading(false); return; }
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) { setFeedLoading(false); return; }
     const res = await fetch("/api/admin/activity-feed?limit=25", {
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
     });
     if (res.ok) {
       const json = await res.json();
@@ -190,11 +216,10 @@ export default function AdminPage() {
 
   async function loadRiskAlerts() {
     setRiskAlertsLoading(true);
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) { setRiskAlertsLoading(false); return; }
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) { setRiskAlertsLoading(false); return; }
     const res = await fetch("/api/admin/risk-alerts?resolved=false&limit=20", {
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
     });
     if (res.ok) {
       const json = await res.json();
@@ -203,14 +228,25 @@ export default function AdminPage() {
     setRiskAlertsLoading(false);
   }
 
+  async function loadSupportStats() {
+    try {
+      const headers = getAdminHeaders();
+      if (!headers["X-Admin-Id"]) return;
+      const res = await fetch("/api/admin/support/overview", { headers });
+      if (res.ok) {
+        const json = await res.json();
+        setSupportStats(json);
+      }
+    } catch { /* ignore */ }
+  }
+
   async function dismissRiskAlert(alertId: string) {
     setDismissing(alertId);
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) { setDismissing(null); return; }
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) { setDismissing(null); return; }
     const res = await fetch("/api/admin/risk-alerts", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify({ alert_id: alertId }),
     });
     setDismissing(null);
@@ -221,13 +257,12 @@ export default function AdminPage() {
 
   async function executeBulkRestrict() {
     setPanicLoading(true);
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) return;
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) return;
 
     const res = await fetch("/api/admin/bulk-restrict", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
     });
     const json = await res.json();
     setPanicLoading(false);
@@ -302,14 +337,36 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Quick Actions */}
+      {/* Support Overview */}
       <div>
-        <h2 className={`${ui.h2} mb-3`}>Quick Actions</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <QuickAction label="Find User" description="Search & manage accounts" href="/admin/users" />
-          <QuickAction label="Refund Queue" description="Initiated & pending" href="/admin/refunds?filter=initiated" />
-          <QuickAction label="Disputes" description="Chargebacks & flags" href="/admin/disputes" />
-          <QuickAction label="High Risk" description="Flagged & restricted" href="/admin/users?filter=flagged" />
+        <h2 className={`${ui.h2} mb-3`}>Support Overview</h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <Link href="/admin/tickets" className={`${ui.card} p-5 hover:border-white/20 transition block`}>
+            <p className={`text-sm ${ui.muted2}`}>🎫 Pending Tickets</p>
+            <p className={`text-2xl font-bold mt-1 ${supportStats.tickets > 0 ? "text-orange-400" : "text-white"}`}>
+              {supportStats.tickets}
+            </p>
+          </Link>
+          <Link href="/admin/support" className={`${ui.card} p-5 hover:border-white/20 transition block`}>
+            <p className={`text-sm ${ui.muted2}`}>💬 Active Chats</p>
+            <p className="text-2xl font-bold mt-1 text-white">
+              {supportStats.activeChats}
+            </p>
+          </Link>
+          <Link
+            href="/admin/support"
+            className={`${ui.card} p-5 hover:border-white/20 transition block ${
+              supportStats.waitingChats > 0 ? "border-yellow-500/30 bg-yellow-500/5" : ""
+            }`}
+          >
+            <p className={`text-sm ${ui.muted2}`}>⏳ Waiting Chats</p>
+            <p className={`text-2xl font-bold mt-1 ${supportStats.waitingChats > 0 ? "text-yellow-400" : "text-white"}`}>
+              {supportStats.waitingChats}
+            </p>
+            {supportStats.waitingChats > 0 && (
+              <p className="text-xs text-yellow-400/70 mt-1">Users need help now</p>
+            )}
+          </Link>
         </div>
       </div>
 
@@ -493,26 +550,6 @@ function StatCard({
     <Link href={href} className={`${ui.card} p-5 hover:border-white/20 transition block`}>
       <p className={`text-sm ${ui.muted2}`}>{label}</p>
       <p className={`text-2xl font-bold mt-1 ${color ?? "text-white"}`}>{value}</p>
-    </Link>
-  );
-}
-
-function QuickAction({
-  label,
-  description,
-  href,
-}: {
-  label: string;
-  description: string;
-  href: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className={`${ui.card} p-4 hover:border-white/20 hover:bg-white/[0.03] transition block`}
-    >
-      <p className="font-semibold text-sm">{label}</p>
-      <p className={`text-xs ${ui.muted2} mt-0.5`}>{description}</p>
     </Link>
   );
 }

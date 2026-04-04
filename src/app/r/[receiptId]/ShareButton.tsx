@@ -12,7 +12,7 @@ export function ShareButton({ receiptId }: { receiptId: string }) {
         if (typeof navigator !== "undefined" && (navigator as any).share && (navigator as any).canShare && (navigator as any).canShare({ url })) {
           try {
             await (navigator as any).share({
-              title: "TipLink Receipt",
+              title: "1neLink Receipt",
               text: `Receipt for your support - ${receiptId}`,
               url: url,
             });

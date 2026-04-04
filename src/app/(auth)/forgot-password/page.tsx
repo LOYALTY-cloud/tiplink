@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase/client";
 import { ui } from "@/lib/ui";
 
 export default function ForgotPasswordPage() {
@@ -15,18 +14,20 @@ export default function ForgotPasswordPage() {
     setMsg(null);
     setLoading(true);
 
-    const redirectTo =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/reset-password`
-        : `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`;
-
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo,
-    });
-
-    setLoading(false);
-    if (error) return setMsg(error.message);
-    setMsg("Password reset link sent. Check your email.");
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      setLoading(false);
+      if (!res.ok) return setMsg(data.error ?? "Something went wrong.");
+      setMsg("Password reset link sent. Check your email.");
+    } catch {
+      setLoading(false);
+      setMsg("Something went wrong. Please try again.");
+    }
   };
 
   return (

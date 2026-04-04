@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sendTipReceipt } from "@/lib/email/sendTipReceipt";
 import { addLedgerEntry } from "@/lib/ledger";
 import { canCreatorAcceptTips, blockedReason } from "@/lib/payouts";
+import { rateLimit, getClientIp } from "@/lib/rateLimit";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,12 +19,19 @@ function receiptId() {
 
 export async function POST(req: Request) {
   try {
-    const { receiver_user_id, amount, tipper_name, receipt_email, note } =
+    const { receiver_user_id, amount, tipper_name, receipt_email, note, supporter_name, message, is_anonymous } =
       await req.json();
 
     const amt = Number(amount);
     if (!receiver_user_id || !Number.isFinite(amt) || amt <= 0) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    }
+
+    // Rate limit: 10 tip creations per minute per IP
+    const ip = getClientIp(req);
+    const { allowed } = await rateLimit(`tip:${ip}`, 10, 60);
+    if (!allowed) {
+      return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 
     // Protect creators: require connected Stripe account, finished onboarding, and charges enabled.
@@ -90,7 +98,18 @@ export async function POST(req: Request) {
         type: "tip_received",
         amount: Number(net.toFixed(2)),
         reference_id: tip.id,
-        meta: { action: "tip", fee: 0, net: Number(net.toFixed(2)), currency: "usd", receipt_id: rid, tipper_name: tipper_name ?? null, receipt_email: receipt_email?.trim().toLowerCase() ?? null },
+        meta: {
+          action: "tip",
+          fee: 0,
+          net: Number(net.toFixed(2)),
+          currency: "usd",
+          receipt_id: rid,
+          tipper_name: tipper_name ?? null,
+          receipt_email: receipt_email?.trim().toLowerCase() ?? null,
+          supporter_name: (is_anonymous !== false) ? null : (supporter_name ? String(supporter_name).trim().slice(0, 100) : null),
+          message: message ? String(message).trim().slice(0, 200) : null,
+          is_anonymous: is_anonymous !== false,
+        },
       });
     } catch (err: unknown) {
       // Attempt to rollback tip row to avoid inconsistent state

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { stripe } from "@/lib/stripe/server";
+import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 
 export const runtime = "nodejs";
 
@@ -42,6 +43,13 @@ export async function POST(req: Request) {
     }
     const user = userRes.user;
 
+    // Require verified email for Stripe onboarding
+    try {
+      await requireVerifiedEmail(user.id);
+    } catch {
+      return NextResponse.json({ error: "Please verify your email before setting up payouts" }, { status: 403 });
+    }
+
     // 2) Load creator profile
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
@@ -74,7 +82,7 @@ export async function POST(req: Request) {
         metadata: {
           user_id: user.id,
           supabase_user_id: user.id,
-          app: "tiplinkme",
+          app: "1nelink",
         },
       });
 

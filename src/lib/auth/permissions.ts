@@ -1,11 +1,13 @@
 /** Granular role permission map — single source of truth. */
 export const PERMISSIONS = {
   refund:      ["owner", "super_admin", "finance_admin"],
-  restrict:    ["owner", "super_admin"],
+  restrict:    ["owner", "super_admin", "finance_admin"],
   panic:       ["owner", "super_admin"],
   close:       ["owner", "super_admin"],
   risk_eval:   ["owner", "super_admin", "finance_admin"],
   view_admin:  ["owner", "super_admin", "finance_admin", "support_admin"],
+  revenue:     ["owner", "super_admin"],
+  manage_staff: ["owner"],
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

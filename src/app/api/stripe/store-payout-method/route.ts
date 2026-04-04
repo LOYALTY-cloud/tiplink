@@ -8,11 +8,26 @@ const supabaseAdmin = createClient(
 );
 
 export async function POST(req: Request) {
-  const { userId, paymentMethodId } = await req.json();
+  // Authenticate caller
+  const authHeader = req.headers.get("authorization") || "";
+  const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!jwt) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!userId || !paymentMethodId) {
+  const supabaseUser = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${jwt}` } } }
+  );
+  const { data: authRes, error: authErr } = await supabaseUser.auth.getUser();
+  if (authErr || !authRes.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const userId = authRes.user.id;
+
+  const { paymentMethodId } = await req.json();
+
+  if (!paymentMethodId) {
     return NextResponse.json(
-      { error: "Missing userId/paymentMethodId" },
+      { error: "Missing paymentMethodId" },
       { status: 400 }
     );
   }

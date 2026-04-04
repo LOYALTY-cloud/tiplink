@@ -5,11 +5,13 @@ export type LedgerEntryType =
   | "tip_refunded"
   | "dispute"
   | "payout"
+  | "payout_reversal"
   | "adjustment"
   | "withdrawal"
   | "deposit"
   | "fee"
-  | "system";
+  | "system"
+  | "theme_purchase";
 
 export interface LedgerEntry {
   user_id: string;

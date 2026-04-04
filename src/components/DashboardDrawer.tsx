@@ -34,12 +34,14 @@ export function DashboardDrawer({
 
   const items: Item[] = [
     { label: "Dashboard", href: "/dashboard" },
+    { label: "Earnings", href: "/dashboard/earnings" },
     { label: "Profile", href: "/dashboard/profile" },
     { label: "Share", href: "/dashboard/share" },
     { label: "Transactions", href: "/dashboard/transactions" },
     { label: "Wallet", href: "/dashboard/wallet" },
-    { label: "Settings", href: "/dashboard/settings" },
-    // Subscription removed
+    { label: "Account", href: "/dashboard/account" },
+    { label: "Account & Settings", href: "/dashboard/settings" },
+    { label: "Help & Support", href: "/dashboard/support" },
     { label: "Log out", onClick: handleLogout },
   ];
 
@@ -57,9 +59,12 @@ export function DashboardDrawer({
       {/* Drawer */}
       <aside className={`${ui.card} absolute left-0 top-0 h-full w-[80%] max-w-[300px] border-r border-white/10 transform transition-transform duration-300 translate-x-0`}>
         <div className={`flex items-center justify-between px-4 py-4 border-b border-white/10`}>
-          <div>
-            <div className={`text-xs font-medium ${ui.muted}`}>TIPLINKME</div>
-            <div className={`text-sm font-semibold ${ui.muted}`}>Menu</div>
+          <div className="flex items-center gap-2">
+            <img src="/1nelink-logo.png" alt="1neLink" className="h-7 w-7 rounded-lg object-contain" />
+            <div>
+              <div className={`text-xs font-medium ${ui.muted}`}>1NELINK</div>
+              <div className={`text-sm font-semibold ${ui.muted}`}>Menu</div>
+            </div>
           </div>
 
           <button

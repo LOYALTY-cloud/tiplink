@@ -5,12 +5,13 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const supabase = await createSupabaseRouteClient();
+  const next = searchParams.get("next");
   const code = searchParams.get("code");
 
   if (code) {
     const { data } = await supabase.auth.exchangeCodeForSession(code);
     if (data?.user) await syncProfileEmail(data.user.id, data.user.email ?? null);
-    return NextResponse.redirect(`${origin}/dashboard`);
+    return NextResponse.redirect(`${origin}${next ?? "/dashboard"}`);
   }
 
   const token_hash = searchParams.get("token_hash");
@@ -24,7 +25,8 @@ export async function GET(request: Request) {
   if (token_hash && type) {
     const { data } = await supabase.auth.verifyOtp({ type, token_hash });
     if (data?.user) await syncProfileEmail(data.user.id, data.user.email ?? null);
-    return NextResponse.redirect(`${origin}/dashboard`);
+    const dest = type === "recovery" ? "/reset-password" : (next ?? "/dashboard");
+    return NextResponse.redirect(`${origin}${dest}`);
   }
 
   return NextResponse.redirect(`${origin}/login`);

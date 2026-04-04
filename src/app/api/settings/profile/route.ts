@@ -26,16 +26,39 @@ export async function PATCH(req: Request) {
         );
       }
 
-      // Check uniqueness
-      const { data: existing } = await supabaseAdmin
+      // Check if handle is currently locked (2-week lock after signup)
+      const { data: profile } = await supabaseAdmin
         .from("profiles")
-        .select("user_id")
-        .eq("handle", h)
-        .neq("user_id", user.id)
-        .maybeSingle();
+        .select("handle, handle_locked_until")
+        .eq("user_id", user.id)
+        .single();
 
-      if (existing) {
-        return NextResponse.json({ error: "Handle already taken" }, { status: 409 });
+      if (profile && profile.handle !== h) {
+        if (profile.handle_locked_until) {
+          const lockEnd = new Date(profile.handle_locked_until);
+          if (lockEnd > new Date()) {
+            const daysLeft = Math.ceil((lockEnd.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+            return NextResponse.json(
+              { error: `Your handle is locked for ${daysLeft} more day${daysLeft !== 1 ? "s" : ""}. You can change it after ${lockEnd.toLocaleDateString()}.` },
+              { status: 403 }
+            );
+          }
+        }
+
+        // Check uniqueness
+        const { data: existing } = await supabaseAdmin
+          .from("profiles")
+          .select("user_id")
+          .eq("handle", h)
+          .neq("user_id", user.id)
+          .maybeSingle();
+
+        if (existing) {
+          return NextResponse.json({ error: "Handle already taken" }, { status: 409 });
+        }
+
+        // Lock handle for 2 weeks after change
+        updates.handle_locked_until = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
       }
 
       updates.handle = h;
@@ -69,14 +92,19 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     }
 
-    const { error } = await supabaseAdmin
+    const { data: rows, error } = await supabaseAdmin
       .from("profiles")
       .update(updates)
-      .eq("user_id", user.id);
+      .eq("user_id", user.id)
+      .select("handle, display_name, bio");
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json({ success: true, updated: Object.keys(updates) });
+    if (!rows || rows.length === 0) {
+      return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, updated: Object.keys(updates), profile: rows[0] });
   } catch (e: unknown) {
     return serverError(e);
   }

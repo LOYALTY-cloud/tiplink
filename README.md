@@ -79,7 +79,7 @@ psql "$DATABASE_URL" -c "SELECT 1;"
 
 ## Wallet Reconciliation
 
-TipLinkMe uses a `transactions_ledger` table as the source of truth for all financial activity.
+1neLink uses a `transactions_ledger` table as the source of truth for all financial activity.
 
 A scheduled GitHub Action automatically reconciles wallet balances with ledger entries to ensure financial integrity.
 
@@ -127,7 +127,7 @@ This ensures wallet balances remain consistent with the financial ledger.
 
 ## Webhook Tests
 
-TipLinkMe includes automated tests to validate Stripe webhook behavior and wallet safety.
+1neLink includes automated tests to validate Stripe webhook behavior and wallet safety.
 
 These tests cover:
 
@@ -271,7 +271,7 @@ Create Virtual Card
 Save card_id in cards table
 ```
 
-Then users can spend their TipLinkMe wallet balance.
+Then users can spend their 1neLink wallet balance.
 
 ## Additional table recommendation
 

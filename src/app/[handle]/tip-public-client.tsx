@@ -2,7 +2,8 @@
 
 import { useMemo, useState, useRef } from "react";
 import PublicTipCheckout from "@/components/PublicTipCheckout";
-import { ui } from "@/lib/ui";
+import { calculateTipFees } from "@/lib/fees";
+import { getTheme } from "@/lib/getTheme";
 
 type Profile = {
   user_id: string;
@@ -13,6 +14,7 @@ type Profile = {
   avatar_url: string | null;
   links?: string[] | null;
   canAcceptTips?: boolean;
+  theme?: string | null;
 };
 
 const PRESETS = [5, 10, 20];
@@ -26,16 +28,16 @@ function isValidUrl(u: string) {
   }
 }
 
-function CircleIcon({ href, label }: { href: string; label: string }) {
+function CircleIcon({ href, label, theme }: { href: string; label: string; theme: import("@/lib/themes").ThemeConfig }) {
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
       aria-label={label}
-      className={`h-12 w-12 rounded-full ${ui.cardInner} flex items-center justify-center transition`}
+      className={`h-12 w-12 rounded-full ${theme.inputBg} border ${theme.border} flex items-center justify-center transition`}
     >
-      <span className="text-white/85 text-sm">↗</span>
+      <span className={`${theme.muted} text-sm`}>↗</span>
     </a>
   );
 }
@@ -44,6 +46,8 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
   const [amount, setAmount] = useState<number | null>(null);
   const [custom, setCustom] = useState<string>("");
   const [note, setNote] = useState<string>("");
+  const [supporterName, setSupporterName] = useState("");
+  const [isAnonymous, setIsAnonymous] = useState(true);
   
   // Payment state
   const payRef = useRef<HTMLDivElement | null>(null);
@@ -53,6 +57,8 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
   const [breakdown, setBreakdown] = useState<{ tip: number; stripeFee: number; platformFee: number; total: number } | null>(null);
   const [loadingIntent, setLoadingIntent] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
+
+  const theme = getTheme(profile.theme);
 
   const links = useMemo(() => {
     const raw = Array.isArray(profile.links) ? profile.links : [];
@@ -69,6 +75,8 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
     return 0;
   }, [amount, custom]);
 
+  const fees = useMemo(() => calculateTipFees(chosenAmount), [chosenAmount]);
+
   async function handleContinueToPayment() {
     if (chosenAmount <= 0) return;
 
@@ -81,6 +89,9 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
         creator_user_id: profile.user_id,
         tip_amount: chosenAmount,
         note,
+        supporter_name: isAnonymous ? null : supporterName,
+        message: note,
+        is_anonymous: isAnonymous,
       }),
     });
 
@@ -104,12 +115,12 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className={`min-h-screen ${theme.bg} ${theme.text} ${theme.wrapper} ${profile.theme === "violet" ? "relative violet-glow" : ""}`}>
       {/* Header gradient */}
       <div className="relative">
         <div className="h-44 w-full bg-gradient-to-r from-purple-300/35 via-pink-200/25 to-amber-200/25" />
         <div className="absolute inset-x-0 top-24 flex justify-center">
-          <div className={`h-24 w-24 rounded-2xl overflow-hidden ${ui.cardInner}`}>
+          <div className={`h-24 w-24 rounded-2xl overflow-hidden border ${theme.border} ${theme.inputBg}`}>
             {profile.avatar_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -118,7 +129,7 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
                 className="h-full w-full object-cover"
               />
             ) : (
-              <div className={`h-full w-full flex items-center justify-center font-semibold ${ui.muted}`}>
+              <div className={`h-full w-full flex items-center justify-center font-semibold ${theme.muted}`}>
                 {displayName.slice(0, 1).toUpperCase()}
               </div>
             )}
@@ -129,17 +140,17 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
       {/* Content */}
       <div className="mx-auto max-w-md px-5 pb-10">
         <div className="pt-16 text-center">
-          <div className={ui.h1}>{displayName}</div>
-          <div className={`mt-1 ${ui.muted}`}>{handleText}</div>
+          <div className="text-3xl md:text-4xl font-semibold tracking-tight">{displayName}</div>
+          <div className={`mt-1 ${theme.muted}`}>{handleText}</div>
 
           {profile.location ? (
-            <div className={`mt-2 text-sm ${ui.muted2}`}>
+            <div className={`mt-2 text-sm ${theme.muted2}`}>
               📍 {profile.location}
             </div>
           ) : null}
 
           {profile.bio ? (
-            <div className={`mt-2 text-sm ${ui.muted}`}>
+            <div className={`mt-2 text-sm ${theme.muted}`}>
               {profile.bio}
             </div>
           ) : null}
@@ -148,16 +159,16 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
           {links.length > 0 ? (
             <div className="mt-5 flex items-center justify-center gap-3">
               {links.map((href, i) => (
-                <CircleIcon key={href + i} href={href} label={`Link ${i + 1}`} />
+                <CircleIcon key={href + i} href={href} label={`Link ${i + 1}`} theme={theme} />
               ))}
             </div>
           ) : null}
         </div>
 
         {/* Tip card */}
-        <div className={`${ui.card} mt-7 p-5`}>
+        <div className={`rounded-2xl border p-5 mt-7 ${theme.card}`}>
           <div className="flex items-center justify-between">
-            <div className={ui.h2}>Tip Jar</div>
+            <div className="text-xl md:text-2xl font-semibold">Tip Jar</div>
             <div className="h-9 w-9 rounded-full bg-emerald-500/15 border border-emerald-400/30 flex items-center justify-center">
               <span className="text-emerald-300 font-semibold">$</span>
             </div>
@@ -185,10 +196,10 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
                   }}
                   className={
                     profile.canAcceptTips === false
-                      ? `${ui.btnGhost} ${ui.btnSmall} opacity-50 cursor-not-allowed`
+                      ? `rounded-lg px-3 py-2 text-sm font-semibold ${theme.inputBg} border ${theme.border} ${theme.muted2} opacity-50 cursor-not-allowed`
                       : active
-                        ? `${ui.btnPrimary} ${ui.btnSmall}`
-                        : `${ui.btnGhost} ${ui.btnSmall}`
+                        ? `rounded-lg px-3 py-2 text-sm font-semibold ${theme.button}`
+                        : `rounded-lg px-3 py-2 text-sm font-semibold ${theme.inputBg} border ${theme.border} ${theme.muted} hover:opacity-80`
                   }
                 >
                   ${p}
@@ -200,7 +211,7 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
           {/* Custom */}
           <button
             onClick={() => setAmount(null)}
-            className={`mt-3 w-full ${amount === null ? ui.btnPrimary : ui.btnGhost}`}
+            className={`mt-3 w-full rounded-xl px-4 py-3 font-semibold transition ${amount === null ? theme.button : `${theme.inputBg} border ${theme.border} ${theme.muted} hover:opacity-80`}`}
           >
             Custom
           </button>
@@ -210,17 +221,17 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
             <div className="mt-3">
               <div className="">
                 <div className="flex items-center">
-                  <span className="text-white/70 mr-2">$</span>
+                  <span className={`${theme.muted} mr-2`}>$</span>
                   <input
                     inputMode="decimal"
                     placeholder="0.00"
                     value={custom}
                     onChange={(e) => setCustom(e.target.value)}
-                    className={ui.input}
+                    className={`w-full rounded-xl ${theme.inputBg} border ${theme.border} px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500/15 transition placeholder:${theme.muted2}`}
                   />
                 </div>
               </div>
-              <div className="mt-2 text-xs text-white/50">
+              <div className={`mt-2 text-xs ${theme.muted2}`}>
                 Enter the amount you want to send.
               </div>
             </div>
@@ -228,23 +239,49 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
 
           {/* Note */}
           <div className="mt-4">
-            <div className="text-sm font-medium text-white/90">Leave a note (optional)</div>
+            <div className="text-sm font-medium">Leave a note (optional)</div>
             <textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
               maxLength={200}
-              placeholder="Private support…"
-              className={`${ui.input} mt-2 min-h-[80px]`}
+              placeholder="Say something nice…"
+              className={`w-full rounded-xl ${theme.inputBg} border ${theme.border} px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500/15 transition mt-2 min-h-[80px] placeholder:${theme.muted2}`}
             />
-            <div className="mt-1 text-xs text-white/50">{note.length}/200</div>
+            <div className={`mt-1 text-xs ${theme.muted2}`}>{note.length}/200</div>
           </div>
 
+          {/* Anonymous toggle */}
+          <div className={`mt-4 flex items-center justify-between ${theme.inputBg} border ${theme.border} rounded-xl p-3`}>
+            <span className={`text-sm ${theme.muted}`}>Send anonymously</span>
+            <button
+              type="button"
+              onClick={() => setIsAnonymous(!isAnonymous)}
+              className={`w-12 h-6 rounded-full transition ${isAnonymous ? "bg-blue-500" : theme.inputBg}`}
+            >
+              <div className={`w-5 h-5 bg-white rounded-full transform transition ${isAnonymous ? "translate-x-6" : "translate-x-1"}`} />
+            </button>
+          </div>
+
+          {/* Supporter name (shown when not anonymous) */}
+          {!isAnonymous && (
+            <div className="mt-3">
+              <div className="text-sm font-medium">Your name</div>
+              <input
+                value={supporterName}
+                onChange={(e) => setSupporterName(e.target.value)}
+                maxLength={100}
+                placeholder="Your name"
+                className={`w-full rounded-xl ${theme.inputBg} border ${theme.border} px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500/15 transition mt-2`}
+              />
+            </div>
+          )}
+
           {/* Payment area */}
-          <div className={`${ui.cardInner} mt-4 p-3`}>
+          <div className={`${theme.inputBg} border ${theme.border} rounded-xl mt-4 p-3`}>
             <div className="flex items-center justify-between">
               <div>
-                <div className={`text-sm font-semibold ${ui.muted}`}>Secure payment</div>
-                <div className={`mt-1 text-xs ${ui.muted2}`}>
+                <div className={`text-sm font-semibold ${theme.muted}`}>Secure payment</div>
+                <div className={`mt-1 text-xs ${theme.muted2}`}>
                   Powered by Stripe. No account required.
                 </div>
               </div>
@@ -252,7 +289,7 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
               {showPayment ? (
                 <button
                   onClick={() => setShowPayment(false)}
-                  className={`${ui.btnGhost} px-3 py-2 text-xs`}
+                  className={`rounded-lg px-3 py-2 text-xs font-semibold ${theme.inputBg} border ${theme.border} ${theme.muted}`}
                 >
                   Hide
                 </button>
@@ -265,9 +302,9 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
                 onClick={handleContinueToPayment}
                 disabled={chosenAmount <= 0 || loadingIntent || profile.canAcceptTips === false}
                 className={
-                  chosenAmount > 0 && !loadingIntent && profile.canAcceptTips !== false
-                    ? `${ui.btnPrimary} w-full mt-3`
-                    : "mt-3 w-full rounded-xl py-3 font-semibold transition bg-white/20 text-white/50 cursor-not-allowed"
+                    chosenAmount > 0 && !loadingIntent && profile.canAcceptTips !== false
+                    ? `rounded-xl px-4 py-3 font-semibold ${theme.button} ${theme.glow} w-full mt-3`
+                    : `mt-3 w-full rounded-xl py-3 font-semibold transition ${theme.inputBg} ${theme.muted2} cursor-not-allowed`
                 }
               >
                 {loadingIntent ? "Loading payment..." : profile.canAcceptTips === false ? "Tips unavailable" : "Continue to payment"}
@@ -276,18 +313,18 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
 
             {/* Expanded payment UI */}
               {showPayment ? (
-              <div ref={payRef} className={`${ui.card} mt-4 p-4`}>
-                {/* breakdown inside payment area (feels premium) */}
+              <div ref={payRef} className={`rounded-2xl border ${theme.border} ${theme.inputBg} mt-4 p-4`}>
+                {/* breakdown */}
                 <div className="mb-3 text-sm">
-                  <div className={`flex items-center justify-between ${ui.muted}`}>
+                  <div className={`flex items-center justify-between ${theme.muted}`}>
                     <span>Tip</span>
                     <span>${(breakdown?.tip ?? chosenAmount).toFixed(2)}</span>
                   </div>
-                  <div className={`mt-1 flex items-center justify-between ${ui.muted2}`}>
-                    <span>Processing fee</span>
-                    <span>${(breakdown?.stripeFee ?? 0).toFixed(2)}</span>
+                  <div className={`mt-1 flex items-center justify-between ${theme.muted2}`}>
+                    <span>Fee</span>
+                    <span>${((breakdown?.stripeFee ?? 0) + (breakdown?.platformFee ?? 0)).toFixed(2)}</span>
                   </div>
-                  <div className={`mt-1 flex items-center justify-between font-semibold ${ui.muted}`}>
+                  <div className={`mt-1 flex items-center justify-between font-semibold ${theme.muted}`}>
                     <span>Total</span>
                     <span>${(breakdown?.total ?? chosenAmount).toFixed(2)}</span>
                   </div>
@@ -299,40 +336,40 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
                     receiptUrl={`${window.location.origin}/r/${receiptId}`}
                   />
                 ) : (
-                  <div className="text-sm text-white/70">Preparing checkout…</div>
+                  <div className={`text-sm ${theme.muted}`}>Preparing checkout…</div>
                 )}
 
-                <div className="mt-3 text-xs text-white/50">
+                <div className={`mt-3 text-xs ${theme.muted2}`}>
                   Apple Pay / Google Pay will appear automatically when available on your device.
                 </div>
               </div>
             ) : null}
           </div>
 
-          {/* Breakdown */}
-          <div className="mt-4 text-sm">
-            <div className={`flex items-center justify-between ${ui.muted}`}>
-              <span>Tip</span>
-              <span>${(breakdown?.tip ?? chosenAmount).toFixed(2)}</span>
-            </div>
-            <div className={`mt-1 flex items-center justify-between ${ui.muted2}`}>
-              <span>Processing fee</span>
-              <span>{breakdown ? `$${breakdown.stripeFee.toFixed(2)}` : 'Calculated at checkout'}</span>
-            </div>
-            {breakdown && (
-              <div className={`mt-1 flex items-center justify-between font-semibold ${ui.muted} border-t border-white/10 pt-2`}>
-                <span>Total</span>
-                <span>${breakdown.total.toFixed(2)}</span>
+          {/* Breakdown (only shown before payment is opened) */}
+          {chosenAmount > 0 && !showPayment && (
+            <div className={`mt-4 ${theme.inputBg} border ${theme.border} rounded-xl p-4 space-y-2`}>
+              <div className={`flex justify-between text-sm ${theme.muted}`}>
+                <span>Tip</span>
+                <span>${chosenAmount.toFixed(2)}</span>
               </div>
-            )}
-          </div>
+              <div className={`flex justify-between text-sm ${theme.muted}`}>
+                <span>Fee</span>
+                <span>${fees.totalFees.toFixed(2)}</span>
+              </div>
+              <div className={`flex justify-between text-base font-semibold pt-2 border-t ${theme.border}`}>
+                <span>Total</span>
+                <span>${fees.total.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
 
           {/* Removed: Private support • Receipts included */}
         </div>
 
         {/* Small footer */}
-        <div className="mt-6 text-center text-xs text-white/40">
-          TipLinkMe • Secure tips
+        <div className={`mt-6 text-center text-xs ${theme.muted2}`}>
+          1neLink • Secure tips
         </div>
       </div>
     </div>

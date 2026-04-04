@@ -10,9 +10,11 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const STRIPE_PERCENT = 0.029;
-const STRIPE_FLAT = 0.3;
-const PLATFORM_PERCENT = 0.0; // platform fee disabled (0%)
+import { STRIPE_PERCENT, STRIPE_FLAT, PLATFORM_PERCENT, calculateTipFees } from "@/lib/fees";
+import { analyzeTransaction } from "@/lib/fraudEngine";
+import { runFraudCheck, humanizeFlags } from "@/lib/fraudOrchestrator";
+import { createRiskAlert } from "@/lib/riskAlerts";
+import { notifyAdmins, createNotification } from "@/lib/notifications";
 
 function money(n: number) {
   return Math.round(n * 100); // dollars -> cents
@@ -53,6 +55,9 @@ export async function POST(req: Request) {
     const creator_user_id = String(body.creator_user_id || "");
     const tip_amount = Number(body.tip_amount || 0);
     const note = String(body.note || "").slice(0, 200);
+    const supporter_name = body.supporter_name ? String(body.supporter_name).trim().slice(0, 100) : null;
+    const message = body.message ? String(body.message).trim().slice(0, 200) : null;
+    const is_anonymous = body.is_anonymous !== false;
     const supporter_user_id = body.supporter_user_id ? String(body.supporter_user_id) : null;
     const ipHeader = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "";
     const supporter_ip = ipHeader.split(",")[0].trim();
@@ -175,9 +180,156 @@ export async function POST(req: Request) {
     }
 
     // Fetch creator profile (need stripe_account_id for Connect destination)
+    // 6) Hybrid fraud scoring — Rules + Behavior + AI
+    const since15m = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    let recentEvents: { tip_amount: number; supporter_ip: string | null; created_at: string }[] = [];
+    let accountAgeHours = Infinity;
+    let currentRiskScore = 0;
+    let previousRestrictions = 0;
+    let isVerified = false;
+
+    try {
+      // Fetch recent tip events for behavior analysis
+      const eventsQuery = supporter_user_id
+        ? supabaseAdmin.from("tip_intents").select("tip_amount, supporter_ip, created_at").eq("supporter_user_id", supporter_user_id).gt("created_at", since15m).order("created_at", { ascending: false }).limit(50)
+        : supabaseAdmin.from("tip_intents").select("tip_amount, supporter_ip, created_at").eq("supporter_ip", supporter_ip).gt("created_at", since15m).order("created_at", { ascending: false }).limit(50);
+      const { data: evtRows } = await eventsQuery;
+      recentEvents = evtRows ?? [];
+
+      // Fetch supporter profile for risk context
+      if (supporter_user_id) {
+        const { data: suppProf } = await supabaseAdmin
+          .from("profiles")
+          .select("risk_score, restriction_count, created_at, is_verified")
+          .eq("user_id", supporter_user_id)
+          .maybeSingle();
+        if (suppProf) {
+          currentRiskScore = suppProf.risk_score ?? 0;
+          previousRestrictions = suppProf.restriction_count ?? 0;
+          isVerified = suppProf.is_verified === true;
+          if (suppProf.created_at) {
+            accountAgeHours = (Date.now() - new Date(suppProf.created_at).getTime()) / (1000 * 60 * 60);
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Step A: Rule engine (fast, deterministic)
+    const ruleResult = analyzeTransaction({
+      amount: tip_amount,
+      isRefund: false,
+      recentTips: recentEvents.length,
+      accountAgeHours,
+    });
+
+    // Step B: Run hybrid orchestrator (rules + behavior + AI)
+    const hybridFraud = await runFraudCheck({
+      userId: supporter_user_id,
+      ip: supporter_ip,
+      amount: tip_amount,
+      ruleScore: ruleResult.score,
+      ruleFlags: ruleResult.flags,
+      events: recentEvents.map((e) => ({
+        amount: Number(e.tip_amount),
+        ip: e.supporter_ip ?? undefined,
+        created_at: e.created_at,
+      })),
+      accountAgeHours,
+      currentRiskScore,
+      previousRestrictions,
+      isAnonymous: is_anonymous,
+      isVerified,
+    });
+
+    // Log to legacy fraud_events for backward compat
+    if (hybridFraud.totalScore > 20) {
+      try {
+        await supabaseAdmin.from("fraud_events").insert({
+          user_id: supporter_user_id,
+          ip: supporter_ip || null,
+          type: "hybrid_score",
+          reason: hybridFraud.flags.join(", "),
+          score: hybridFraud.totalScore,
+          meta: {
+            rule_score: hybridFraud.ruleScore,
+            behavior_score: hybridFraud.behaviorScore,
+            ai_score: hybridFraud.aiScore,
+            ai_reason: hybridFraud.aiReason,
+            decision: hybridFraud.decision,
+            flags: hybridFraud.flags,
+            amount: tip_amount,
+          },
+        });
+      } catch (_) {}
+    }
+
+    // Update supporter's risk score if identified
+    if (hybridFraud.totalScore > 20 && supporter_user_id) {
+      try {
+        await supabaseAdmin.rpc("increment_risk_score", {
+          uid: supporter_user_id,
+          delta: Math.round(hybridFraud.totalScore * 0.5), // Scale down to avoid inflation
+        });
+      } catch (_) {}
+    }
+
+    // Block high-risk transactions (restrict) or flag for review
+    if (hybridFraud.decision === "restrict") {
+      if (supporter_user_id) {
+        try {
+          const { data: currentProf } = await supabaseAdmin
+            .from("profiles")
+            .select("restriction_count")
+            .eq("user_id", supporter_user_id)
+            .maybeSingle();
+          const rCount = (currentProf?.restriction_count ?? 0) + 1;
+          const isPermanent = rCount >= 3;
+
+          await supabaseAdmin
+            .from("profiles")
+            .update({
+              account_status: "restricted",
+              status_reason: isPermanent
+                ? `Permanent restriction (${rCount} offenses). ${humanizeFlags(hybridFraud.flags).join(", ")}`
+                : `Suspicious activity detected: ${humanizeFlags(hybridFraud.flags).join(", ")}`,
+              restriction_count: rCount,
+              restricted_until: isPermanent ? null : undefined,
+            })
+            .eq("user_id", supporter_user_id);
+          await createRiskAlert({
+            user_id: supporter_user_id,
+            type: "hybrid_fraud_critical",
+            message: `Transaction blocked: hybrid score ${hybridFraud.totalScore} [R:${hybridFraud.ruleScore} B:${hybridFraud.behaviorScore} AI:${hybridFraud.aiScore}] (${humanizeFlags(hybridFraud.flags).join(", ")})`,
+            severity: "critical",
+          });
+          notifyAdmins({
+            title: "User Auto-Restricted (AI+Rules)",
+            body: `User ${supporter_user_id} restricted. Score: ${hybridFraud.totalScore} [Rules:${hybridFraud.ruleScore} Behavior:${hybridFraud.behaviorScore} AI:${hybridFraud.aiScore}]`,
+          }).catch(() => {});
+          createNotification({
+            userId: supporter_user_id,
+            type: "security",
+            title: "Your account has been restricted",
+            body: isPermanent
+              ? `Your account has been permanently restricted due to repeated violations (${humanizeFlags(hybridFraud.flags).join(", ")}). Please contact support@1nelink.com.`
+              : `Your account has been temporarily restricted due to unusual activity (${humanizeFlags(hybridFraud.flags).join(", ")}). You can request a review from your dashboard or contact support@1nelink.com.`,
+          }).catch(() => {});
+        } catch (_) {}
+      }
+      return NextResponse.json({ error: "Transaction declined" }, { status: 403 });
+    }
+
+    // Flag for manual review — allow transaction but alert admins
+    if (hybridFraud.decision === "review") {
+      notifyAdmins({
+        title: "Transaction Flagged for Review",
+        body: `Score: ${hybridFraud.totalScore} [R:${hybridFraud.ruleScore} B:${hybridFraud.behaviorScore} AI:${hybridFraud.aiScore}]. User: ${supporter_user_id ?? supporter_ip}. Amount: $${tip_amount}`,
+      }).catch(() => {});
+    }
+
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
-      .select("user_id, stripe_account_id, handle, display_name, stripe_charges_enabled")
+      .select("user_id, stripe_account_id, handle, display_name, stripe_charges_enabled, account_status")
       .eq("user_id", creator_user_id)
       .maybeSingle()
       .returns<ProfileRow | null>();
@@ -185,6 +337,16 @@ export async function POST(req: Request) {
     if (profileErr || !profile) {
       return NextResponse.json({ error: "Creator not found" }, { status: 404 });
     }
+
+    // State-driven creator checks
+    const creatorStatus = profile.account_status ?? "active";
+    if (creatorStatus === "closed" || creatorStatus === "closed_finalized") {
+      return NextResponse.json({ error: "This creator is no longer receiving tips" }, { status: 400 });
+    }
+    if (creatorStatus === "restricted" || creatorStatus === "suspended") {
+      return NextResponse.json({ error: "This creator's account is temporarily unavailable" }, { status: 403 });
+    }
+
     if (!profile.stripe_account_id) {
       return NextResponse.json({ error: "Creator payouts not enabled" }, { status: 409 });
     }
@@ -193,9 +355,7 @@ export async function POST(req: Request) {
     }
 
     // Fees
-    const stripeFee = tip_amount * STRIPE_PERCENT + STRIPE_FLAT;
-    const totalCharge = tip_amount + stripeFee;
-    const platformFee = tip_amount * PLATFORM_PERCENT;
+    const { stripeFee, platformFee, total: totalCharge } = calculateTipFees(tip_amount);
 
     // Generate receipt id now (so we can show link instantly after payment)
     const receipt_id = crypto.randomUUID();
@@ -207,8 +367,14 @@ export async function POST(req: Request) {
       .insert({
         creator_user_id,
         tip_amount: tip_amount,
+        stripe_fee: stripeFee,
+        platform_fee: platformFee,
+        total_charge: totalCharge,
         receipt_id,
         note,
+        supporter_name: is_anonymous ? null : supporter_name,
+        message,
+        is_anonymous,
         status: "pending",
         supporter_user_id: supporter_user_id,
         supporter_ip: supporter_ip || null,
@@ -217,6 +383,7 @@ export async function POST(req: Request) {
       .single();
 
     if (intentErr || !intentRow) {
+      console.error("[create-intent] tip_intents insert error:", intentErr);
       return NextResponse.json({ error: "Failed to create tip intent" }, { status: 500 });
     }
 
@@ -246,7 +413,7 @@ export async function POST(req: Request) {
         },
       },
       {
-        idempotencyKey: `tip-${intentRow.id}`,
+        idempotencyKey: `tip-${intentRow.receipt_id}`,
       }
     );
 
@@ -254,7 +421,7 @@ export async function POST(req: Request) {
     await supabaseAdmin
       .from("tip_intents")
       .update({ stripe_payment_intent_id: pi.id, status: "created" })
-      .eq("id", intentRow.id);
+      .eq("receipt_id", intentRow.receipt_id);
 
     return NextResponse.json({
       clientSecret: pi.client_secret,
@@ -267,7 +434,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (e: unknown) {
-    console.log("create-intent error:", e instanceof Error ? e.message : e);
+    console.error("create-intent error:", e instanceof Error ? e.message : e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

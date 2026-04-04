@@ -1,4 +1,4 @@
-This PR introduces the TipLinkMe virtual card infrastructure.
+This PR introduces the 1neLink virtual card infrastructure.
 
 Major additions:
 

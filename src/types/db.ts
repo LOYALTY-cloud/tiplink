@@ -24,6 +24,14 @@ export interface ProfileRow {
   status_reason?: string | null;
   closed_at?: string | null;
   owed_balance?: number | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  admin_id?: string | null;
+  availability?: "online" | "busy" | "offline" | null;
+  email_verified?: boolean | null;
+  last_active_at?: string | null;
+  handle_locked_until?: string | null;
+  theme?: string | null;
 }
 
 export interface WalletRow {

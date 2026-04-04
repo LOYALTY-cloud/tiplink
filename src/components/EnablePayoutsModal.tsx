@@ -21,11 +21,11 @@ export function EnablePayoutsModal({
       <div className="w-full max-w-md rounded-2xl bg-white border border-gray-200 shadow-sm p-6">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-xs font-medium text-gray-500">TIPLINKME</div>
+            <div className="text-xs font-medium text-gray-500">1NELINK</div>
             <h2 className="text-xl font-semibold text-gray-900">Enable payouts to withdraw</h2>
             <p className="mt-2 text-sm text-gray-600">
               To send your earnings to your bank, we use Stripe — a trusted payout provider.
-              Stripe handles identity + bank details securely. TIPLINKME never stores your SSN or bank info.
+              Stripe handles identity + bank details securely. 1NELINK never stores your SSN or bank info.
             </p>
           </div>
 

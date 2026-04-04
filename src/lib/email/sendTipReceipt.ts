@@ -12,12 +12,13 @@ type SendTipReceiptArgs = {
 
 export async function sendTipReceipt(args: SendTipReceiptArgs) {
   const from = process.env.RECEIPTS_FROM_EMAIL!;
-  const subject = `TIPLINKME receipt -- ${args.amountUsd}`;
+  const subject = `1NELINK receipt -- ${args.amountUsd}`;
 
   const html = `
   <div style="font-family:Arial,Helvetica,sans-serif;background:#f7f7f8;padding:32px 16px;">
     <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;">
-      <h2 style="margin:0;color:#111827;">TIPLINKME Receipt</h2>
+      <div style="text-align:center;margin-bottom:16px;"><img src="https://1nelink.com/1nelink-logo.png" alt="1neLink" width="60" height="60" style="border-radius:14px;" /></div>
+      <h2 style="margin:0;color:#111827;">1NELINK Receipt</h2>
       <p style="margin:10px 0 18px;color:#4b5563;">
         Thanks for your private support.
       </p>

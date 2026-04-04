@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase/client";
+import { supabaseAdmin as supabase } from "@/lib/supabase/adminBrowserClient";
+import { getAdminHeaders } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
 
 type RefundTip = {
@@ -89,15 +90,14 @@ export default function AdminRefundsPage() {
     setActing(tipId);
     setConfirmModal(null);
 
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) return;
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) return;
 
     const res = await fetch("/api/admin/refund", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...headers,
       },
       body: JSON.stringify({ tip_intent_id: tipId }),
     });
@@ -115,15 +115,14 @@ export default function AdminRefundsPage() {
   async function retryRefund(tipId: string) {
     setActing(tipId);
     setMessage(null);
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) return;
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) return;
 
     const res = await fetch("/api/admin/refund/retry", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...headers,
       },
       body: JSON.stringify({ tip_intent_id: tipId }),
     });

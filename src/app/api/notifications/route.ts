@@ -32,7 +32,7 @@ export async function GET(req: Request) {
   }
 }
 
-/** POST — mark notification(s) as read */
+/** POST — dismiss (delete) notification(s) */
 export async function POST(req: Request) {
   try {
     const token = extractToken(req);
@@ -43,25 +43,24 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    // Mark all read
+    // Delete all read
     if (body.all === true) {
       const { error } = await supabaseAdmin
         .from("notifications")
-        .update({ read: true })
-        .eq("user_id", user.id)
-        .eq("read", false);
+        .delete()
+        .eq("user_id", user.id);
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ success: true });
     }
 
-    // Mark single read
+    // Delete single
     const id = body.id as string;
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
     const { error } = await supabaseAdmin
       .from("notifications")
-      .update({ read: true })
+      .delete()
       .eq("id", id)
       .eq("user_id", user.id);
 

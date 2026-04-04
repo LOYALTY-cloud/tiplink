@@ -22,7 +22,7 @@ export default function StripeEmbeddedOnboarding({ clientSecret, mode = "onboard
       });
 
       const componentType = mode === "manage" ? "account-management" : "account-onboarding";
-      onboardingInstance = connect.create(componentType);
+      onboardingInstance = connect.create(componentType as any);
       // Some versions of Connect.js return a component with a `mount` method,
       // other times it returns an HTMLElement to be appended into the DOM.
       if (typeof onboardingInstance?.mount === "function") {

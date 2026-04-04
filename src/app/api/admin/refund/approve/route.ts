@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getAdminFromSession } from "@/lib/auth/getAdminFromSession";
+import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
+import { createRiskAlert } from "@/lib/riskAlerts";
 
 export const runtime = "nodejs";
 
 /** POST — approve a pending refund request */
 export async function POST(req: Request) {
   try {
-    const authHeader = req.headers.get("authorization") ?? "";
-    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const session = await getAdminFromSession(jwt);
+    const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     requireRole(session.role, "refund");
     const adminId = session.userId;
@@ -114,6 +113,31 @@ export async function POST(req: Request) {
 
     // ── All approvals met — execute the refund ──
 
+    // Per-admin rate limit: max 3 refund executions per minute
+    const oneMinuteAgo = new Date(Date.now() - 60 * 1000).toISOString();
+    const { count: recentExecCount } = await supabaseAdmin
+      .from("admin_actions")
+      .select("id", { count: "exact", head: true })
+      .eq("admin_id", adminId)
+      .eq("action", "refund")
+      .gte("created_at", oneMinuteAgo);
+    if ((recentExecCount ?? 0) >= 3) {
+      return NextResponse.json({ error: "Rate limit exceeded: max 3 refund executions per minute" }, { status: 429 });
+    }
+
+    // In-flight lock: prevent two admins from executing the same approved refund simultaneously
+    const { data: lockResult, error: lockErr } = await supabaseAdmin
+      .from("refund_requests")
+      .update({ locked_at: new Date().toISOString(), locked_by: adminId })
+      .eq("id", refund_id)
+      .is("locked_at", null)
+      .select("id")
+      .maybeSingle();
+
+    if (!lockResult) {
+      return NextResponse.json({ error: "Refund request is already being executed by another admin" }, { status: 409 });
+    }
+
     // Load the tip
     const { data: tip } = await supabaseAdmin
       .from("tip_intents")
@@ -137,6 +161,99 @@ export async function POST(req: Request) {
 
     const refundAmt = Number(refund.amount);
 
+    // Partial refund guard: re-verify against current refunded_amount
+    const tipAmount = Number(tip.tip_amount ?? 0);
+    const alreadyRefunded = Number(tip.refunded_amount ?? 0);
+    const maxRefundable = Number((tipAmount - alreadyRefunded).toFixed(2));
+    if (refundAmt > maxRefundable) {
+      await supabaseAdmin.from("refund_requests").update({ status: "rejected" }).eq("id", refund_id);
+      return NextResponse.json(
+        { error: `Refund amount $${refundAmt.toFixed(2)} exceeds current refundable balance of $${maxRefundable.toFixed(2)}` },
+        { status: 400 }
+      );
+    }
+
+    // Identity lock: verify PaymentIntent destination matches creator's connected account
+    const { stripe } = await import("@/lib/stripe/server");
+    const { data: creatorProfile } = await supabaseAdmin
+      .from("profiles")
+      .select("stripe_account_id")
+      .eq("user_id", tip.creator_user_id)
+      .maybeSingle();
+
+    if (!creatorProfile?.stripe_account_id) {
+      await supabaseAdmin.from("refund_requests").update({ status: "rejected" }).eq("id", refund_id);
+      return NextResponse.json({ error: "Creator has no connected Stripe account" }, { status: 400 });
+    }
+
+    const pi = await stripe.paymentIntents.retrieve(tip.stripe_payment_intent_id);
+    const piDestination = typeof pi.transfer_data?.destination === "string"
+      ? pi.transfer_data.destination
+      : (pi.transfer_data?.destination as any)?.id ?? null;
+
+    if (piDestination !== creatorProfile.stripe_account_id) {
+      console.error(
+        `[ALERT] Refund destination mismatch for tip ${tip.receipt_id}: PI destination=${piDestination}, creator account=${creatorProfile.stripe_account_id}`
+      );
+      await createRiskAlert({
+        user_id: tip.creator_user_id,
+        type: "payment_mismatch",
+        message: `Refund blocked (approved): PI ${tip.stripe_payment_intent_id} destination ${piDestination} != creator account ${creatorProfile.stripe_account_id}`,
+        severity: "critical",
+      });
+      await supabaseAdmin.from("admin_actions").insert({
+        admin_id: adminId,
+        action: "refund_mismatch_block",
+        target_user: tip.creator_user_id,
+        metadata: {
+          tip_intent_id: tip.receipt_id,
+          pi_id: tip.stripe_payment_intent_id,
+          pi_destination: piDestination,
+          expected_account: creatorProfile.stripe_account_id,
+          expected_cents: Math.round(tipAmount * 100),
+          received_cents: pi.amount_received,
+          requested_refund_cents: Math.round(refundAmt * 100),
+          creator_account: creatorProfile.stripe_account_id,
+          refund_request_id: refund_id,
+        },
+        severity: "critical",
+      });
+      await supabaseAdmin.from("refund_requests").update({ status: "rejected" }).eq("id", refund_id);
+      return NextResponse.json(
+        { error: "Payment destination mismatch — refusing refund to prevent funds routing error" },
+        { status: 409 }
+      );
+    }
+
+    // Stripe source-of-truth: verify amount_received matches expected total (cents invariant)
+    const toCents = (v: number) => Math.round(v * 100);
+    const piReceivedCents = pi.amount_received;
+    const tipAmountCents = toCents(tipAmount);
+    if (piReceivedCents < tipAmountCents) {
+      console.error(
+        `[ALERT] Stripe amount mismatch for tip ${tip.receipt_id}: PI received=${piReceivedCents}¢, expected>=${tipAmountCents}¢`
+      );
+      await supabaseAdmin.from("refund_requests").update({ status: "rejected", locked_at: null, locked_by: null }).eq("id", refund_id);
+      return NextResponse.json(
+        { error: `Stripe amount mismatch: received ${piReceivedCents}¢ but tip was ${tipAmountCents}¢` },
+        { status: 409 }
+      );
+    }
+
+    // Stripe refundable remaining: guard against over-refunding vs Stripe reality
+    const stripeRefundableCents = pi.amount_received - ((pi as any).charges?.data?.[0]?.amount_refunded ?? 0);
+    const requestedCents = toCents(refundAmt);
+    if (requestedCents > stripeRefundableCents) {
+      console.error(
+        `[ALERT] Refund exceeds Stripe remaining for tip ${tip.receipt_id}: requested=${requestedCents}¢, remaining=${stripeRefundableCents}¢`
+      );
+      await supabaseAdmin.from("refund_requests").update({ status: "rejected", locked_at: null, locked_by: null }).eq("id", refund_id);
+      return NextResponse.json(
+        { error: `Refund ${requestedCents}¢ exceeds Stripe refundable remaining ${stripeRefundableCents}¢` },
+        { status: 409 }
+      );
+    }
+
     // Check creator balance
     const { data: walletRow } = await supabaseAdmin
       .from("wallets")
@@ -157,15 +274,16 @@ export async function POST(req: Request) {
       .update({ refund_status: "initiated", refund_initiated_at: new Date().toISOString() })
       .eq("receipt_id", tip.receipt_id);
 
-    // Execute Stripe refund
-    const idempotencyKey = `refund-${tip.receipt_id}-${Math.round(refundAmt * 100)}-approved`;
-    const { stripe } = await import("@/lib/stripe/server");
+    // Execute Stripe refund (scoped idempotency key: request_id + amount)
+    const idempotencyKey = `refund-${refund_id}-${Math.round(refundAmt * 100)}-approved`;
     let stripeRefund;
     try {
       stripeRefund = await stripe.refunds.create(
         {
           payment_intent: tip.stripe_payment_intent_id,
           amount: Math.round(refundAmt * 100),
+          reverse_transfer: true,
+          refund_application_fee: true,
           metadata: {
             tip_intent_id: tip.receipt_id,
             refund_request_id: refund_id,
@@ -174,20 +292,24 @@ export async function POST(req: Request) {
         { idempotencyKey }
       );
     } catch (e: unknown) {
-      // Roll back
+      // Roll back tip status and release in-flight lock
       const alreadyRefunded = Number(tip.refunded_amount ?? 0);
       await supabaseAdmin
         .from("tip_intents")
         .update({ refund_status: alreadyRefunded > 0 ? "partial" : "none" })
         .eq("receipt_id", tip.receipt_id);
+      await supabaseAdmin
+        .from("refund_requests")
+        .update({ locked_at: null, locked_by: null })
+        .eq("id", refund_id);
       const errMsg = e instanceof Error ? e.message : String(e ?? "Stripe refund failed");
       return NextResponse.json({ error: errMsg }, { status: 400 });
     }
 
-    // Mark request as approved
+    // Mark request as approved (release in-flight lock)
     await supabaseAdmin
       .from("refund_requests")
-      .update({ status: "approved" })
+      .update({ status: "approved", locked_at: null, locked_by: null })
       .eq("id", refund_id);
 
     // Log execution
@@ -202,7 +324,7 @@ export async function POST(req: Request) {
         refund_request_id: refund_id,
         approved_via: "multi_approval",
       },
-      severity: "warning",
+      severity: "danger",
     });
 
     return NextResponse.json({

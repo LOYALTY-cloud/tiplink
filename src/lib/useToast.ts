@@ -1,24 +1,43 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type ToastType = "success" | "error" | "info";
 
-export type Toast = { message: string; type: ToastType };
+export type Toast = { id: number; message: string; type: ToastType };
+
+let _nextId = 0;
 
 export function useToast(timeoutMs = 2500) {
-  const [toast, setToast] = useState<Toast | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const timers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
+  const dismiss = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+    const timer = timers.current.get(id);
+    if (timer) { clearTimeout(timer); timers.current.delete(id); }
+  }, []);
+
+  const show = useCallback((message: string, type: ToastType = "info") => {
+    const id = ++_nextId;
+    setToasts((prev) => [...prev.slice(-4), { id, message, type }]); // keep max 5
+    const timer = setTimeout(() => dismiss(id), timeoutMs);
+    timers.current.set(id, timer);
+  }, [dismiss, timeoutMs]);
+
+  const clear = useCallback(() => {
+    timers.current.forEach((t) => clearTimeout(t));
+    timers.current.clear();
+    setToasts([]);
+  }, []);
 
   useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), timeoutMs);
-    return () => clearTimeout(t);
-  }, [toast, timeoutMs]);
+    return () => { timers.current.forEach((t) => clearTimeout(t)); };
+  }, []);
 
-  return {
-    toast,
-    show: (message: string, type: ToastType = "info") =>
-      setToast({ message, type }),
-    clear: () => setToast(null),
-  };
+  // Backward compat: expose single `toast` as last item
+  const toast = toasts.length > 0 ? toasts[toasts.length - 1] : null;
+
+  return { toast, toasts, show, dismiss, clear };
 }
+

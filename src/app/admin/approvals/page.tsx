@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase/client";
+import { supabaseAdmin as supabase } from "@/lib/supabase/adminBrowserClient";
+import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
 import { REFUND_REASON_LABELS, type RefundReason } from "@/lib/refundReasons";
 import { useToast } from "@/lib/useToast";
@@ -100,9 +101,8 @@ export default function AdminApprovalsPage() {
   }
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) setAdminId(data.user.id);
-    });
+    const session = getAdminSession();
+    if (session) setAdminId(session.id);
     loadAll();
   }, []);
 
@@ -337,9 +337,8 @@ export default function AdminApprovalsPage() {
       processedEvents.current.add(`refund_requests:UPDATE:${refund.id}:rejected`);
     }
 
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) { setActing(false); return; }
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) { setActing(false); return; }
 
     const endpoint =
       action === "approve"
@@ -355,7 +354,7 @@ export default function AdminApprovalsPage() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...headers,
       },
       body: JSON.stringify(body),
     });

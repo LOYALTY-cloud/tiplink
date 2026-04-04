@@ -19,6 +19,7 @@ export type StripeWebhookEvent =
   | (Stripe.Event & { type: "issuing_card.updated"; data: { object: Stripe.Issuing.Card } })
   | (Stripe.Event & { type: "issuing_cardholder.updated"; data: { object: Stripe.Issuing.Cardholder } })
   | (Stripe.Event & { type: "issuing_dispute.created"; data: { object: Stripe.Issuing.Dispute } })
-  | (Stripe.Event & { type: "issuing_dispute.closed"; data: { object: Stripe.Issuing.Dispute } });
+  | (Stripe.Event & { type: "issuing_dispute.closed"; data: { object: Stripe.Issuing.Dispute } })
+  | (Stripe.Event & { type: "checkout.session.completed"; data: { object: Stripe.Checkout.Session } });
 
 export default StripeWebhookEvent;

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getAdminFromSession } from "@/lib/auth/getAdminFromSession";
+import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
+import { createNotification, notifyAdmins } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -11,9 +12,7 @@ export const runtime = "nodejs";
  */
 export async function POST(req: Request) {
   try {
-    const authHeader = req.headers.get("authorization") ?? "";
-    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const session = await getAdminFromSession(jwt);
+    const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 });
     requireRole(session.role, "panic");
     const adminId = session.userId;
@@ -76,6 +75,28 @@ export async function POST(req: Request) {
       metadata: { count: ids.length, user_ids: ids.slice(0, 20) },
       severity: "critical",
     });
+
+    // Notify each affected user
+    Promise.allSettled(
+      ids.map((uid) =>
+        createNotification({
+          userId: uid,
+          type: "security",
+          title: "Temporary account restriction notice",
+          body: "Your account has been temporarily restricted.",
+          meta: {
+            action: "bulk_restricted",
+            reason: "Unusual activity detected",
+          },
+        })
+      )
+    ).catch(() => {});
+
+    // Notify admins
+    notifyAdmins({
+      title: "Bulk Restriction Triggered",
+      body: `Admin ${adminId} bulk-restricted ${ids.length} accounts.`,
+    }).catch(() => {});
 
     return NextResponse.json({ ok: true, restricted: ids.length });
   } catch (e: unknown) {

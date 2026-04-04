@@ -9,11 +9,11 @@ const mainTabs = [
   { href: "/dashboard/share", label: "Share" },
   { href: "/dashboard/transactions", label: "Transactions" },
   { href: "/dashboard/wallet", label: "Wallet" },
-  { href: "/dashboard/virtual-card", label: "Virtual Card" },
 ];
 
 const accountTabs = [
   { href: "/dashboard/settings", label: "Settings" },
+  { href: "/dashboard/support", label: "Support" },
 ];
 
 export default function DashboardHeader() {
@@ -25,7 +25,10 @@ export default function DashboardHeader() {
 
   return (
     <header className="flex items-center justify-between px-6 py-4 border-b border-white/10 relative">
-      <div className="text-lg font-semibold">TIPLINK</div>
+      <div className="flex items-center gap-2">
+        <img src="/1nelink-logo.png" alt="1neLink" className="h-8 w-8 rounded-xl object-contain" />
+        <span className="text-lg font-semibold">1NELINK</span>
+      </div>
 
       {/* Desktop Tabs */}
       <nav className="hidden md:flex gap-6 text-sm">

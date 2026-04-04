@@ -5,6 +5,7 @@ import { createSupabaseRouteClient } from "@/lib/supabase/server";
 
 export async function GET(request) {
   const { searchParams, origin } = new URL(request.url);
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || origin;
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type");
@@ -15,19 +16,19 @@ export async function GET(request) {
 
     if (code) {
       await supabase.auth.exchangeCodeForSession(code);
-      return NextResponse.redirect(`${origin}/verify?status=success`);
+      return NextResponse.redirect(`${baseUrl}/verify?status=success`);
     }
 
     await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
-    return NextResponse.redirect(`${origin}/verify?status=success`);
+    return NextResponse.redirect(`${baseUrl}/verify?status=success`);
   }
 
   if (!token) {
-    return NextResponse.redirect(`${origin}/verify?status=missing`);
+    return NextResponse.redirect(`${baseUrl}/verify?status=missing`);
   }
 
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return NextResponse.redirect(`${origin}/verify?status=error`);
+    return NextResponse.redirect(`${baseUrl}/verify?status=error`);
   }
 
   const supabaseAdmin = createClient(
@@ -47,11 +48,11 @@ export async function GET(request) {
     .maybeSingle();
 
   if (error || !record) {
-    return NextResponse.redirect(`${origin}/verify?status=invalid`);
+    return NextResponse.redirect(`${baseUrl}/verify?status=invalid`);
   }
 
   if (record.used_at || new Date(record.expires_at).getTime() < Date.now()) {
-    return NextResponse.redirect(`${origin}/verify?status=expired`);
+    return NextResponse.redirect(`${baseUrl}/verify?status=expired`);
   }
 
   await supabaseAdmin
@@ -77,5 +78,5 @@ export async function GET(request) {
       .catch(() => {});
   }
 
-  return NextResponse.redirect(`${origin}/verify?status=success`);
+  return NextResponse.redirect(`${baseUrl}/verify?status=success`);
 }

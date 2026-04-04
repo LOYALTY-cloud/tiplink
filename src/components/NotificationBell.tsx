@@ -16,6 +16,7 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notification[]>([]);
   const [unread, setUnread] = useState(0);
+  const [bellBounce, setBellBounce] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   const apiFetch = useCallback(async (path: string, opts?: RequestInit) => {
@@ -57,6 +58,10 @@ export function NotificationBell() {
             const n = payload.new as Notification;
             setItems((prev) => [n, ...prev].slice(0, 30));
             setUnread((prev) => prev + 1);
+            // Haptic + bell bounce on new notification
+            navigator.vibrate?.(15);
+            setBellBounce(true);
+            setTimeout(() => setBellBounce(false), 500);
           },
         )
         .subscribe();
@@ -76,13 +81,13 @@ export function NotificationBell() {
 
   const markAllRead = async () => {
     await apiFetch("/api/notifications", { method: "POST", body: JSON.stringify({ all: true }) });
-    setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+    setItems([]);
     setUnread(0);
   };
 
   const markRead = async (id: string) => {
     await apiFetch("/api/notifications", { method: "POST", body: JSON.stringify({ id }) });
-    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    setItems((prev) => prev.filter((n) => n.id !== id));
     setUnread((prev) => Math.max(0, prev - 1));
   };
 
@@ -108,7 +113,7 @@ export function NotificationBell() {
         aria-label="Notifications"
       >
         {/* Bell SVG */}
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-5 h-5 text-gray-300">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className={`w-5 h-5 text-gray-300 transition-transform ${bellBounce ? "animate-[bellBounce_0.5s_ease-out]" : ""}`}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
         </svg>
 

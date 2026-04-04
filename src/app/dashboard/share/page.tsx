@@ -28,7 +28,7 @@ export default function SharePage() {
     })();
   }, []);
 
-  const origin = typeof window !== "undefined" ? window.location.origin : "https://tiplink.app";
+  const origin = typeof window !== "undefined" ? window.location.origin : "https://1nelink.app";
   const username = handle ?? "yourname";
   const basePath = `${origin}/@${username}`;
   const shareUrl = amount ? `${basePath}?amount=${amount}` : basePath;

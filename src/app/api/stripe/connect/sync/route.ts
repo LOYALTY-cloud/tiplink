@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { stripe } from "@/lib/stripe/server";
+import { syncExternalAccounts } from "@/lib/syncExternalAccounts";
 
 export const runtime = "nodejs";
 
@@ -11,8 +12,21 @@ const supabaseAdmin = createClient(
 
 export async function POST(req: Request) {
   try {
-    const { user_id } = await req.json();
-    if (!user_id) return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
+    // Authenticate caller
+    const authHeader = req.headers.get("authorization") || "";
+    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!jwt) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { createClient: createAnonClient } = await import("@supabase/supabase-js");
+    const supabaseUser = createAnonClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${jwt}` } } }
+    );
+    const { data: authRes, error: authErr } = await supabaseUser.auth.getUser();
+    if (authErr || !authRes.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const user_id = authRes.user.id;
 
     const { data: profile } = await supabaseAdmin
       .from("profiles")
@@ -41,6 +55,15 @@ export async function POST(req: Request) {
         payouts_enabled_at: onboardingComplete ? new Date().toISOString() : null,
       })
       .eq("user_id", user_id);
+
+    // Sync external accounts (cards/bank accounts) from Stripe Connect → local DB
+    if (onboardingComplete) {
+      try {
+        await syncExternalAccounts(user_id, profile.stripe_account_id);
+      } catch (e) {
+        console.log("External account sync error:", e instanceof Error ? e.message : e);
+      }
+    }
 
     return NextResponse.json({
       payouts_enabled: onboardingComplete,

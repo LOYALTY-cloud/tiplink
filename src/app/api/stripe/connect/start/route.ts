@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
@@ -26,6 +27,13 @@ export async function POST(req: Request) {
     if (userErr || !userRes.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const userId = userRes.user.id;
+
+    // Require verified email for Stripe setup
+    try {
+      await requireVerifiedEmail(userId);
+    } catch {
+      return NextResponse.json({ error: "Please verify your email before setting up payouts" }, { status: 403 });
+    }
 
     // Check existing stripe account
     const { data: prof, error: profErr } = await supabaseAdmin

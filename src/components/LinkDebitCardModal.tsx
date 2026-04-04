@@ -55,10 +55,18 @@ function Inner({ onDone }: { onDone: () => void }) {
       return;
     }
 
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess.session?.access_token;
+    if (!token) {
+      setLoading(false);
+      setMsg("Session expired.");
+      return;
+    }
+
     const r = await fetch("/api/stripe/store-payout-method", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: user.id, paymentMethodId: pmId }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ paymentMethodId: pmId }),
     });
 
     if (!r.ok) {
@@ -89,7 +97,7 @@ function Inner({ onDone }: { onDone: () => void }) {
       </button>
 
       <div className="text-xs text-gray-500">
-        Card details are handled by Stripe. TIPLINK never stores full card numbers or CVV.
+        Card details are handled by Stripe. 1NELINK never stores full card numbers or CVV.
       </div>
     </div>
   );
@@ -109,7 +117,13 @@ export default function LinkDebitCardModal({
   useEffect(() => {
     if (!open) return;
     (async () => {
-      const r = await fetch("/api/stripe/setup-intent", { method: "POST" });
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) { setClientSecret(null); return; }
+      const r = await fetch("/api/stripe/setup-intent", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!r.ok) {
         setClientSecret(null);
         return;

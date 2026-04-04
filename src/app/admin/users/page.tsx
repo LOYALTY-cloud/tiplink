@@ -1,19 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase/client";
+import { supabaseAdmin as supabase } from "@/lib/supabase/adminBrowserClient";
 import { ui } from "@/lib/ui";
+import { getAdminSession, getAdminHeaders } from "@/lib/auth/adminSession";
+import AdminConfirmModal from "@/components/AdminConfirmModal";
+import type { ConfirmVariant } from "@/components/AdminConfirmModal";
 
 type User = {
   id: string;
   user_id: string;
   handle: string | null;
   display_name: string | null;
+  email: string | null;
   account_status: string | null;
   owed_balance: number | null;
   is_flagged: boolean | null;
+  role: string | null;
+  first_name: string | null;
+  last_name: string | null;
   created_at: string;
 };
 
@@ -27,7 +34,7 @@ function isUserFlagged(u: User) {
   );
 }
 
-export default function AdminUsersPage() {
+function AdminUsersContent() {
   const searchParams = useSearchParams();
   const initialFilter = searchParams.get("filter") ?? "all";
 
@@ -36,6 +43,13 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ userId: string; status: string; displayName: string } | null>(null);
+  const [actionReason, setActionReason] = useState("");
+  const canAssignRoles = (() => {
+    const s = getAdminSession();
+    return s?.role === "owner" || s?.role === "super_admin";
+  })();
+  const router = useRouter();
 
   useEffect(() => {
     fetchUsers();
@@ -57,7 +71,7 @@ export default function AdminUsersPage() {
     let query = supabase
       .from("profiles")
       .select(
-        "id, user_id, handle, display_name, account_status, owed_balance, is_flagged, created_at"
+        "id, user_id, handle, display_name, email, account_status, owed_balance, is_flagged, role, first_name, last_name, created_at"
       )
       .order("created_at", { ascending: false })
       .limit(100);
@@ -80,23 +94,54 @@ export default function AdminUsersPage() {
     setLoading(false);
   }
 
-  async function updateStatus(userId: string, status: string) {
+  async function updateStatus(userId: string, status: string, reason?: string) {
     setUpdating(userId);
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) return;
+    setPendingAction(null);
+    setActionReason("");
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) return;
 
     await fetch("/api/admin/update-status", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...headers,
       },
-      body: JSON.stringify({ user_id: userId, status }),
+      body: JSON.stringify({ user_id: userId, status, reason }),
     });
 
     setUpdating(null);
     fetchUsers();
+  }
+
+  const DESTRUCTIVE_STATUSES = ["suspended", "closed", "restricted"];
+
+  function requestStatusChange(userId: string, status: string, displayName: string) {
+    if (DESTRUCTIVE_STATUSES.includes(status)) {
+      setActionReason("");
+      setPendingAction({ userId, status, displayName });
+    } else {
+      updateStatus(userId, status);
+    }
+  }
+
+  function navigateToAssign(u: User) {
+    let firstName = u.first_name || "";
+    let lastName = u.last_name || "";
+    if (!firstName && !lastName && u.display_name) {
+      const parts = u.display_name.trim().split(/\s+/);
+      firstName = parts[0] || "";
+      lastName = parts.slice(1).join(" ") || "";
+    }
+    const role = u.role && u.role !== "user" ? u.role : "support_admin";
+    const params = new URLSearchParams({
+      userId: u.user_id,
+      firstName,
+      lastName,
+      email: u.email || "",
+      role,
+    });
+    router.push(`/admin/users/create?${params.toString()}`);
   }
 
   const filtered = search
@@ -126,10 +171,18 @@ export default function AdminUsersPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className={ui.h1}>Users</h1>
+      <div className="flex items-center justify-between">
+        <h1 className={ui.h1}>Users</h1>
+        {canAssignRoles && (
+          <Link href="/admin/users/create" className="bg-emerald-500 hover:bg-emerald-600 text-black text-sm font-medium px-4 py-2 rounded-xl transition">
+            + Create Admin
+          </Link>
+        )}
+      </div>
 
       <div className="flex flex-wrap gap-3">
         <input
+          id="user-search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search handle, name, email, or ID…"
@@ -155,7 +208,7 @@ export default function AdminUsersPage() {
       ) : filtered.length === 0 ? (
         <p className={ui.muted}>No users found.</p>
       ) : (
-        <div className="space-y-3">
+        <div id="user-actions" className="space-y-3">
           {filtered.map((u) => (
             <div
               key={u.id}
@@ -197,11 +250,11 @@ export default function AdminUsersPage() {
                 </div>
               </Link>
 
-              <div className="flex gap-2 shrink-0">
+              <div className="flex flex-wrap gap-2 shrink-0">
                 {STATUS_OPTIONS.filter((s) => s !== u.account_status).map((s) => (
                   <button
                     key={s}
-                    onClick={() => updateStatus(u.user_id, s)}
+                    onClick={() => requestStatusChange(u.user_id, s, u.display_name || u.handle || u.user_id)}
                     disabled={updating === u.user_id}
                     className={`${ui.btnGhost} ${ui.btnSmall} ${
                       s === "suspended" || s === "closed"
@@ -214,11 +267,68 @@ export default function AdminUsersPage() {
                     {updating === u.user_id ? "…" : s.charAt(0).toUpperCase() + s.slice(1)}
                   </button>
                 ))}
+                {canAssignRoles && (
+                  <button
+                    onClick={() => navigateToAssign(u)}
+                    className={`${ui.btnGhost} ${ui.btnSmall} hover:bg-blue-500/20 hover:border-blue-400/30 text-blue-400`}
+                  >
+                    Assign Role
+                  </button>
+                )}
               </div>
             </div>
           ))}
         </div>
       )}
+
+      <AdminConfirmModal
+        open={!!pendingAction}
+        title={`${pendingAction?.status === "closed" ? "Close" : pendingAction?.status === "suspended" ? "Suspend" : "Restrict"} Account`}
+        confirmLabel={`Yes, ${pendingAction?.status === "closed" ? "Close" : pendingAction?.status === "suspended" ? "Suspend" : "Restrict"} Account`}
+        variant={(pendingAction?.status === "suspended" || pendingAction?.status === "closed" ? "danger" : "reject") as ConfirmVariant}
+        loading={!!updating}
+        disabled={!actionReason.trim()}
+        onConfirm={() => {
+          if (pendingAction) updateStatus(pendingAction.userId, pendingAction.status, actionReason.trim());
+        }}
+        onCancel={() => { setPendingAction(null); setActionReason(""); }}
+      >
+        <p className="text-white/70">
+          Are you sure you want to set{" "}
+          <span className="font-semibold text-white">{pendingAction?.displayName}</span>{" "}
+          to <span className="font-semibold text-red-400">{pendingAction?.status}</span>?
+        </p>
+        {pendingAction?.status === "closed" && (
+          <p className="text-white/50 text-xs">The user will no longer receive tips but can still withdraw remaining funds.</p>
+        )}
+        {pendingAction?.status === "restricted" && (
+          <p className="text-white/50 text-xs">The user will not be able to receive tips or withdraw funds until the restriction is lifted.</p>
+        )}
+        {pendingAction?.status === "suspended" && (
+          <p className="text-white/50 text-xs">The user will be fully locked out of all account functionality.</p>
+        )}
+        <div>
+          <label className="text-xs text-white/50 block mb-1">Reason for action <span className="text-red-400">*</span></label>
+          <textarea
+            value={actionReason}
+            onChange={(e) => setActionReason(e.target.value)}
+            placeholder="Enter reason for this action..."
+            rows={3}
+            className="w-full rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/30 px-3 py-2 focus:outline-none focus:ring-1 focus:ring-white/20 resize-none"
+          />
+          {!actionReason.trim() && (
+            <p className="text-red-400/70 text-xs mt-1">A reason is required to proceed</p>
+          )}
+        </div>
+      </AdminConfirmModal>
     </div>
+  );
+}
+
+export default function AdminUsersPage() {
+  return (
+    <Suspense fallback={<p>Loading...</p>}>
+      <AdminUsersContent />
+    </Suspense>
   );
 }

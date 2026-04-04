@@ -20,8 +20,7 @@ export default function ProfilePage() {
   const [bannerUrl, setBannerUrl] = useState("");
   const [cropTarget, setCropTarget] = useState<"avatars" | "banners" | null>(null);
   const [imageSrcLocal, setImageSrcLocal] = useState<string | null>(null);
-  const [handleChangeCount, setHandleChangeCount] = useState(0);
-  const [handleWindowStart, setHandleWindowStart] = useState<string | null>(null);
+  const [handleLockedUntil, setHandleLockedUntil] = useState<string | null>(null);
   const [links, setLinks] = useState<
     { type: SocialType; url: string; sort_order: number }[]
   >([]);
@@ -37,14 +36,20 @@ export default function ProfilePage() {
       const user = userRes.user;
       if (!user) return;
 
-      const { data: prof } = await supabase
+      const { data: prof, error: profErr } = await supabase
         .from("profiles")
         .select(
-          "id, handle, display_name, bio, location, avatar_url, banner_url, handle_change_count, handle_change_window_start"
+          "id, handle, display_name, bio, location, avatar_url, banner_url, handle_change_count, handle_change_window_start, handle_locked_until"
         )
         .eq("user_id", user.id)
         .maybeSingle()
         .returns<ProfileRow | null>();
+
+      if (profErr) {
+        console.error("[ProfilePage] Failed to load profile:", profErr.message);
+        setMsg("Failed to load profile. Please refresh.");
+        return;
+      }
 
       if (prof) {
         setProfileId(prof.id);
@@ -55,8 +60,7 @@ export default function ProfilePage() {
         setLocation(prof.location || "");
         setAvatarUrl(prof.avatar_url || "");
         setBannerUrl(prof.banner_url || "");
-        setHandleChangeCount(prof.handle_change_count || 0);
-        setHandleWindowStart(prof.handle_change_window_start || null);
+        setHandleLockedUntil(prof.handle_locked_until || null);
 
         const { data: sl } = await supabase
           .from("social_links")
@@ -66,7 +70,7 @@ export default function ProfilePage() {
 
         setLinks((sl || []).map((x: unknown) => ({ ...(x as any) })));
       } else {
-        const suggested = (user.email || "").split("@")[0] || "mytiplink";
+        const suggested = (user.email || "").split("@")[0] || "my1nelink";
         setHandle(suggested);
         setSavedHandle("");
       }
@@ -114,26 +118,23 @@ export default function ProfilePage() {
     const hasExistingHandle = Boolean(savedHandle);
     const isHandleChange = Boolean(savedHandle) && cleanHandle !== savedHandle;
 
-    let nextChangeCount = handleChangeCount;
-    let nextWindowStart = handleWindowStart;
-
     if (isHandleChange && hasExistingHandle) {
-      if (handleWindowStart) {
-        const lastChangeDate = new Date(handleWindowStart);
-        const msIn30Days = 30 * 24 * 60 * 60 * 1000;
-        const msSinceLastChange = now.getTime() - lastChangeDate.getTime();
-
-        if (msSinceLastChange < msIn30Days) {
-          const daysRemaining = Math.ceil((msIn30Days - msSinceLastChange) / (24 * 60 * 60 * 1000));
+      // Check 2-week handle lock
+      if (handleLockedUntil) {
+        const lockEnd = new Date(handleLockedUntil);
+        if (lockEnd > now) {
+          const daysLeft = Math.ceil((lockEnd.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
           setSaving(false);
-          setMsg(`You can change your handle again in ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''}.`);
+          setMsg(`Your handle is locked for ${daysLeft} more day${daysLeft !== 1 ? 's' : ''}. You can change it after ${lockEnd.toLocaleDateString()}.`);
           return;
         }
       }
-
-      nextChangeCount = handleChangeCount + 1;
-      nextWindowStart = now.toISOString();
     }
+
+    // Set new 2-week lock if handle is changing
+    const newLockUntil = isHandleChange && hasExistingHandle
+      ? new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString()
+      : handleLockedUntil;
 
     const { data: profUpsert, error: profErr } = await supabase
       .from("profiles")
@@ -146,8 +147,7 @@ export default function ProfilePage() {
           location,
           avatar_url: avatarUrl || null,
           banner_url: bannerUrl || null,
-          handle_change_count: nextChangeCount,
-          handle_change_window_start: nextWindowStart,
+          handle_locked_until: newLockUntil,
         },
         { onConflict: "user_id" }
       )
@@ -189,6 +189,7 @@ export default function ProfilePage() {
     }
 
     setSaving(false);
+    if (newLockUntil !== handleLockedUntil) setHandleLockedUntil(newLockUntil);
     setMsg("Saved OK");
   };
 
@@ -298,30 +299,20 @@ export default function ProfilePage() {
 
       <div className={`${ui.card} p-6`}>
         <h1 className={ui.h2}>Edit Profile</h1>
-        <p className={ui.muted}>Update your public TIPLINK page information</p>
+        <p className={ui.muted}>Update your public 1NELINK page information</p>
       </div>
 
       <div className={`${ui.card} p-6 space-y-4`}>
         <div className="space-y-2">
           <label className={`text-sm font-medium ${ui.muted}`}>Handle</label>
-          <input className={ui.input} placeholder="DJLuna" value={handle} onChange={(e) => setHandle(e.target.value)} />
+          <input className={ui.input} placeholder="DJLuna" value={handle} onChange={(e) => setHandle(e.target.value)} disabled={!!(handleLockedUntil && new Date(handleLockedUntil) > new Date())} />
           <p className={ui.muted2}>Public link: <span className="font-medium">/{baseHandle || "yourhandle"}</span></p>
-          {handleWindowStart && savedHandle && (
-            <p className={ui.muted2}>
-              {(() => {
-                const lastChangeDate = new Date(handleWindowStart);
-                const now = new Date();
-                const msIn30Days = 30 * 24 * 60 * 60 * 1000;
-                const msSinceLastChange = now.getTime() - lastChangeDate.getTime();
-                const daysRemaining = Math.ceil((msIn30Days - msSinceLastChange) / (24 * 60 * 60 * 1000));
-
-                if (daysRemaining <= 0) {
-                  return "✓ You can change your handle now";
-                }
-                return `Handle can be changed again in ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''}`;
-              })()}
+          {handleLockedUntil && new Date(handleLockedUntil) > new Date() && (
+            <p className="text-xs text-amber-400">
+              🔒 Handle locked until {new Date(handleLockedUntil).toLocaleDateString()} — you can change it after that.
             </p>
           )}
+
         </div>
 
         <div className="space-y-2">

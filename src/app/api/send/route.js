@@ -4,9 +4,9 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function GET() {
   const data = await resend.emails.send({
-    from: "no-reply@tiplinkme.com",
+    from: "no-reply@1nelink.com",
     to: "money2loyal@gmail.com",
-    subject: "Test from TipLinkMe",
+    subject: "Test from 1neLink",
     html: "<p>Hello world</p>",
   });
 

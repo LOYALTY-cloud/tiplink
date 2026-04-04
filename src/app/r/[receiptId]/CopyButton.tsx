@@ -11,7 +11,7 @@ export function CopyButton({ receiptId }: { receiptId: string }) {
     try {
       if (typeof navigator !== "undefined" && (navigator as any).share) {
         await (navigator as any).share({
-          title: "TipLink Receipt",
+          title: "1neLink Receipt",
           text: `Receipt for your support - ${receiptId}`,
           url: url,
         });

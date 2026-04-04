@@ -2,12 +2,19 @@ import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url)
-  const user_id = searchParams.get("user_id")
+  const authHeader = req.headers.get("authorization") || "";
+  const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!jwt) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!user_id) {
-    return NextResponse.json({ error: "user_id required" }, { status: 400 })
-  }
+  const supabaseUser = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${jwt}` } } }
+  );
+  const { data: authRes, error: authErr } = await supabaseUser.auth.getUser();
+  if (authErr || !authRes.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const user_id = authRes.user.id;
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

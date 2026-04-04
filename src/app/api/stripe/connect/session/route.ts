@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { stripe } from "@/lib/stripe/server";
+import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 
 export const runtime = "nodejs";
 
@@ -11,10 +12,31 @@ const supabase = createClient(
 
 export async function POST(req: Request) {
   try {
+    // Authenticate caller
+    const authHeader = req.headers.get("authorization") || "";
+    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!jwt) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { createClient: createAnonClient } = await import("@supabase/supabase-js");
+    const supabaseUser = createAnonClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${jwt}` } } }
+    );
+    const { data: authRes, error: authErr } = await supabaseUser.auth.getUser();
+    if (authErr || !authRes.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const user_id = authRes.user.id;
+
+    // Require verified email before Stripe onboarding/management
+    try {
+      await requireVerifiedEmail(user_id);
+    } catch {
+      return NextResponse.json({ error: "Please verify your email before setting up payouts" }, { status: 403 });
+    }
+
     const body = await req.json();
-    const user_id = body?.user_id;
     const mode = body?.mode; // "manage" for existing accounts
-    if (!user_id) return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
 
     const { data: profile, error } = await supabase
       .from("profiles")
@@ -33,8 +55,8 @@ export async function POST(req: Request) {
     }
 
     // Fetch email from Supabase Auth (admin) — profiles table doesn't store email
-    const { data: authUserRes, error: authErr } = await supabase.auth.admin.getUserById(user_id);
-    if (authErr) return NextResponse.json({ error: authErr.message }, { status: 500 });
+    const { data: authUserRes, error: authUserErr } = await supabase.auth.admin.getUserById(user_id);
+    if (authUserErr) return NextResponse.json({ error: authUserErr.message }, { status: 500 });
 
     const email = authUserRes?.user?.email ?? undefined;
 

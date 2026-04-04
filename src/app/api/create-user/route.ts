@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createClient } from "@supabase/supabase-js";
 
 /**
  * POST /api/create-user
@@ -8,13 +9,33 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
  */
 export async function POST(req: Request) {
   try {
-    const { userId, email } = await req.json();
-    if (!userId || typeof userId !== "string") {
-      return NextResponse.json({ error: "Missing userId" }, { status: 400 });
-    }
+    // Authenticate caller — must be the user being set up
+    const authHeader = req.headers.get("authorization") || "";
+    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!jwt) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // Sync email to profile (only if not already set)
-    if (email && typeof email === "string") {
+    const supabaseUser = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${jwt}` } } }
+    );
+    const { data: authRes, error: authErr } = await supabaseUser.auth.getUser();
+    if (authErr || !authRes.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const userId = authRes.user.id;
+    const email = authRes.user.email;
+
+    // Ensure profile row exists (must come before user_settings due to FK constraint)
+    const profileData: Record<string, unknown> = { user_id: userId, handle: userId };
+    if (email) {
+      profileData.email = email;
+    }
+    await supabaseAdmin
+      .from("profiles")
+      .upsert(profileData, { onConflict: "user_id", ignoreDuplicates: true });
+
+    // If profile already existed but email was null, sync it
+    if (email) {
       await supabaseAdmin
         .from("profiles")
         .update({ email })

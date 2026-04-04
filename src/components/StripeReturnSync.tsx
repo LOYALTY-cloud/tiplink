@@ -15,10 +15,14 @@ export function StripeReturnSync() {
         const userId = userRes.user?.id;
         if (!userId) return;
 
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess.session?.access_token;
+        if (!token) return;
+
         await fetch("/api/stripe/connect/sync", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_id: userId }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({}),
         });
 
         // clean URL + refresh

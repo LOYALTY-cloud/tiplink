@@ -23,7 +23,7 @@ export async function POST(req) {
     const resendResponse = await resend.emails.send({
       from,
       to,
-      subject: "Test from TipLinkMe",
+      subject: "Test from 1neLink",
       html: "<p>Hello world</p>",
     });
 

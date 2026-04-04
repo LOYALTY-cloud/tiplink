@@ -3,17 +3,24 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase/client";
+import { supabaseAdmin as supabase } from "@/lib/supabase/adminBrowserClient";
+import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
 import { getRoleBadge } from "@/lib/ui/roleBadge";
 import { REFUND_REASONS, REFUND_REASON_LABELS, type RefundReason } from "@/lib/refundReasons";
 import AdminConfirmModal from "@/components/AdminConfirmModal";
+import AdminRiskCard from "@/components/AdminRiskCard";
+import ActivityCalendar from "@/components/admin/ActivityCalendar";
+import { getAdminWarnings } from "@/lib/adminWarnings";
 
 type Profile = {
   id: string;
   user_id: string;
   handle: string | null;
   display_name: string | null;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
   account_status: string | null;
   status_reason: string | null;
   owed_balance: number | null;
@@ -21,6 +28,11 @@ type Profile = {
   created_at: string;
   closed_at: string | null;
   role: string | null;
+  trust_score: number | null;
+  risk_level: string | null;
+  last_risk_check: string | null;
+  is_frozen: boolean | null;
+  freeze_reason: string | null;
 };
 
 type Wallet = { balance: number };
@@ -45,7 +57,6 @@ type TipIntent = {
 };
 
 const STATUS_OPTIONS = ["active", "restricted", "suspended", "closed"] as const;
-const ASSIGNABLE_ROLES = ["user", "support_admin", "finance_admin", "super_admin"] as const;
 
 export default function AdminUserDetailPage() {
   const params = useParams();
@@ -61,11 +72,12 @@ export default function AdminUserDetailPage() {
   const [updating, setUpdating] = useState(false);
   const [dangerAction, setDangerAction] = useState<string | null>(null);
   const [dangerInput, setDangerInput] = useState("");
+  const [actionReason, setActionReason] = useState("");
+  const [restrictedUntil, setRestrictedUntil] = useState("");
   const [riskResult, setRiskResult] = useState<{ restricted: boolean; rules_fired: Array<{ rule: string; value: number; threshold: number }> } | null>(null);
   const [riskLoading, setRiskLoading] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
-  const [selectedRole, setSelectedRole] = useState<string>("user");
-  const [roleUpdating, setRoleUpdating] = useState(false);
+
   const [notes, setNotes] = useState<Array<{ id: string; note: string; created_at: string; admin: { display_name: string | null; handle: string | null; role: string | null } | null }>>([]);
   const [newNote, setNewNote] = useState("");
   const [noteSubmitting, setNoteSubmitting] = useState(false);
@@ -81,6 +93,10 @@ export default function AdminUserDetailPage() {
   const [refundNote, setRefundNote] = useState("");
   const [refundSubmitting, setRefundSubmitting] = useState(false);
 
+  const [supportHistory, setSupportHistory] = useState<Array<{ id: string; ticket_id: string; issue_type: string; summary: string; resolution: string; outcome: string; created_at: string }>>([]);
+
+  const [exporting, setExporting] = useState(false);
+
   useEffect(() => {
     loadUser();
     loadCurrentUserRole();
@@ -88,6 +104,7 @@ export default function AdminUserDetailPage() {
     loadTimeline();
     loadPendingRefunds();
     loadAllTips();
+    loadSupportHistory();
   }, [userId]);
 
   // Auto-refresh pending refunds every 5s
@@ -97,23 +114,27 @@ export default function AdminUserDetailPage() {
   }, [tips]);
 
   async function loadCurrentUserRole() {
-    const { data: sess } = await supabase.auth.getUser();
-    if (!sess.user) return;
-    const { data: p } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("user_id", sess.user.id)
-      .single();
-    setCurrentUserRole(p?.role ?? "user");
+    const session = getAdminSession();
+    if (!session) return;
+    setCurrentUserRole(session.role ?? "user");
+  }
+
+  async function loadSupportHistory() {
+    const { data } = await supabase
+      .from("user_support_history")
+      .select("id, ticket_id, issue_type, summary, resolution, outcome, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+    setSupportHistory(data ?? []);
   }
 
   async function loadUser() {
     setLoading(true);
 
-    const [profileRes, walletRes, txRes, tipsRes, disputeRes] = await Promise.all([
+    const [profileRes, walletRes, tipsRes, disputeRes] = await Promise.all([
       supabase
         .from("profiles")
-        .select("id, user_id, handle, display_name, account_status, status_reason, owed_balance, is_flagged, created_at, closed_at, role")
+        .select("id, user_id, handle, display_name, email, first_name, last_name, account_status, status_reason, owed_balance, is_flagged, created_at, closed_at, role, trust_score, risk_level, last_risk_check, is_frozen, freeze_reason")
         .eq("user_id", userId)
         .maybeSingle(),
       supabase
@@ -121,12 +142,6 @@ export default function AdminUserDetailPage() {
         .select("balance")
         .eq("user_id", userId)
         .maybeSingle(),
-      supabase
-        .from("transactions_ledger")
-        .select("id, type, amount, reference_id, status, meta, created_at")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(50),
       supabase
         .from("tip_intents")
         .select("receipt_id, tip_amount, refunded_amount, refund_status, status, created_at")
@@ -141,26 +156,36 @@ export default function AdminUserDetailPage() {
         .eq("status", "disputed"),
     ]);
 
+    // Fetch transactions via API (RLS blocks direct anon access to transactions_ledger)
+    let txData: Transaction[] = [];
+    try {
+      const txRes = await fetch(`/api/admin/users/${userId}/transactions`, {
+        headers: getAdminHeaders(),
+      });
+      if (txRes.ok) {
+        const txJson = await txRes.json();
+        txData = txJson.transactions ?? [];
+      }
+    } catch {}
+
     if (!profileRes.data) {
       setLoading(false);
       return;
     }
 
     setProfile(profileRes.data);
-    setSelectedRole(profileRes.data.role ?? "user");
     setWallet(walletRes.data ?? { balance: 0 });
-    setTransactions(txRes.data ?? []);
+    setTransactions(txData);
     setTips(tipsRes.data ?? []);
     setDisputeCount(disputeRes.count ?? 0);
     setLoading(false);
   }
 
   async function loadNotes() {
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) return;
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) return;
     const res = await fetch(`/api/admin/support-notes?user_id=${userId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
     });
     if (res.ok) {
       const json = await res.json();
@@ -170,11 +195,10 @@ export default function AdminUserDetailPage() {
 
   async function loadTimeline() {
     setTimelineLoading(true);
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) { setTimelineLoading(false); return; }
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) { setTimelineLoading(false); return; }
     const res = await fetch(`/api/admin/user-timeline?user_id=${userId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
     });
     if (res.ok) {
       const json = await res.json();
@@ -223,14 +247,13 @@ export default function AdminUserDetailPage() {
   async function submitRefund() {
     if (!refundModal) return;
     setRefundSubmitting(true);
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) { setRefundSubmitting(false); return; }
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) { setRefundSubmitting(false); return; }
 
     const maxRefundable = Number(refundModal.tipAmount) - Number(refundModal.refundedAmount);
     const res = await fetch("/api/admin/refund", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify({
         tip_intent_id: refundModal.tipId,
         amount: maxRefundable,
@@ -255,12 +278,11 @@ export default function AdminUserDetailPage() {
 
   async function handleApprove(refundId: string) {
     setApproving(refundId);
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) { setApproving(null); return; }
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) { setApproving(null); return; }
     const res = await fetch("/api/admin/refund/approve", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify({ refund_id: refundId }),
     });
     const json = await res.json();
@@ -276,12 +298,11 @@ export default function AdminUserDetailPage() {
 
   async function handleReject(refundId: string) {
     setApproving(refundId);
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) { setApproving(null); return; }
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) { setApproving(null); return; }
     await fetch("/api/admin/refund/reject", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify({ refund_id: refundId, reason: approvalRejectNote.trim() || undefined }),
     });
     setApproving(null);
@@ -294,14 +315,13 @@ export default function AdminUserDetailPage() {
   async function addNote() {
     if (!newNote.trim()) return;
     setNoteSubmitting(true);
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) { setNoteSubmitting(false); return; }
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) { setNoteSubmitting(false); return; }
     await fetch("/api/admin/support-notes", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...headers,
       },
       body: JSON.stringify({ user_id: userId, note: newNote.trim() }),
     });
@@ -311,49 +331,56 @@ export default function AdminUserDetailPage() {
   }
 
   async function updateStatus(status: string) {
-    // Danger zone: require typed confirmation for destructive actions
+    // Danger zone or restricted: show modal for reason entry
     const isDangerous = status === "closed" || status === "suspended";
-    if (isDangerous && dangerInput !== status.toUpperCase()) {
+    const needsReason = isDangerous || status === "restricted";
+    if (needsReason && !dangerAction) {
       setDangerAction(status);
       setDangerInput("");
+      setActionReason("");
+      setRestrictedUntil("");
       return;
     }
+    if (isDangerous && dangerInput !== status.toUpperCase()) return;
+    if (needsReason && !actionReason.trim()) return;
 
     setUpdating(true);
     setDangerAction(null);
     setDangerInput("");
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) return;
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) return;
 
     await fetch("/api/admin/update-status", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...headers,
       },
       body: JSON.stringify({
         user_id: userId,
         status,
+        reason: actionReason.trim() || undefined,
         ...(isDangerous ? { confirm_text: status.toUpperCase() } : {}),
+        ...(status === "restricted" && restrictedUntil ? { restricted_until: restrictedUntil } : {}),
       }),
     });
 
+    setActionReason("");
+    setRestrictedUntil("");
     setUpdating(false);
     loadUser();
   }
 
   async function runRiskEval() {
     setRiskLoading(true);
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) return;
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) return;
 
     const res = await fetch("/api/admin/risk-eval", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...headers,
       },
       body: JSON.stringify({ user_id: userId }),
     });
@@ -384,6 +411,55 @@ export default function AdminUserDetailPage() {
     }
   }
 
+  async function exportCase() {
+    if (!profile) return;
+    setExporting(true);
+    try {
+      const bal = Number(wallet?.balance ?? 0);
+      const ow = Number(profile.owed_balance ?? 0);
+      const sev = disputeCount >= 3 ? "high" : disputeCount >= 1 ? "medium" : "low";
+
+      const caseData = {
+        userId: profile.user_id,
+        handle: profile.handle,
+        displayName: profile.display_name,
+        email: profile.email,
+        accountStatus: profile.account_status,
+        statusReason: profile.status_reason,
+        createdAt: profile.created_at,
+        balance: bal,
+        owedBalance: ow,
+        isFlagged: !!profile.is_flagged,
+        disputeCount,
+        riskLevel: sev,
+        timeline: timeline.map((t) => ({ action: t.label, created_at: t.created_at, actor: t.actor, severity: t.severity })),
+        transactions: transactions.map((tx) => ({ type: tx.type, amount: tx.amount, created_at: tx.created_at, reference_id: tx.reference_id })),
+        supportHistory,
+        notes: notes.map((n) => ({ note: n.note, created_at: n.created_at, admin: n.admin })),
+      };
+
+      const res = await fetch("/api/admin/export-case", {
+        method: "POST",
+        headers: { ...getAdminHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ caseData }),
+      });
+
+      if (!res.ok) throw new Error("Export failed");
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `case-report-${profile.handle || profile.user_id.slice(0, 8)}-${new Date().toISOString().split("T")[0]}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      alert("Failed to export case PDF");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const severity =
     disputeCount >= 3 ? "high" :
     disputeCount >= 1 ? "medium" :
@@ -409,7 +485,8 @@ export default function AdminUserDetailPage() {
     (profile.account_status && profile.account_status !== "active") ||
     owed > 0 ||
     disputeCount >= 1 ||
-    profile.is_flagged;
+    profile.is_flagged ||
+    profile.is_frozen;
 
   return (
     <div className="space-y-6">
@@ -425,6 +502,7 @@ export default function AdminUserDetailPage() {
                 owed > 0 && `Owed balance: $${owed.toFixed(2)}`,
                 disputeCount > 0 && `${disputeCount} dispute(s)`,
                 profile.is_flagged && "Manually flagged",
+                profile.is_frozen && `Frozen: ${profile.freeze_reason ?? "suspicious activity"}`,
               ].filter(Boolean).join(" · ")}
             </p>
           </div>
@@ -437,6 +515,15 @@ export default function AdminUserDetailPage() {
         <h1 className={ui.h1}>
           {profile.display_name || profile.handle || "Unknown User"}
         </h1>
+        {currentUserRole === "owner" && (
+          <button
+            onClick={exportCase}
+            disabled={exporting}
+            className={`${ui.btnGhost} ${ui.btnSmall} ml-auto hover:bg-white/10 disabled:opacity-50`}
+          >
+            {exporting ? "Exporting…" : "📄 Export Case"}
+          </button>
+        )}
       </div>
 
       {/* Profile info + wallet */}
@@ -500,6 +587,18 @@ export default function AdminUserDetailPage() {
         </div>
       </div>
 
+      {/* Trust Score & Risk Card */}
+      {profile.trust_score != null && (
+        <AdminRiskCard
+          trust_score={profile.trust_score}
+          risk_level={profile.risk_level ?? "medium"}
+          last_risk_check={profile.last_risk_check}
+          is_frozen={!!profile.is_frozen}
+          freeze_reason={profile.freeze_reason}
+          is_flagged={!!profile.is_flagged}
+        />
+      )}
+
       {/* Actions */}
       <div className={`${ui.card} p-4`}>
         <p className="text-sm font-semibold mb-3">Actions</p>
@@ -523,55 +622,30 @@ export default function AdminUserDetailPage() {
         </div>
       </div>
 
-      {/* Role Assignment — owner only */}
-      {currentUserRole === "owner" && (
+      {/* Role Assignment — owner/super_admin only */}
+      {(currentUserRole === "owner" || currentUserRole === "super_admin") && (
         <div className={`${ui.card} p-4`}>
           <p className="text-sm font-semibold mb-3">Assign Role</p>
-          <div className="flex items-center gap-3">
-            <select
-              value={selectedRole}
-              onChange={(e) => setSelectedRole(e.target.value)}
-              className="bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-white/20 cursor-pointer"
-            >
-              {ASSIGNABLE_ROLES.map((r) => (
-                <option key={r} value={r} className="bg-zinc-900 text-white">
-                  {r.replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
+          {profile.role === "owner" ? (
+            <p className="text-xs text-yellow-400">This user is an owner — their role cannot be changed.</p>
+          ) : (
             <button
-              disabled={roleUpdating || selectedRole === (profile.role ?? "user")}
-              onClick={async () => {
-                setRoleUpdating(true);
-                const { data: sess } = await supabase.auth.getSession();
-                const token = sess.session?.access_token;
-                if (!token) { setRoleUpdating(false); return; }
-                const res = await fetch("/api/admin/set-role", {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
-                  },
-                  body: JSON.stringify({
-                    target_user_id: profile.id,
-                    new_role: selectedRole,
-                  }),
-                });
-                const json = await res.json();
-                setRoleUpdating(false);
-                if (json.ok) {
-                  loadUser();
-                } else {
-                  alert(json.error ?? "Failed to update role");
+              onClick={() => {
+                let fn = profile.first_name || "";
+                let ln = profile.last_name || "";
+                if (!fn && !ln && profile.display_name) {
+                  const parts = profile.display_name.trim().split(/\s+/);
+                  fn = parts[0] || "";
+                  ln = parts.slice(1).join(" ") || "";
                 }
+                const role = profile.role && profile.role !== "user" ? profile.role : "support_admin";
+                const p = new URLSearchParams({ userId: profile.user_id, firstName: fn, lastName: ln, email: profile.email || "", role });
+                router.push(`/admin/users/create?${p.toString()}`);
               }}
-              className={`${ui.btnGhost} ${ui.btnSmall} hover:bg-blue-500/20 hover:border-blue-400/30 disabled:opacity-30 disabled:cursor-not-allowed`}
+              className={`${ui.btnGhost} ${ui.btnSmall} hover:bg-blue-500/20 hover:border-blue-400/30 text-blue-400`}
             >
-              {roleUpdating ? "Saving…" : "Save Role"}
+              Assign Role
             </button>
-          </div>
-          {profile.role === "owner" && (
-            <p className="text-xs text-yellow-400 mt-2">This user is an owner — their role cannot be changed here.</p>
           )}
         </div>
       )}
@@ -580,37 +654,113 @@ export default function AdminUserDetailPage() {
       {dangerAction && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className={`${ui.card} p-6 w-full max-w-[420px] space-y-4`}>
-            <h2 className="text-lg font-semibold text-red-400">
-              ⚠ Danger Zone
+            <h2 className={`text-lg font-semibold ${
+              dangerAction === "restricted" ? "text-yellow-400" : "text-red-400"
+            }`}>
+              {dangerAction === "restricted" ? "⚠ Restrict Account" : "⚠ Danger Zone"}
             </h2>
             <p className={`text-sm ${ui.muted}`}>
               You are about to <span className="text-white font-semibold">{dangerAction}</span> this account.
-              This action is destructive and logged permanently.
+              This action is logged permanently.
             </p>
+
+            {/* AI Warnings */}
+            {(() => {
+              const warnings = getAdminWarnings({
+                risk_level: severity,
+                dispute_count: disputeCount,
+                account_status: profile?.account_status ?? undefined,
+                is_flagged: profile?.is_flagged ?? false,
+                owed_balance: profile?.owed_balance ?? 0,
+                action: dangerAction,
+              });
+              if (warnings.length === 0) return null;
+              return (
+                <div className="space-y-1.5">
+                  {warnings.map((w, i) => (
+                    <div
+                      key={i}
+                      className={`text-xs px-3 py-2 rounded-lg border ${
+                        w.level === "high"
+                          ? "bg-red-500/10 border-red-500/20 text-red-400"
+                          : w.level === "medium"
+                          ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
+                          : "bg-blue-500/10 border-blue-500/20 text-blue-400"
+                      }`}
+                    >
+                      {w.level === "high" ? "🔴" : w.level === "medium" ? "🟡" : "🔵"} {w.message}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* Reason — required for all */}
             <div>
-              <p className="text-xs text-red-400 mb-2">
-                Type <span className="font-bold">{dangerAction.toUpperCase()}</span> to confirm:
-              </p>
-              <input
-                type="text"
-                value={dangerInput}
-                onChange={(e) => setDangerInput(e.target.value)}
-                placeholder={dangerAction.toUpperCase()}
-                className={`${ui.input} !py-2 !text-sm`}
-                autoFocus
+              <p className="text-xs text-gray-400 mb-2">Reason (required):</p>
+              <textarea
+                value={actionReason}
+                onChange={(e) => setActionReason(e.target.value)}
+                placeholder="Why are you taking this action?"
+                rows={2}
+                className={`${ui.input} !py-2 !text-sm resize-none`}
+                autoFocus={dangerAction === "restricted"}
               />
             </div>
+
+            {/* Restricted until — optional, only for restrict */}
+            {dangerAction === "restricted" && (
+              <div>
+                <p className="text-xs text-gray-400 mb-2">Auto-unlock after (optional):</p>
+                <select
+                  value={restrictedUntil}
+                  onChange={(e) => setRestrictedUntil(e.target.value)}
+                  className={`${ui.input} !py-2 !text-sm`}
+                >
+                  <option value="">Permanent (manual unlock)</option>
+                  <option value="24h">24 hours</option>
+                  <option value="72h">72 hours</option>
+                  <option value="7d">7 days</option>
+                  <option value="30d">30 days</option>
+                </select>
+              </div>
+            )}
+
+            {/* Type-to-confirm for destructive actions */}
+            {(dangerAction === "closed" || dangerAction === "suspended") && (
+              <div>
+                <p className="text-xs text-red-400 mb-2">
+                  Type <span className="font-bold">{dangerAction.toUpperCase()}</span> to confirm:
+                </p>
+                <input
+                  type="text"
+                  value={dangerInput}
+                  onChange={(e) => setDangerInput(e.target.value)}
+                  placeholder={dangerAction.toUpperCase()}
+                  className={`${ui.input} !py-2 !text-sm`}
+                  autoFocus
+                />
+              </div>
+            )}
+
             <div className="flex justify-end gap-3 pt-2">
               <button
-                onClick={() => { setDangerAction(null); setDangerInput(""); }}
+                onClick={() => { setDangerAction(null); setDangerInput(""); setActionReason(""); setRestrictedUntil(""); }}
                 className={`${ui.btnGhost} ${ui.btnSmall}`}
               >
                 Cancel
               </button>
               <button
                 onClick={() => updateStatus(dangerAction)}
-                disabled={dangerInput !== dangerAction.toUpperCase()}
-                className={`${ui.btnSmall} rounded-lg px-4 py-2 font-semibold text-white bg-red-600 hover:bg-red-500 transition disabled:opacity-30 disabled:cursor-not-allowed`}
+                disabled={
+                  !actionReason.trim() ||
+                  ((dangerAction === "closed" || dangerAction === "suspended") && dangerInput !== dangerAction.toUpperCase())
+                }
+                className={`${ui.btnSmall} rounded-lg px-4 py-2 font-semibold text-white ${
+                  dangerAction === "restricted"
+                    ? "bg-yellow-600 hover:bg-yellow-500"
+                    : "bg-red-600 hover:bg-red-500"
+                } transition disabled:opacity-30 disabled:cursor-not-allowed`}
               >
                 Confirm {dangerAction}
               </button>
@@ -937,6 +1087,53 @@ export default function AdminUserDetailPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </div>
+
+      {/* Activity Calendar — owner only */}
+      {currentUserRole === "owner" && (
+        <div>
+          <ActivityCalendar userId={userId} />
+        </div>
+      )}
+
+      {/* Support History (AI-generated summaries) */}
+      <div>
+        <h2 className={`${ui.h2} mb-3`}>Support History ({supportHistory.length})</h2>
+        {supportHistory.length === 0 ? (
+          <p className={ui.muted}>No support history yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {supportHistory.map((h) => (
+              <div key={h.id} className={`${ui.card} p-4 space-y-1.5`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      h.outcome === "resolved"
+                        ? "bg-green-500/15 text-green-400"
+                        : "bg-amber-500/15 text-amber-400"
+                    }`}>
+                      {h.outcome === "resolved" ? "✅ Resolved" : "⚠️ Unresolved"}
+                    </span>
+                    <span className={`text-xs ${ui.muted2} capitalize`}>
+                      {h.issue_type.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  <span className={`text-xs ${ui.muted2}`}>
+                    {new Date(h.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <p className="text-sm font-medium">{h.summary}</p>
+                <p className={`text-xs ${ui.muted}`}>{h.resolution}</p>
+                <a
+                  href={`/admin/tickets/${h.ticket_id}`}
+                  className="text-xs text-blue-400 hover:text-blue-300 transition"
+                >
+                  View ticket →
+                </a>
+              </div>
+            ))}
           </div>
         )}
       </div>

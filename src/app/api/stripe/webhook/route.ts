@@ -122,7 +122,7 @@ export async function handleStripeEvent(
 
       if (creatorProfile?.account_status && creatorProfile.account_status !== "active") {
         console.warn(
-          `Blocked tip credit to ${creatorProfile.account_status} account: ${tipIntent.creator_user_id}. PaymentIntent ${pi.id} may need manual refund.`
+          `Blocked tip credit to ${creatorProfile.account_status} account: ${tipIntent.creator_user_id}. Auto-refunding PaymentIntent ${pi.id}.`
         );
         await supabaseClient
           .from("tip_intents")
@@ -132,6 +132,28 @@ export async function handleStripeEvent(
             failure_reason: "account_not_active",
           })
           .eq("id", tipIntent.id);
+
+        // Auto-refund the supporter — creator account is not active
+        try {
+          const { stripe: stripeClient } = await import("@/lib/stripe/server");
+          await stripeClient.refunds.create({
+            payment_intent: pi.id,
+            reason: "fraudulent",
+            metadata: {
+              auto_refund: "true",
+              reason: "creator_account_not_active",
+              receipt_id: receiptId,
+            },
+          });
+          await supabaseClient
+            .from("tip_intents")
+            .update({ refund_status: "full", needs_refund: false })
+            .eq("id", tipIntent.id);
+          console.log(`Auto-refunded blocked tip ${receiptId} for PaymentIntent ${pi.id}`);
+        } catch (refundErr) {
+          console.error(`Auto-refund failed for ${pi.id}:`, refundErr);
+          // needs_refund stays true for manual admin intervention
+        }
         break;
       }
 
@@ -156,7 +178,20 @@ export async function handleStripeEvent(
           type: "tip_received",
           amount: receivedAmount,
           reference_id: tipIntent.id,
-          meta: { action: "tip", fee: 0, net: receivedAmount, currency: pi.currency, receipt_id: receiptId, event_id: event.id, external_id: pi.id },
+          meta: {
+            action: "tip",
+            fee: Number(tipIntent.stripe_fee ?? 0) + Number(tipIntent.platform_fee ?? 0),
+            net: receivedAmount,
+            stripe_fee: Number(tipIntent.stripe_fee ?? 0),
+            platform_fee: Number(tipIntent.platform_fee ?? 0),
+            currency: pi.currency,
+            receipt_id: receiptId,
+            event_id: event.id,
+            external_id: pi.id,
+            supporter_name: tipIntent.is_anonymous ? null : (tipIntent.supporter_name || null),
+            message: tipIntent.message || null,
+            is_anonymous: tipIntent.is_anonymous ?? true,
+          },
         });
 
         // Auto-offset owed_balance if creator had a negative obligation
@@ -200,13 +235,48 @@ export async function handleStripeEvent(
         await evaluateRisk(supabaseClient, tipIntent.creator_user_id);
       } catch (_e) {}
 
+      // Set 24h payout hold on new funds
+      try {
+        await supabaseClient
+          .from("profiles")
+          .update({
+            payout_hold_until: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          })
+          .eq("user_id", tipIntent.creator_user_id);
+      } catch (_) {}
+
       break;
     }
 
     case "payment_intent.payment_failed": {
       const pi = event.data.object as Stripe.PaymentIntent;
-      const userId = (pi.metadata?.user_id as string) || null;
-      console.warn(`Tip failed for user ${userId}: ${pi.last_payment_error?.message}`);
+      const receiptId = (pi.metadata?.receipt_id as string) || null;
+      const failureMessage = pi.last_payment_error?.message || "Payment failed";
+
+      console.warn(`Payment failed for PI ${pi.id}: ${failureMessage}`);
+
+      if (receiptId) {
+        // Update tip_intents status + failure reason
+        await supabaseClient
+          .from("tip_intents")
+          .update({
+            status: "failed",
+            failure_reason: failureMessage.slice(0, 500),
+          })
+          .eq("receipt_id", receiptId)
+          .in("status", ["pending", "created"]);
+      } else {
+        // Fallback: try by stripe_payment_intent_id
+        await supabaseClient
+          .from("tip_intents")
+          .update({
+            status: "failed",
+            failure_reason: failureMessage.slice(0, 500),
+          })
+          .eq("stripe_payment_intent_id", pi.id)
+          .in("status", ["pending", "created"]);
+      }
+
       break;
     }
 
@@ -335,6 +405,35 @@ export async function handleStripeEvent(
         }
 
         console.log(`Tip ${newRefundStatus} refund: $${sliceAmount} for user ${tipIntent.creator_user_id}`);
+
+        // (E) Reconciliation: verify DB refunded_amount matches Stripe cumulative refunds
+        try {
+          const { stripe: stripeClient } = await import("@/lib/stripe/server");
+          const reconPI = await stripeClient.paymentIntents.retrieve(paymentIntentId);
+          const reconPIAny = reconPI as any;
+          const stripeRefundedCents = reconPI.amount_received - (reconPIAny.charges?.data?.[0]?.amount_refunded
+            ? reconPI.amount_received - reconPIAny.charges.data[0].amount_refunded
+            : reconPI.amount_received);
+          // Stripe amount_refunded on charge is the true cumulative
+          const stripeCumulativeRefunded = (reconPIAny.charges?.data?.[0]?.amount_refunded ?? 0) / 100;
+          const dbCumulativeRefunded = newRefundedTotal;
+          const drift = Math.abs(stripeCumulativeRefunded - dbCumulativeRefunded);
+          if (drift > 0.01) {
+            console.error(
+              `[ALERT] refund.created: DB/Stripe drift detected for tip ${tipIntent.id}. DB=$${dbCumulativeRefunded}, Stripe=$${stripeCumulativeRefunded}, drift=$${drift.toFixed(2)}`
+            );
+            // Auto-correct DB to Stripe truth
+            await supabaseClient
+              .from("tip_intents")
+              .update({
+                refunded_amount: stripeCumulativeRefunded,
+                refund_status: stripeCumulativeRefunded >= tipAmount ? "full" : "partial",
+              })
+              .eq("id", tipIntent.id);
+          }
+        } catch (reconErr) {
+          console.warn("refund.created: reconciliation check failed (non-blocking):", reconErr);
+        }
       } catch (e) {
         console.error(`[ALERT] refund.created: failed to process slice for tip ${tipIntent.id}:`, e);
       } finally {
@@ -485,12 +584,29 @@ export async function handleStripeEvent(
           // Fire notification (best-effort)
           try {
             const { createNotification } = await import("@/lib/notifications");
+            // Look up withdrawal record for fee details
+            const withdrawalId = payout.metadata?.withdrawal_id;
+            let fee = 0;
+            let net = amount;
+            if (withdrawalId) {
+              const { data: wRow } = await supabaseClient
+                .from("withdrawals")
+                .select("fee, net")
+                .eq("id", withdrawalId)
+                .maybeSingle();
+              if (wRow) {
+                fee = Number(wRow.fee) || 0;
+                net = Number(wRow.net) || amount;
+              }
+            }
             await createNotification({
               userId,
               type: "payout",
               title: "🏦 Payout Sent",
-              body: `$${amount.toFixed(2)} has been sent to your bank`,
-              meta: { amount },
+              body: fee > 0
+                ? `$${net.toFixed(2)} has been sent to your bank (fee: $${fee.toFixed(2)})`
+                : `$${amount.toFixed(2)} has been sent to your bank`,
+              meta: { amount, fee, net },
             });
           } catch (_) {}
         } catch (e) {
@@ -505,7 +621,50 @@ export async function handleStripeEvent(
     case "payout.failed": {
       const payout = event.data.object as Stripe.Payout;
       const userId = payout.metadata?.user_id as string | undefined;
+      const withdrawalId = payout.metadata?.withdrawal_id as string | undefined;
       console.warn(`Payout failed for user ${userId}: ${payout.failure_message}`);
+
+      if (userId) {
+        // Mark the withdrawal row as failed
+        if (withdrawalId) {
+          await supabaseClient
+            .from("withdrawals")
+            .update({ status: "failed", failure_reason: payout.failure_message ?? "Unknown error" })
+            .eq("id", withdrawalId);
+        }
+
+        // Reverse the ledger debit so the balance is restored
+        try {
+          const refAmt = (payout.amount ?? 0) / 100;
+          await ledgerFn({
+            user_id: userId,
+            type: "payout_reversal",
+            amount: refAmt,
+            reference_id: payout.id,
+            meta: {
+              action: "payout_failed_reversal",
+              original_payout_id: payout.id,
+              failure_message: payout.failure_message,
+              event_id: event.id,
+            },
+            status: "completed",
+          });
+        } catch (e) {
+          console.error("Failed to reverse ledger for failed payout:", userId, e);
+        }
+
+        // Notify user
+        try {
+          const { createNotification } = await import("@/lib/notifications");
+          await createNotification({
+            userId,
+            type: "payout_failed",
+            title: "⚠️ Payout Failed",
+            body: `Your withdrawal could not be completed: ${payout.failure_message ?? "unknown error"}. The funds have been returned to your balance.`,
+            meta: { payout_id: payout.id, failure_message: payout.failure_message },
+          });
+        } catch (_) {}
+      }
       break;
     }
 
@@ -518,7 +677,26 @@ export async function handleStripeEvent(
         stripe_payouts_enabled: account.payouts_enabled,
         stripe_onboarding_complete: Boolean(account.charges_enabled && account.payouts_enabled),
       }).eq("stripe_account_id", account.id);
-      console.log(`Account updated: ${account.id}`);
+
+      // Sync external accounts (cards/bank accounts) to payout_methods
+      if (account.charges_enabled && account.payouts_enabled) {
+        const { data: profile } = await supabaseClient
+          .from("profiles")
+          .select("user_id")
+          .eq("stripe_account_id", account.id)
+          .maybeSingle();
+
+        if (profile?.user_id) {
+          try {
+            const { syncExternalAccounts } = await import("@/lib/syncExternalAccounts");
+            await syncExternalAccounts(profile.user_id, account.id);
+          } catch (e) {
+            console.log("External account sync error in webhook:", e);
+          }
+        }
+      }
+
+      console.log(`Account updated: ${account.id} charges_enabled=${account.charges_enabled} payouts_enabled=${account.payouts_enabled}`);
       break;
     }
 
@@ -637,6 +815,32 @@ export async function handleStripeEvent(
         await evaluateRisk(supabaseClient, tipIntent.creator_user_id);
       } catch (_e) {}
 
+      break;
+    }
+
+    // THEME PURCHASES
+    case "checkout.session.completed": {
+      const session = event.data.object as any;
+      const theme = session.metadata?.theme;
+      const userId = session.metadata?.userId;
+      const purchaseType = session.metadata?.type;
+
+      if (purchaseType === "theme_purchase" && theme && userId) {
+        try {
+          await supabaseClient.from("theme_purchases").upsert(
+            {
+              user_id: userId,
+              theme,
+              stripe_session_id: session.id,
+              amount: session.amount_total,
+            },
+            { onConflict: "user_id,theme" }
+          );
+          console.log(`Theme unlocked: ${theme} for user ${userId}`);
+        } catch (e) {
+          console.error("Failed to unlock theme:", e);
+        }
+      }
       break;
     }
 

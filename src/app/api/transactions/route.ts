@@ -2,13 +2,24 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const ALLOWED_TYPES = [
+  // canonical (ledger.ts)
   "tip_received",
   "tip_refunded",
+  "dispute",
+  "payout",
+  "adjustment",
   "withdrawal",
+  "deposit",
+  "fee",
+  "system",
+  // additional / legacy
   "withdrawal_fee",
   "card_charge",
   "card_decline",
   "platform_fee",
+  "tip_credit",
+  "payout_debit",
+  "refund",
 ];
 
 export const runtime = "nodejs";
@@ -60,8 +71,35 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  const transactions = data ?? [];
+
+  /* ---------- ENRICH TIP NOTES ---------- */
+  const tipTxs = transactions.filter(
+    (tx: any) => tx.type === "tip_received" && tx.reference_id
+  );
+
+  if (tipTxs.length > 0) {
+    const refIds = tipTxs.map((tx: any) => tx.reference_id);
+    const { data: tips } = await supabase
+      .from("tips")
+      .select("id, note")
+      .in("id", refIds);
+
+    if (tips?.length) {
+      const noteMap = new Map(tips.map((t: any) => [t.id, t.note]));
+      for (const tx of transactions) {
+        if (tx.type === "tip_received" && tx.reference_id) {
+          const note = noteMap.get(tx.reference_id);
+          if (note) {
+            tx.meta = { ...tx.meta, note };
+          }
+        }
+      }
+    }
+  }
+
   return NextResponse.json({
-    transactions: data ?? [],
-    next_cursor: data?.length ? data[data.length - 1].created_at : null,
+    transactions,
+    next_cursor: transactions.length === limit ? transactions[transactions.length - 1].created_at : null,
   });
 }

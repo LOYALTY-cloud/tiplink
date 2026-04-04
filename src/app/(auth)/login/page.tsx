@@ -13,6 +13,8 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
+  // Clear any stale session lock from a previous session
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setMsg(null);
@@ -36,9 +38,10 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
       <form onSubmit={onSubmit} className={`${ui.card} w-full max-w-md p-6 space-y-4`}>
-        <div className="mb-4">
+        <div className="mb-4 flex flex-col items-center text-center">
+          <img src="/1nelink-logo.png" alt="1neLink" className="h-16 w-16 rounded-xl object-contain mb-3" />
           <div className={ui.h2}>Log in</div>
-          <div className={ui.muted}>Welcome back to TIPLINKME.</div>
+          <div className={ui.muted}>Welcome back to 1NELINK.</div>
         </div>
 
         <input

@@ -29,6 +29,7 @@ export default function WalletPage() {
   const [receipt, setReceipt] = useState<WithdrawalReceipt | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [todayEarnings, setTodayEarnings] = useState<number>(0);
   const router = useRouter();
   
   const [payout, setPayout] = useState<{
@@ -36,6 +37,19 @@ export default function WalletPage() {
     brand: string | null;
     last4: string | null;
   } | null>(null);
+
+  type PayoutMethod = {
+    id: string;
+    brand: string | null;
+    last4: string | null;
+    is_default: boolean;
+    type: string | null;
+    stripe_external_account_id: string | null;
+    provider: string | null;
+  };
+  const [allMethods, setAllMethods] = useState<PayoutMethod[]>([]);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
 
   const reloadWallet = async () => {
     setLoadingWallet(true);
@@ -106,6 +120,84 @@ export default function WalletPage() {
     setPayout(data ? { id: data.id, brand: data.brand, last4: data.last4 } : null);
   };
 
+  const loadAllMethods = async () => {
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess?.session?.access_token;
+    if (!token) return;
+    try {
+      const res = await fetch("/api/payout-methods/list", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setAllMethods(json.methods ?? []);
+      }
+    } catch {}
+  };
+
+  const handleRemoveMethod = async (methodId: string) => {
+    setRemovingId(methodId);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess?.session?.access_token;
+      if (!token) return;
+      const res = await fetch("/api/payout-methods/remove", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ payout_method_id: methodId }),
+      });
+      if (res.ok) {
+        await loadAllMethods();
+        await loadPayout();
+      }
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  const handleSetDefault = async (methodId: string) => {
+    setSettingDefaultId(methodId);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess?.session?.access_token;
+      if (!token) return;
+      const res = await fetch("/api/payout-methods/set-default", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ payout_method_id: methodId }),
+      });
+      if (res.ok) {
+        await loadAllMethods();
+        await loadPayout();
+      }
+    } finally {
+      setSettingDefaultId(null);
+    }
+  };
+
+  const loadTodayEarnings = async () => {
+    const { data: userRes } = await supabase.auth.getUser();
+    const user = userRes.user;
+    if (!user) return;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const { data } = await supabase
+      .from("transactions_ledger")
+      .select("amount")
+      .eq("user_id", user.id)
+      .eq("type", "tip_credit")
+      .gte("created_at", today.toISOString());
+
+    if (data) {
+      const sum = data.reduce((acc: number, row: { amount: number }) => acc + Number(row.amount), 0);
+      setTodayEarnings(sum);
+    }
+  };
+
+
+
   useEffect(() => {
     (async () => {
       const { data: userRes } = await supabase.auth.getUser();
@@ -113,10 +205,12 @@ export default function WalletPage() {
       if (user) setUserId(user.id);
       reloadWallet();
       loadPayout();
+      loadAllMethods();
+      loadTodayEarnings();
     })();
   }, []);
 
-  // Real-time balance refresh on new ledger entries — single subscription per user
+  // Real-time balance refresh on new ledger entries
   useEffect(() => {
     if (!userId) return;
 
@@ -131,7 +225,6 @@ export default function WalletPage() {
           filter: `user_id=eq.${userId}`,
         },
         (payload) => {
-          // Optimistic balance merge for snappy UX
           const tx = payload.new as { type?: string; amount?: number };
           if (tx.amount != null) {
             setWallet((prev) => {
@@ -140,7 +233,6 @@ export default function WalletPage() {
               return { ...prev, balance: prev.balance + delta };
             });
           }
-          // Source-of-truth refresh
           reloadWallet();
         }
       )
@@ -152,6 +244,8 @@ export default function WalletPage() {
   }, [userId]);
 
   const hasCard = !!payout?.last4;
+
+
 
   const quickFill = (val: number) => setAmountStr(String(val));
 
@@ -186,7 +280,6 @@ export default function WalletPage() {
   }
 
   const onWithdraw = async () => {
-    // Check if Stripe payouts are enabled first
     const payoutsOk = await ensurePayoutsEnabled();
     if (!payoutsOk) return;
 
@@ -233,7 +326,6 @@ export default function WalletPage() {
     };
     setReceipt(newReceipt);
 
-    // Auto-dismiss receipt after 8 seconds
     setTimeout(() => {
       setReceipt((current) => (current === newReceipt ? null : current));
     }, 8000);
@@ -241,174 +333,143 @@ export default function WalletPage() {
 
   return (
     <div>
-      {/* Balances row */}
-      <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className={`${ui.cardInner} p-4`}>
-          <div className="text-xs text-white/50">Balance</div>
-          <div className="mt-1 text-2xl font-semibold text-emerald-400">
-            {loadingWallet ? "…" : formatMoney(availableBalance)}
-          </div>
-        </div>
+      {/* Hero balance */}
+      <div className="text-center py-8 space-y-2">
+        <p className="text-sm text-white/50">Available balance</p>
+        <h1
+          key={availableBalance}
+          className="text-4xl font-semibold tracking-tight text-white transition-all duration-300"
+        >
+          {loadingWallet ? "\u2026" : formatMoney(availableBalance)}
+        </h1>
+        <p className="text-xs text-emerald-400">
+          {todayEarnings > 0
+            ? `+${formatMoney(todayEarnings)} today`
+            : availableBalance > 0
+              ? "Ready to withdraw"
+              : "No funds yet"}
+        </p>
+      </div>
 
-        <div className={`${ui.cardInner} p-4`}>
-          <div className="text-xs text-white/50">Withdrawal fee</div>
-          <div className="mt-1 text-2xl font-semibold text-white/90">
-            {loadingWallet ? "…" : formatMoney(totalWithdrawFees)}
-          </div>
-        </div>
+      {/* Quick actions */}
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={() => document.getElementById("withdraw-section")?.scrollIntoView({ behavior: "smooth" })}
+          className="bg-emerald-500/20 text-emerald-400 py-3 rounded-xl font-medium hover:bg-emerald-500/30 transition"
+        >
+          Withdraw
+        </button>
+        <button
+          onClick={() => setLinkOpen(true)}
+          className="bg-white/5 border border-white/10 text-white/70 py-3 rounded-xl font-medium hover:bg-white/10 transition"
+        >
+          {hasCard ? "Replace card" : "Add payout"}
+        </button>
       </div>
 
       {/* Withdraw card */}
-      <div className={`${ui.card} mt-6 p-6`}>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-white/90">Withdraw</h2>
-            <p className="text-sm text-white/60 mt-1">
-              Enter an amount and we’ll show the fee and what you will receive.
-            </p>
-          </div>
-
+      <div id="withdraw-section" className={`${ui.card} mt-6 p-4 space-y-4`}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white/90">Withdraw</h2>
           <span className={`${ui.chip} bg-blue-500/10 border-blue-400/20 text-blue-200`}>
             Instant payouts
           </span>
         </div>
 
-        <div className="mt-5">
-          {/* Payout Method */}
-          <div className="mb-5">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-semibold text-white/80">Payout method</label>
-
-              <button
-                type="button"
-                onClick={() => setLinkOpen(true)}
-                className={`${ui.btnGhost} ${ui.btnSmall}`}
-              >
-                {hasCard ? "Replace card" : "Link debit card"}
-              </button>
-            </div>
-
-            {!hasCard ? (
-              <div className={`${ui.cardInner} mt-3 p-4`}>
-                <div className="text-sm font-semibold text-white/85">No card linked</div>
-                <p className="text-sm text-white/55 mt-1">
-                  Link a debit card to enable instant withdrawals via Stripe.
-                </p>
-              </div>
-            ) : (
-              <div className={`${ui.cardInner} mt-3 p-4 flex items-center justify-between`}>
-                <div>
-                  <div className="text-sm font-semibold text-white/85">Debit card</div>
-                  <div className="text-sm text-white/55">
-                    {payout?.brand ? `${String(payout.brand).toUpperCase()} ` : ""}
-                    •••• {payout?.last4}
-                  </div>
-                </div>
-
-                <span className={`${ui.chip} bg-emerald-500/10 border-emerald-400/20 text-emerald-200`}>
-                  Instant
-                </span>
-              </div>
-            )}
+        {/* Payout Method */}
+        {!hasCard ? (
+          <div className={`${ui.cardInner} p-3 flex items-center justify-between`}>
+            <div className="text-sm text-white/55">No card linked</div>
+            <button type="button" onClick={() => setLinkOpen(true)} className={`${ui.btnGhost} ${ui.btnSmall}`}>Link debit card</button>
           </div>
-
-          {/* Amount */}
-          <label className="text-sm font-semibold text-white/80">Withdrawal amount</label>
-
-          <div className="mt-3 flex items-start gap-2">
-            <div className="flex-1">
-              <input
-                className={ui.input}
-                placeholder="0.00"
-                inputMode="decimal"
-                value={amountStr}
-                onChange={(e) => setAmountStr(e.target.value)}
-              />
-
-              <div className="mt-2 text-xs text-white/50">
-                Available balance:{" "}
-                <span className="font-semibold text-white/80">
-                  {formatMoney(availableBalance)}
-                </span>
-              </div>
+        ) : (
+          <div className={`${ui.cardInner} p-3 flex items-center justify-between`}>
+            <div className="text-sm text-white/70">
+              {payout?.brand ? `${String(payout.brand).toUpperCase()} ` : ""}{"\u2022\u2022\u2022\u2022"} {payout?.last4}
             </div>
-
-            <button
-              type="button"
-              className={`${ui.btnGhost} ${ui.btnSmall} mt-[2px]`}
-              onClick={() => quickFill(availableBalance)}
-            >
-              Max
-            </button>
+            <span className={`${ui.chip} bg-emerald-500/10 border-emerald-400/20 text-emerald-200`}>Instant</span>
           </div>
+        )}
 
-          {/* Quick buttons */}
-          <div className="mt-3 flex flex-wrap gap-2">
-            {[50, 100, 200, 500, 1000].map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => quickFill(v)}
-                className="rounded-full bg-white/5 border border-white/10 px-4 py-2 text-sm font-semibold text-white/75 hover:bg-white/10 transition"
-              >
-                {formatMoney(v)}
-              </button>
-            ))}
-          </div>
-
-          {/* Errors */}
-          {amountTooHigh && (
-            <div className="mt-3 text-sm text-red-300">
-              Amount is more than your available balance.
-            </div>
-          )}
-          {amountTooLow && (
-            <div className="mt-3 text-sm text-red-300">
-              Minimum withdrawal is {formatMoney(1)}.
-            </div>
-          )}
+        {/* Amount input */}
+        <div className="flex items-center gap-2">
+          <input
+            className="w-full bg-transparent text-3xl font-semibold outline-none placeholder:text-white/20 text-white"
+            placeholder="$0.00"
+            inputMode="decimal"
+            autoFocus
+            value={amountStr}
+            onChange={(e) => setAmountStr(e.target.value)}
+          />
+          <button
+            type="button"
+            className={`${ui.btnGhost} ${ui.btnSmall} shrink-0`}
+            onClick={() => quickFill(availableBalance)}
+          >
+            Max
+          </button>
         </div>
 
+        {/* Quick buttons */}
+        <div className="flex flex-wrap gap-2">
+          {[50, 100, 250, 500].map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => quickFill(v)}
+              className="rounded-full bg-white/5 border border-white/10 px-4 py-2 text-sm font-semibold text-white/75 hover:bg-white/10 active:scale-95 transition"
+            >
+              {formatMoney(v)}
+            </button>
+          ))}
+        </div>
+
+        {/* Errors */}
+        {amountTooHigh && (
+          <div className="text-sm text-red-300">
+            Amount is more than your available balance.
+          </div>
+        )}
+        {amountTooLow && (
+          <div className="text-sm text-red-300">
+            Minimum withdrawal is {formatMoney(1)}.
+          </div>
+        )}
+
         {/* Summary */}
-        <div className={`${ui.cardInner} mt-6 p-5`}>
+        <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-white/60">Withdrawal amount</span>
-            <span className="text-sm font-semibold text-white/90">
-              {formatMoney(amount || 0)}
-            </span>
+            <span className="text-sm text-white/60">Amount</span>
+            <span className="text-sm font-semibold text-white/90">{formatMoney(amount || 0)}</span>
           </div>
 
-          <div className="mt-3 flex items-center justify-between">
+          <div className="flex items-center justify-between">
             <span className="text-sm text-white/60">
-              Withdrawal fee{" "}
-              {tierLabel ? (
-                <span className="ml-2 text-xs text-white/45">({tierLabel})</span>
-              ) : null}
+              Fee{tierLabel ? <span className="ml-1 text-xs text-white/40">({tierLabel})</span> : null}
             </span>
             <span className="text-sm font-semibold text-white/90">-{formatMoney(fee)}</span>
           </div>
 
-          <div className="mt-3 border-t border-white/10 pt-3 flex items-center justify-between">
-            <span className="text-sm text-white/80 font-semibold">You will receive</span>
-            <span className="text-lg font-semibold text-white/95">{formatMoney(net)}</span>
+          <div className="border-t border-white/10 pt-3 flex items-center justify-between">
+            <span className="text-sm text-white/80 font-semibold">You receive</span>
+            <span className="text-xl font-semibold text-emerald-400">{formatMoney(net)}</span>
           </div>
-
-          <div className="mt-3 text-xs text-white/45">Instant payouts are processed via Stripe Connect.</div>
         </div>
 
         {/* CTA */}
-        <button onClick={onWithdraw} disabled={invalid || withdrawing} className={`${ui.btnPrimary} w-full mt-5`}>
-          {withdrawing ? "Processing…" : "Withdraw to bank"}
+        <button onClick={onWithdraw} disabled={invalid || withdrawing || !hasCard} className={`${ui.btnPrimary} w-full`}>
+          {withdrawing ? "Processing\u2026" : `Withdraw ${formatMoney(net)}`}
         </button>
-
-        <div className="mt-3 text-xs text-white/45">You’ll be prompted to complete payouts onboarding if needed.</div>
+        {!hasCard && (
+          <p className="text-xs text-amber-400 mt-2">Link a debit card to withdraw</p>
+        )}
       </div>
 
       {/* Withdrawal confirmation receipt */}
       {receipt && (
-        <div className={`${ui.card} mt-6 p-6 border border-emerald-500/30`}>
+        <div className={`${ui.card} mt-6 p-5 border border-emerald-500/20 bg-emerald-500/5`}>
           <div className="flex items-center gap-2 mb-4">
-            <span className="text-emerald-400 text-lg">✅</span>
+            <span className="text-emerald-400 text-lg">{"\u2705"}</span>
             <h2 className="text-lg font-semibold text-white/90">Withdrawal Started</h2>
           </div>
 
@@ -424,7 +485,7 @@ export default function WalletPage() {
             </div>
 
             <div className="border-t border-white/10 pt-3 flex items-center justify-between">
-              <span className="text-sm text-white/80 font-semibold">You will receive</span>
+              <span className="text-sm text-white/80 font-semibold">You receive</span>
               <span className="text-lg font-semibold text-emerald-400">{formatMoney(receipt.net)}</span>
             </div>
 
@@ -450,8 +511,65 @@ export default function WalletPage() {
         </div>
       )}
 
-      {/* Modals (unchanged) */}
-      <LinkDebitCardModal open={linkOpen} onClose={() => setLinkOpen(false)} onLinked={loadPayout} />
+      {/* Payout Methods */}
+      <div className={`${ui.card} mt-6 p-5`}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-white/90">Payout Methods</h2>
+          <button onClick={() => setLinkOpen(true)} className={`${ui.btnGhost} text-xs`}>
+            + Add Card
+          </button>
+        </div>
+
+        {allMethods.length === 0 ? (
+          <p className="text-sm text-white/40">No payout methods linked yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {allMethods.map((m) => (
+              <div key={m.id} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10">
+                <div className="flex items-center gap-3">
+                  <span className="text-lg">💳</span>
+                  <div>
+                    <span className="text-sm font-medium text-white/90 uppercase">
+                      {m.brand ?? m.type ?? "Card"} •••• {m.last4 ?? "????"}
+                    </span>
+                    {m.is_default && (
+                      <span className="ml-2 text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">
+                        Default
+                      </span>
+                    )}
+                    {m.stripe_external_account_id && (
+                      <span className="ml-2 text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full">
+                        Stripe
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!m.is_default && (
+                    <button
+                      onClick={() => handleSetDefault(m.id)}
+                      disabled={settingDefaultId === m.id}
+                      className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50"
+                    >
+                      {settingDefaultId === m.id ? "Setting…" : "Set Default"}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleRemoveMethod(m.id)}
+                    disabled={removingId === m.id}
+                    className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+                  >
+                    {removingId === m.id ? "Removing…" : "Remove"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Modals */}
+      <LinkDebitCardModal open={linkOpen} onClose={() => setLinkOpen(false)} onLinked={() => { loadPayout(); loadAllMethods(); }} />
 
       <EnablePayoutsModal
         open={showEnableModal}

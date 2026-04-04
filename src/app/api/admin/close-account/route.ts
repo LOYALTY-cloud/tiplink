@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { addLedgerEntry } from "@/lib/ledger";
-import { getAdminFromSession } from "@/lib/auth/getAdminFromSession";
+import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
+import { createNotification, notifyAdmins } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -11,9 +12,7 @@ const ALLOWED_REASONS = ["fraud", "user_request", "tos_violation"] as const;
 export async function POST(req: Request) {
   try {
     // 1. Authenticate caller and verify admin role
-    const authHeader = req.headers.get("authorization") ?? "";
-    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const session = await getAdminFromSession(jwt);
+    const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 });
     requireRole(session.role, "close");
     const adminId = session.userId;
@@ -93,6 +92,24 @@ export async function POST(req: Request) {
     } catch (e) {
       console.error("Ledger logging failed on account close:", e);
     }
+
+    // 9. Notify the user via email + in-app
+    createNotification({
+      userId: user_id,
+      type: "security",
+      title: "Your 1neLink account has been closed",
+      body: "Your account has been closed.",
+      meta: {
+        action: "closed",
+        reason,
+      },
+    }).catch(() => {});
+
+    // 10. Notify admins
+    notifyAdmins({
+      title: "Account Closed",
+      body: `Admin ${adminId} closed account ${user_id}. Reason: ${reason}`,
+    }).catch(() => {});
 
     return NextResponse.json({ ok: true, closed: user_id });
   } catch (e: unknown) {

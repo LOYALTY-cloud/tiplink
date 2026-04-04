@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import type { ProfileRow } from "@/types/db";
 import { useToast } from "@/lib/useToast";
@@ -75,11 +76,13 @@ function ProfileEditModal({
   onClose,
   initial,
   onSaved,
+  handleLockedUntil,
 }: {
   open: boolean;
   initial: { handle: string; display_name: string; bio: string };
   onClose: () => void;
   onSaved: (updated: { handle: string; display_name: string; bio: string }) => void;
+  handleLockedUntil?: string | null;
 }) {
   const [handle, setHandle] = useState(initial.handle);
   const [displayName, setDisplayName] = useState(initial.display_name);
@@ -102,7 +105,7 @@ function ProfileEditModal({
     setSaving(true);
     setError(null);
     try {
-      await apiFetch("/api/settings/profile", {
+      const result = await apiFetch("/api/settings/profile", {
         method: "PATCH",
         body: JSON.stringify({
           handle: handle.trim().toLowerCase(),
@@ -110,10 +113,16 @@ function ProfileEditModal({
           bio: bio.trim(),
         }),
       });
-      onSaved({
+      // Use the server-confirmed values
+      const p = result.profile ?? {
         handle: handle.trim().toLowerCase(),
         display_name: displayName.trim(),
         bio: bio.trim(),
+      };
+      onSaved({
+        handle: p.handle ?? handle.trim().toLowerCase(),
+        display_name: p.display_name ?? displayName.trim(),
+        bio: p.bio ?? bio.trim(),
       });
       onClose();
     } catch (e: unknown) {
@@ -135,8 +144,14 @@ function ProfileEditModal({
               value={handle}
               onChange={(e) => setHandle(e.target.value)}
               maxLength={30}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 transition"
+              disabled={!!(handleLockedUntil && new Date(handleLockedUntil) > new Date())}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 transition disabled:opacity-50"
             />
+            {handleLockedUntil && new Date(handleLockedUntil) > new Date() && (
+              <p className="text-xs text-amber-400 mt-1">
+                🔒 Locked until {new Date(handleLockedUntil).toLocaleDateString()}
+              </p>
+            )}
           </div>
           <div>
             <label className="text-xs text-white/50 block mb-1">Display name</label>
@@ -200,7 +215,12 @@ export default function SettingsPage() {
   const [toggleLoading, setToggleLoading] = useState(false);
   const [savedKey, setSavedKey] = useState<string | null>(null);
   const [pageReady, setPageReady] = useState(false);
+  const [handleLockedUntil, setHandleLockedUntil] = useState<string | null>(null);
+  const [accountStatus, setAccountStatus] = useState<string | null>(null);
+  const [kycStatus, setKycStatus] = useState<string | null>(null);
+  const [isVerified, setIsVerified] = useState(false);
 
+  const router = useRouter();
   const { toast, show: showToast } = useToast();
 
   /* ── load user data + settings ──────────────────────── */
@@ -233,7 +253,7 @@ export default function SettingsPage() {
       // Load profile
       const { data: profile } = await supabase
         .from("profiles")
-        .select("stripe_account_id, handle, display_name, bio")
+        .select("stripe_account_id, handle, display_name, bio, handle_locked_until, account_status, kyc_status, is_verified")
         .eq("user_id", user.id)
         .maybeSingle()
         .returns<ProfileRow | null>();
@@ -243,6 +263,10 @@ export default function SettingsPage() {
       setHandle(profile?.handle ?? null);
       setDisplayName(profile?.display_name ?? null);
       setBio(profile?.bio ?? null);
+      setHandleLockedUntil((profile as Record<string, unknown> | null)?.handle_locked_until as string ?? null);
+      setAccountStatus((profile as Record<string, unknown> | null)?.account_status as string ?? "active");
+      setKycStatus((profile as Record<string, unknown> | null)?.kyc_status as string ?? "none");
+      setIsVerified(Boolean((profile as Record<string, unknown> | null)?.is_verified));
 
       // Load notification settings
       try {
@@ -311,15 +335,13 @@ export default function SettingsPage() {
         return;
       }
 
-      const redirectTo =
-        typeof window !== "undefined"
-          ? `${window.location.origin}/reset-password`
-          : undefined;
-
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo,
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
       });
-      if (error) throw error;
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error ?? "Failed to send reset email.");
 
       setMsg("Password reset link sent. Check your email.");
     } catch (e: unknown) {
@@ -369,6 +391,43 @@ export default function SettingsPage() {
 
       {pageReady && (
       <div className="max-w-xl mx-auto space-y-6 pb-10">
+        {/* ── ACCOUNT STATUS ──────────────────────────── */}
+        <button
+          onClick={() => router.push("/dashboard/account")}
+          className="w-full rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl p-4 text-left hover:bg-white/[0.07] transition group"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-white/50">Account Status</p>
+            <span className="text-white/30 group-hover:text-white/60 transition text-sm">→</span>
+          </div>
+          <div className="flex items-center gap-3 mt-2">
+            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+              accountStatus === "active"
+                ? "bg-emerald-500/10 text-emerald-400"
+                : accountStatus === "restricted"
+                  ? "bg-red-500/10 text-red-400"
+                  : accountStatus === "suspended"
+                    ? "bg-amber-500/10 text-amber-400"
+                    : "bg-gray-500/10 text-gray-400"
+            }`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${
+                accountStatus === "active" ? "bg-emerald-400"
+                  : accountStatus === "restricted" ? "bg-red-400"
+                  : accountStatus === "suspended" ? "bg-amber-400"
+                  : "bg-gray-400"
+              }`} />
+              {accountStatus === "active" ? "Active" : accountStatus === "restricted" ? "Restricted" : accountStatus === "suspended" ? "Suspended" : accountStatus === "closed" || accountStatus === "closed_finalized" ? "Closed" : "Active"}
+            </span>
+            {isVerified && (
+              <span className="text-xs text-emerald-400 font-medium">✔ Verified</span>
+            )}
+            {kycStatus === "pending" && (
+              <span className="text-xs text-yellow-400 font-medium">KYC Pending</span>
+            )}
+          </div>
+          <p className="text-xs text-white/35 mt-2">Tap to view account details, verification status & more</p>
+        </button>
+
         {/* ── ACCOUNT ─────────────────────────────────── */}
         <div className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl p-4 space-y-3">
           <p className="text-sm text-white/50">Account</p>
@@ -528,21 +587,6 @@ export default function SettingsPage() {
           </p>
         </div>
 
-        {/* ── FEES ────────────────────────────────────── */}
-        <div className="rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl p-4 space-y-2">
-          <p className="text-sm text-white/50">Fees</p>
-
-          <div className="flex justify-between text-sm">
-            <span>Platform fee</span>
-            <span>5%</span>
-          </div>
-
-          <div className="flex justify-between text-sm">
-            <span>Instant payout</span>
-            <span>1.5%</span>
-          </div>
-        </div>
-
         {/* ── DANGER ZONE ─────────────────────────────── */}
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 space-y-3">
           <p className="text-sm text-red-400 font-medium">Danger zone</p>
@@ -584,6 +628,7 @@ export default function SettingsPage() {
           display_name: displayName ?? "",
           bio: bio ?? "",
         }}
+        handleLockedUntil={handleLockedUntil}
         onSaved={(updated) => {
           setHandle(updated.handle);
           setDisplayName(updated.display_name);

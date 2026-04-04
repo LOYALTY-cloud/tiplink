@@ -43,14 +43,14 @@ https://supabase.com/dashboard/project/cjakxygbgijsknoadrrs/sql/new
 ### A. Get your webhook endpoint URL
 Your webhook endpoint is:
 ```
-https://tiplinkme.com/api/stripe/webhook
+https://1nelink.com/api/stripe/webhook
 ```
 
 ### B. Create webhook in Stripe Dashboard
 
 1. Go to: https://dashboard.stripe.com/test/webhooks
 2. Click **"Add endpoint"**
-3. Enter endpoint URL: `https://tiplinkme.com/api/stripe/webhook`
+3. Enter endpoint URL: `https://1nelink.com/api/stripe/webhook`
 4. Click **"Select events"** and add these events:
    - `payment_intent.succeeded` ✅
    - `payment_intent.payment_failed` ✅

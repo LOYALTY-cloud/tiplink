@@ -1,8 +1,28 @@
 {
   "crons": [
     {
-      "path": "/api/stripe/onboard-retry",
-      "schedule": "*/15 * * * *"
+      "path": "/api/support/session/cleanup?key=${CRON_SECRET}",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/admin/tickets/cron",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-verifications?key=${CRON_SECRET}",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-rate-limits?key=${CRON_SECRET}",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/reset-daily-withdrawn?key=${CRON_SECRET}",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/recover-stuck-payouts?key=${CRON_SECRET}",
+      "schedule": "0 * * * *"
     }
   ]
 }

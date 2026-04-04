@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import StripeEmbeddedOnboarding from "@/components/StripeEmbeddedOnboarding";
 import { supabase } from "@/lib/supabase/client";
 
-export default function OnboardingPage() {
+function OnboardingContent() {
   const searchParams = useSearchParams();
   const isManage = searchParams.get("manage") === "1";
   const [clientSecret, setClientSecret] = useState("");
@@ -20,10 +20,14 @@ export default function OnboardingPage() {
         const user = userRes.user;
         if (!user) throw new Error("Not authenticated");
 
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess.session?.access_token;
+        if (!token) throw new Error("No session");
+
         const res = await fetch("/api/stripe/connect/session", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_id: user.id, mode: isManage ? "manage" : "onboarding" }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ mode: isManage ? "manage" : "onboarding" }),
         });
 
         const j = await res.json();
@@ -53,5 +57,13 @@ export default function OnboardingPage() {
 
       <StripeEmbeddedOnboarding clientSecret={clientSecret} mode={isManage ? "manage" : "onboarding"} />
     </div>
+  );
+}
+
+export default function OnboardingPage() {
+  return (
+    <Suspense fallback={<p>Loading onboarding...</p>}>
+      <OnboardingContent />
+    </Suspense>
   );
 }

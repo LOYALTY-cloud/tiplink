@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase/client";
+import { getAdminHeaders } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
 
 type LedgerRow = {
@@ -58,34 +58,16 @@ export default function AdminTransactionsPage() {
 
   async function fetchLedger() {
     setLoading(true);
-    let query = supabase
-      .from("transactions_ledger")
-      .select("id, user_id, type, amount, reference_id, status, meta, created_at")
-      .order("created_at", { ascending: false })
-      .limit(100);
-
-    if (filter !== "all") {
-      query = query.eq("type", filter);
-    }
-
-    const { data } = await query;
-    const ledger = data ?? [];
-    setRows(ledger);
-
-    // Batch-fetch profiles for all user IDs
-    const ids = [...new Set(ledger.map((r) => r.user_id))];
-    if (ids.length > 0) {
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("user_id, handle, display_name")
-        .in("user_id", ids);
-      const map: Record<string, { handle: string | null; display_name: string | null }> = {};
-      for (const p of profiles ?? []) {
-        map[p.user_id] = { handle: p.handle, display_name: p.display_name };
+    try {
+      const res = await fetch(`/api/admin/transactions?type=${filter}`, {
+        headers: getAdminHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRows(data.rows || []);
+        setProfileMap(data.profileMap || {});
       }
-      setProfileMap(map);
-    }
-
+    } catch {}
     setLoading(false);
   }
 

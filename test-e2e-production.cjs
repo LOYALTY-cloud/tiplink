@@ -485,7 +485,7 @@ async function cleanup(creatorUserId) {
 
 async function main() {
   console.log("═══════════════════════════════════════════════");
-  console.log("  TIPLINK END-TO-END PRODUCTION READINESS TEST");
+  console.log("  1NELINK END-TO-END PRODUCTION READINESS TEST");
   console.log("═══════════════════════════════════════════════");
   
   // Get admin JWT

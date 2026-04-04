@@ -99,7 +99,7 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
           <div>
             <div className="text-lg font-semibold text-white">Delete account</div>
             <div className="mt-1 text-sm text-white/60">
-              This will permanently delete your TIPLINKME profile and data.
+              This will permanently delete your 1NELINK profile and data.
             </div>
           </div>
           <button
@@ -178,7 +178,7 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
         </div>
 
         <div className="mt-3 text-xs text-white/40">
-          TIPLINKME uses Stripe Connect for payouts. If Stripe has pending funds, deletion may be blocked until settlement.
+          1NELINK uses Stripe Connect for payouts. If Stripe has pending funds, deletion may be blocked until settlement.
         </div>
       </div>
     </div>

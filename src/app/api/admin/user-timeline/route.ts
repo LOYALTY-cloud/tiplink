@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getAdminFromSession } from "@/lib/auth/getAdminFromSession";
+import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   try {
-    const authHeader = req.headers.get("authorization") ?? "";
-    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const session = await getAdminFromSession(jwt);
+    const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     requireRole(session.role, "view_admin");
 
@@ -17,7 +15,7 @@ export async function GET(req: Request) {
     const user_id = searchParams.get("user_id");
     if (!user_id) return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
 
-    const [notesRes, adminRes, ledgerRes] = await Promise.all([
+    const [notesRes, adminRes, ledgerRes, anomalyRes, withdrawalRes, tipRes] = await Promise.all([
       supabaseAdmin
         .from("support_notes")
         .select(`
@@ -56,6 +54,27 @@ export async function GET(req: Request) {
         .eq("user_id", user_id)
         .order("created_at", { ascending: false })
         .limit(100),
+
+      supabaseAdmin
+        .from("fraud_anomalies")
+        .select("type, score, decision, reason, flags, created_at")
+        .eq("user_id", user_id)
+        .order("created_at", { ascending: false })
+        .limit(50),
+
+      supabaseAdmin
+        .from("withdrawals")
+        .select("amount, status, risk_level, created_at")
+        .eq("user_id", user_id)
+        .order("created_at", { ascending: false })
+        .limit(50),
+
+      supabaseAdmin
+        .from("tip_intents")
+        .select("tip_amount, status, created_at")
+        .eq("creator_user_id", user_id)
+        .order("created_at", { ascending: false })
+        .limit(50),
     ]);
 
     const notes = (notesRes.data ?? []).map((n: any) => ({
@@ -84,7 +103,36 @@ export async function GET(req: Request) {
       amount: l.amount,
     }));
 
-    const timeline = [...notes, ...adminActions, ...ledger].sort(
+    const anomalies = (anomalyRes.data ?? []).map((a: any) => ({
+      type: "anomaly" as const,
+      label: formatAnomaly(a.type, a.score, a.decision, a.reason),
+      created_at: a.created_at,
+      role: "system",
+      actor: "Fraud Engine",
+      score: a.score,
+      decision: a.decision,
+      flags: a.flags,
+    }));
+
+    const withdrawals = (withdrawalRes.data ?? []).map((w: any) => ({
+      type: "withdrawal" as const,
+      label: `Withdrawal $${Number(w.amount).toFixed(2)} — ${w.status}${w.risk_level ? ` (${w.risk_level} risk)` : ""}`,
+      created_at: w.created_at,
+      role: "system",
+      actor: "System",
+      amount: w.amount,
+    }));
+
+    const tips = (tipRes.data ?? []).map((t: any) => ({
+      type: "tip" as const,
+      label: `Tip received +$${Number(t.tip_amount).toFixed(2)} — ${t.status}`,
+      created_at: t.created_at,
+      role: "system",
+      actor: "System",
+      amount: t.tip_amount,
+    }));
+
+    const timeline = [...notes, ...adminActions, ...ledger, ...anomalies, ...withdrawals, ...tips].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
 
@@ -155,4 +203,10 @@ function formatAdminAction(action: string, meta: any) {
     default:
       return action.replace(/_/g, " ");
   }
+}
+
+function formatAnomaly(type: string, score: number, decision: string, reason: string | null) {
+  const prefix = type.replace(/_/g, " ");
+  const label = `${prefix} — score ${score}, ${decision}`;
+  return reason ? `${label}: ${reason}` : label;
 }

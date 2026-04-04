@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sendTipReceiptEmail } from "@/lib/email/sendReceipt";
+import { sendTipReceipt } from "@/lib/email/sendTipReceipt";
 
 export async function POST(req: Request) {
   if (process.env.NODE_ENV === "production") {
@@ -10,7 +10,7 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     const to = (body.to as string | undefined)?.trim().toLowerCase();
-    const amount = (body.amount as string | undefined) ?? "$10.00";
+    const amountUsd = (body.amount as string | undefined) ?? "$10.00";
     const creatorName = (body.creatorName as string | undefined) ?? "Creator";
     const createdAt =
       (body.createdAt as string | undefined) ?? new Date().toLocaleString();
@@ -22,10 +22,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing to" }, { status: 400 });
     }
 
-    const resendResponse = await sendTipReceiptEmail({
+    const resendResponse = await sendTipReceipt({
       to,
       receiptId,
-      amount,
+      amountUsd,
       creatorName,
       createdAt,
     });
