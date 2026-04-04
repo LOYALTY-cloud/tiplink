@@ -76,7 +76,7 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen flex items-center justify-center px-4 bg-[#060B18]">
       <div className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-6">
         <div className="flex flex-col items-center mb-2">
-          <img src="/1nelink-logo.png" alt="1neLink" className="h-16 w-16 rounded-xl object-contain mb-3" />
+          <img src="/1nelink-logo.png" alt="1neLink" className="h-14 w-auto object-contain mb-3" />
         </div>
         <h1 className="text-xl font-semibold text-white">Reset password</h1>
         <p className="mt-1 text-sm text-white/60">Enter a new password for your 1NELINK account.</p>

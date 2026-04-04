@@ -88,7 +88,7 @@ export default function SignUpPage() {
             <img
               src="/1nelink-logo.png"
               alt="1neLink"
-              className="h-32 sm:h-36 drop-shadow-[0_0_20px_rgba(0,224,255,0.4)]"
+              className="h-16 sm:h-18 md:h-20 w-auto object-contain drop-shadow-[0_0_15px_rgba(0,224,255,0.4)]"
             />
           </div>
 

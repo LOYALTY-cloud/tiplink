@@ -89,7 +89,7 @@ export default function DashboardLayout({
             </button>
 
             <div className="flex items-center gap-2">
-              <img src="/1nelink-logo.png" alt="1neLink" className="h-8 w-8 rounded-xl object-contain" />
+              <img src="/1nelink-logo.png" alt="1neLink" className="h-9 w-9 rounded-xl object-contain" />
               <span className={`${ui.h2} tracking-tight`}>1NELINK</span>
             </div>
 

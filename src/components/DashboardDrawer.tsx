@@ -60,7 +60,7 @@ export function DashboardDrawer({
       <aside className={`${ui.card} absolute left-0 top-0 h-full w-[80%] max-w-[300px] border-r border-white/10 transform transition-transform duration-300 translate-x-0`}>
         <div className={`flex items-center justify-between px-4 py-4 border-b border-white/10`}>
           <div className="flex items-center gap-2">
-            <img src="/1nelink-logo.png" alt="1neLink" className="h-7 w-7 rounded-lg object-contain" />
+            <img src="/1nelink-logo.png" alt="1neLink" className="h-8 w-8 rounded-lg object-contain" />
             <div>
               <div className={`text-xs font-medium ${ui.muted}`}>1NELINK</div>
               <div className={`text-sm font-semibold ${ui.muted}`}>Menu</div>

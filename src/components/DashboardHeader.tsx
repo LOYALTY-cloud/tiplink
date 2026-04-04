@@ -26,8 +26,8 @@ export default function DashboardHeader() {
   return (
     <header className="flex items-center justify-between px-6 py-4 border-b border-white/10 relative">
       <div className="flex items-center gap-2">
-        <img src="/1nelink-logo.png" alt="1neLink" className="h-8 w-8 rounded-xl object-contain" />
-        <span className="text-lg font-semibold">1NELINK</span>
+        <img src="/1nelink-logo.png" alt="1neLink" className="h-10 w-10 rounded-xl object-contain drop-shadow-[0_0_10px_rgba(0,224,255,0.4)]" />
+        <span className="text-lg font-semibold tracking-wide">1NELINK</span>
       </div>
 
       {/* Desktop Tabs */}
