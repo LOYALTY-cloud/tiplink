@@ -4,7 +4,6 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { ui } from "@/lib/ui";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,8 +11,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-
-  // Clear any stale session lock from a previous session
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -36,47 +33,80 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <form onSubmit={onSubmit} className={`${ui.card} w-full max-w-md p-6 space-y-4`}>
-        <div className="mb-4 flex flex-col items-center text-center">
-          <img src="/1nelink-logo.png" alt="1neLink" className="h-16 w-16 rounded-xl object-contain mb-3" />
-          <div className={ui.h2}>Log in</div>
-          <div className={ui.muted}>Welcome back to 1NELINK.</div>
-        </div>
+    <div className="min-h-screen flex items-center justify-center bg-[#050816] relative overflow-hidden px-4">
 
-        <input
-          className={ui.input}
-          placeholder="Email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
+      {/* Animated background */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <div className="absolute w-[500px] h-[500px] bg-cyan-500/20 blur-[120px] top-[-100px] left-[-100px] animate-pulse" />
+        <div className="absolute w-[500px] h-[500px] bg-purple-600/20 blur-[120px] bottom-[-100px] right-[-100px] animate-pulse" />
+      </div>
 
-        <input
-          className={ui.input}
-          placeholder="Password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
+      {/* Card */}
+      <div className="relative z-10 w-full max-w-md">
+        <form
+          onSubmit={onSubmit}
+          className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-2xl p-8 shadow-xl"
+        >
+          {/* Logo */}
+          <div className="flex flex-col items-center mb-6">
+            <img
+              src="/1nelink-logo.png"
+              alt="1neLink"
+              className="h-14 sm:h-16 drop-shadow-[0_0_12px_rgba(0,224,255,0.4)]"
+            />
+          </div>
 
-        <button className={`${ui.btnPrimary} w-full`} disabled={loading}>
-          {loading ? "Signing in..." : "Log in"}
-        </button>
+          {/* Title */}
+          <h1 className="text-2xl font-semibold text-white text-center">
+            Log in
+          </h1>
+          <p className="text-sm text-gray-400 text-center mb-6">
+            Welcome back to 1neLink.
+          </p>
 
-        {msg && <p className="text-sm text-red-400">{msg}</p>}
+          {/* Inputs */}
+          <div className="space-y-4">
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition"
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition"
+            />
+          </div>
 
-        <div className="flex items-center justify-between text-sm">
-          <Link className="underline" href="/forgot-password">
-            Forgot password?
-          </Link>
-          <Link className="underline" href="/signup">
-            Create account
-          </Link>
-        </div>
-      </form>
+          {/* Error */}
+          {msg && <p className="text-sm text-red-400 mt-3">{msg}</p>}
+
+          {/* Button */}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full mt-6 py-3 rounded-lg bg-gradient-to-r from-cyan-400 to-purple-500 text-white font-medium hover:opacity-90 active:scale-[0.98] transition-all duration-200 disabled:opacity-60"
+          >
+            {loading ? "Signing in..." : "Log in"}
+          </button>
+
+          {/* Links */}
+          <div className="flex justify-between mt-4 text-sm text-gray-400">
+            <Link href="/forgot-password" className="hover:text-white transition">
+              Forgot password?
+            </Link>
+            <Link href="/signup" className="hover:text-white transition">
+              Create account
+            </Link>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

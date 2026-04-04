@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ui } from "@/lib/ui";
 
 export default function SignUpPage() {
   const [email, setEmail] = useState("");
@@ -63,75 +62,108 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <form onSubmit={onSubmit} className={`${ui.card} w-full max-w-md p-6 space-y-4`}>
-        <div className="mb-4 flex flex-col items-center text-center">
-          <img src="/1nelink-logo.png" alt="1neLink" className="h-16 w-16 rounded-xl object-contain mb-3" />
-          <div className={ui.h2}>Create 1NELINK account</div>
-        </div>
+    <div className="min-h-screen flex items-center justify-center bg-[#050816] relative overflow-hidden px-4">
 
-        <div>
-          <input
-            className={ui.input}
-            placeholder="Display Name"
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            required
-            maxLength={50}
-          />
-        </div>
+      {/* Animated background */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <div className="absolute w-[500px] h-[500px] bg-cyan-500/20 blur-[120px] top-[-100px] left-[-100px] animate-pulse" />
+        <div className="absolute w-[500px] h-[500px] bg-purple-600/20 blur-[120px] bottom-[-100px] right-[-100px] animate-pulse" />
+      </div>
 
-        <div>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 text-sm pointer-events-none">@</span>
-            <input
-              className={`${ui.input} pl-7`}
-              placeholder="handle"
-              type="text"
-              value={handle}
-              onChange={(e) => onHandleChange(e.target.value)}
-              required
-              maxLength={30}
+      {/* Card */}
+      <div className="relative z-10 w-full max-w-md">
+        <form
+          onSubmit={onSubmit}
+          className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-2xl p-8 shadow-xl"
+        >
+          {/* Logo */}
+          <div className="flex flex-col items-center mb-6">
+            <img
+              src="/1nelink-logo.png"
+              alt="1neLink"
+              className="h-14 sm:h-16 drop-shadow-[0_0_12px_rgba(0,224,255,0.4)]"
             />
           </div>
-          {handleErr && <p className="text-xs text-red-400 mt-1">{handleErr}</p>}
-          {handle && !handleErr && <p className="text-xs text-white/40 mt-1">1nelink.com/{handle}</p>}
-        </div>
 
-        <input
-          className={ui.input}
-          placeholder="Email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
+          {/* Title */}
+          <h1 className="text-2xl font-semibold text-white text-center">
+            Create your account
+          </h1>
+          <p className="text-sm text-gray-400 text-center mb-6">
+            Start receiving tips in minutes.
+          </p>
 
-        <input
-          className={ui.input}
-          placeholder="Password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={8}
-        />
+          {/* Inputs */}
+          <div className="space-y-4">
+            <input
+              type="text"
+              placeholder="Display Name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              required
+              maxLength={50}
+              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition"
+            />
 
-        <button className={`${ui.btnPrimary} w-full`} disabled={loading}>
-          {loading ? "Creating..." : "Sign up"}
-        </button>
+            <div>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">@</span>
+                <input
+                  type="text"
+                  placeholder="handle"
+                  value={handle}
+                  onChange={(e) => onHandleChange(e.target.value)}
+                  required
+                  maxLength={30}
+                  className="w-full pl-7 pr-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition"
+                />
+              </div>
+              {handleErr && <p className="text-xs text-red-400 mt-1">{handleErr}</p>}
+              {handle && !handleErr && <p className="text-xs text-gray-500 mt-1">1nelink.com/{handle}</p>}
+            </div>
 
-        {err && <p className="text-sm text-red-400">{err}</p>}
-        {msg && <p className="text-sm opacity-80">{msg}</p>}
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition"
+            />
 
-        <p className="text-sm">
-          Already have an account? {" "}
-          <Link className="underline" href="/login">
-            Log in
-          </Link>
-        </p>
-      </form>
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 transition"
+            />
+          </div>
+
+          {/* Errors / Success */}
+          {err && <p className="text-sm text-red-400 mt-3">{err}</p>}
+          {msg && <p className="text-sm text-emerald-400 mt-3">{msg}</p>}
+
+          {/* Button */}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full mt-6 py-3 rounded-lg bg-gradient-to-r from-cyan-400 to-purple-500 text-white font-medium hover:opacity-90 active:scale-[0.98] transition-all duration-200 disabled:opacity-60"
+          >
+            {loading ? "Creating..." : "Sign up"}
+          </button>
+
+          {/* Link */}
+          <p className="text-sm text-gray-400 text-center mt-4">
+            Already have an account?{" "}
+            <Link href="/login" className="text-white hover:text-cyan-400 transition">
+              Log in
+            </Link>
+          </p>
+        </form>
+      </div>
     </div>
   );
 }
