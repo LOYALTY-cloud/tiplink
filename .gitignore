@@ -43,3 +43,10 @@ next-env.d.ts
 #.env.local
 .env.local
 node_modules
+
+# security — block accidental commits
+*.html
+*.ipynb
+downloads/
+tmp/
+gdown/

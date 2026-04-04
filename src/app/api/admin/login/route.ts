@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { rateLimit, getClientIp } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 
@@ -7,6 +8,13 @@ const ADMIN_ROLES = ["owner", "super_admin", "finance_admin", "support_admin"];
 
 export async function POST(req: Request) {
   try {
+    // Rate limit: 5 attempts per 15 minutes per IP
+    const ip = getClientIp(req);
+    const { allowed } = await rateLimit(`admin-login:${ip}`, 5, 900);
+    if (!allowed) {
+      return NextResponse.json({ error: "Too many login attempts. Try again later." }, { status: 429 });
+    }
+
     const { firstName, lastName, passcode } = await req.json();
 
     if (!firstName?.trim() || !lastName?.trim() || !passcode?.trim()) {

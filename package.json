@@ -13,7 +13,8 @@
     "test-webhook-int": "tsx tests/webhook/payment-intent.test.ts",
     "test-webhook-all": "tsx tests/webhook/payment-intent.test.ts && tsx tests/webhook/refund.test.ts && tsx tests/concurrent/withdraw-refund.test.ts",
     "test-tip-flow": "tsx scripts/test-tip-flow.ts",
-    "test-launch": "bash tests/launch/run-all.sh"
+    "test-launch": "bash tests/launch/run-all.sh",
+    "prepare": "husky"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.3.2",
@@ -41,6 +42,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "husky": "^9.1.7",
     "pg": "^8.20.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",

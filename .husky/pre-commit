@@ -1,0 +1,46 @@
+#!/bin/sh
+
+# ============================================
+# 🔒 SECRET SCANNER — blocks commits with keys
+# ============================================
+
+BLOCKED=0
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$STAGED" ]; then
+  exit 0
+fi
+
+# Patterns that should NEVER be committed
+for pattern in \
+  'sk_live_[A-Za-z0-9]' \
+  'sk_test_[A-Za-z0-9]' \
+  'AIzaSy[A-Za-z0-9_-]' \
+  're_[A-Za-z0-9]{10,}' \
+  'sk-proj-[A-Za-z0-9]' \
+  'whsec_[A-Za-z0-9]' \
+  'sb_secret_[A-Za-z0-9]' \
+  'ghp_[A-Za-z0-9]' \
+  'gho_[A-Za-z0-9]' \
+  'xoxb-[A-Za-z0-9]'
+do
+  MATCHES=$(echo "$STAGED" | xargs grep -lE "$pattern" 2>/dev/null || true)
+  if [ -n "$MATCHES" ]; then
+    echo ""
+    echo "🚨 SECRET DETECTED — commit blocked!"
+    echo "Pattern: $pattern"
+    echo "Files:"
+    echo "$MATCHES" | while read f; do echo "  ❌ $f"; done
+    echo ""
+    echo "Remove the secret and use process.env instead."
+    echo ""
+    BLOCKED=1
+  fi
+done
+
+if [ "$BLOCKED" -eq 1 ]; then
+  exit 1
+fi
+
+exit 0

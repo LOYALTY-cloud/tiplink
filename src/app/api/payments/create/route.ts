@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
 import { createClient } from "@supabase/supabase-js";
+import { rateLimit, getClientIp } from "@/lib/rateLimit";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,6 +16,13 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export async function POST(req: Request) {
   try {
+    // Rate limit: 10 payments per minute per IP
+    const ip = getClientIp(req);
+    const { allowed } = await rateLimit(`payment:${ip}`, 10, 60);
+    if (!allowed) {
+      return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 });
+    }
+
     const body = await req.json();
     const tipAmount = Number(body.tipAmount);
     const creatorUserId = String(body.creatorUserId || "");

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import type { ProfileRow } from "@/types/db";
 import { stripe } from "@/lib/stripe/server";
+import { rateLimit, getClientIp } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,13 @@ function money(n: number) {
 }
 
 export async function POST(req: Request) {
+  // Rate limit: 10 payment intents per minute per IP
+  const ip = getClientIp(req);
+  const { allowed } = await rateLimit(`pay-intent:${ip}`, 10, 60);
+  if (!allowed) {
+    return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 });
+  }
+
   // Dev-only mock: set DEV_MOCK_PAYMENTS=1 in your environment to bypass Stripe/Supabase
   if (process.env.DEV_MOCK_PAYMENTS === "1") {
     try {
