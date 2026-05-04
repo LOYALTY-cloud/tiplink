@@ -28,20 +28,20 @@ console.log("── Admin Auth Gate Tests ──\n");
 
 const ROOT = resolve(process.cwd());
 
-// ── 1. Real middleware file exists (Next.js requires src/middleware.ts) ─────────
+// ── 1. Real proxy file exists (Next.js 16 uses proxy.ts, not middleware.ts) ───
 assert(
-  existsSync(resolve(ROOT, "src/middleware.ts")),
-  "src/middleware.ts exists (not just proxy.ts)"
+  existsSync(resolve(ROOT, "src/proxy.ts")),
+  "src/proxy.ts exists (Next.js 16 convention)"
 );
 
 assert(
-  !existsSync(resolve(ROOT, "middleware.ts")),
-  "No root-level middleware.ts (would shadow src/)"
+  !existsSync(resolve(ROOT, "src/middleware.ts")),
+  "src/middleware.ts does NOT exist (deprecated in Next.js 16)"
 );
 
-// ── 2. Middleware gates /admin/* ───────────────────────────────────────────────
+// ── 2. Proxy file gates /admin/* ──────────────────────────────────────────────
 {
-  const src = readFileSync(resolve(ROOT, "src/middleware.ts"), "utf8");
+  const src = readFileSync(resolve(ROOT, "src/proxy.ts"), "utf8");
 
   assert(
     src.includes('pathname.startsWith("/admin")'),

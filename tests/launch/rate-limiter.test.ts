@@ -26,10 +26,10 @@ function assert(cond: boolean, msg: string) {
 
 console.log("── Rate Limiter Logic Tests ──\n");
 
-// ── 1. Static analysis: correct constants in middleware ───────────────────────
+// ── 1. Static analysis: correct constants in proxy.ts ────────────────────────
 console.log("Static analysis:");
 {
-  const src = readFileSync(resolve(process.cwd(), "src/middleware.ts"), "utf8");
+  const src = readFileSync(resolve(process.cwd(), "src/proxy.ts"), "utf8");
 
   assert(
     src.includes("WINDOW_MS = 60_000"),
@@ -122,10 +122,10 @@ console.log("\nLogic unit tests:");
   assert(!isRateLimited(freshKey, LIMIT), "expired bucket discarded, new window starts clean");
 }
 
-// ── 3. Verify auth route detection logic in middleware ─────────────────────────
+// ── 3. Verify auth route detection logic in proxy.ts ──────────────────────────
 console.log("\nAuth route detection:");
 {
-  const src = readFileSync(resolve(process.cwd(), "src/middleware.ts"), "utf8");
+  const src = readFileSync(resolve(process.cwd(), "src/proxy.ts"), "utf8");
 
   assert(
     src.includes('pathname.startsWith("/api/auth/")'),
