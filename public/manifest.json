@@ -1,7 +1,7 @@
 {
   "name": "1neLink",
   "short_name": "1neLink",
-  "description": "Send & receive tips instantly.",
+  "description": "Receive & withdraw tips instantly.",
   "start_url": "/",
   "display": "standalone",
   "theme_color": "#0B0F19",

@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
 export default function ResetPasswordPage() {
+  const router = useRouter();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
@@ -13,33 +15,23 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     (async () => {
-      // The auth callback already exchanged the code and set the session in cookies.
-      // Check for session — also listen for auth state changes in case
-      // the Supabase client is still processing.
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(
-        (event, session) => {
-          if (session && (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN")) {
-            setReady(true);
-          }
-        }
-      );
-
+      // Session is established by /auth/callback before we land here.
+      // Just check for an active session; if none, the link was invalid/expired.
       const { data } = await supabase.auth.getSession();
       if (data.session) {
         setReady(true);
-      } else {
-        // Give auto-detection a moment to complete, then show error
-        setTimeout(async () => {
-          const { data: retry } = await supabase.auth.getSession();
-          if (retry.session) {
-            setReady(true);
-          } else {
-            setErr("Reset link is invalid or expired. Please request a new one.");
-          }
-        }, 2000);
+        return;
       }
 
-      return () => subscription.unsubscribe();
+      // Give Supabase a moment to propagate the session cookie then retry once.
+      setTimeout(async () => {
+        const { data: retry } = await supabase.auth.getSession();
+        if (retry.session) {
+          setReady(true);
+        } else {
+          setErr("Reset link is invalid or expired. Please request a new one.");
+        }
+      }, 1500);
     })();
   }, []);
 
@@ -50,6 +42,24 @@ export default function ResetPasswordPage() {
 
     if (password.length < 8) {
       setErr("Password must be at least 8 characters.");
+      return;
+    }
+    if (!/[a-z]/.test(password)) {
+      setErr("Password must include a lowercase letter.");
+      return;
+    }
+    if (!/[A-Z]/.test(password)) {
+      setErr("Password must include an uppercase letter.");
+      return;
+    }
+    if (!/[0-9]/.test(password)) {
+      setErr("Password must include a number.");
+      return;
+    }
+    // Block common passwords
+    const common = ["password","12345678","123456789","1234567890","qwerty123","password1","iloveyou","sunshine1","princess1","football1","trustno1","superman1","whatever1","welcome1","password123","qwertyui","asdfghjk","p@ssw0rd","passw0rd","admin123","welcome123","changeme"];
+    if (common.includes(password.toLowerCase())) {
+      setErr("This password is too common. Choose something stronger.");
       return;
     }
     if (password !== confirm) {
@@ -69,12 +79,17 @@ export default function ResetPasswordPage() {
     // Send password-changed confirmation email (non-blocking)
     fetch("/api/auth/password-changed", { method: "POST" }).catch(() => {});
 
-    setMsg("Password updated. You can close this page and sign in.");
+    setMsg("Password updated successfully. Redirecting to dashboard...");
+    
+    // Redirect to dashboard after a short delay so they can see the success message
+    setTimeout(() => {
+      router.push("/dashboard");
+    }, 2000);
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-[#060B18]">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-6">
+      <div className="w-full max-w-md rounded-2xl border border-white/[0.12] bg-white/5 p-6">
         <div className="flex flex-col items-center mb-2">
           <img src="/1nelink-logo.png" alt="1neLink" className="h-14 w-auto object-contain mb-3" />
         </div>
@@ -93,7 +108,7 @@ export default function ResetPasswordPage() {
             <label className="text-xs text-white/60">New password</label>
             <input
               type="password"
-              className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              className="mt-2 w-full rounded-xl border border-white/[0.12] bg-white/5 px-3 py-3 text-white placeholder:text-white/45 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
@@ -105,7 +120,7 @@ export default function ResetPasswordPage() {
             <label className="text-xs text-white/60">Confirm password</label>
             <input
               type="password"
-              className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              className="mt-2 w-full rounded-xl border border-white/[0.12] bg-white/5 px-3 py-3 text-white placeholder:text-white/45 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               autoComplete="new-password"

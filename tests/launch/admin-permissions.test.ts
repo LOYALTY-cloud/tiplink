@@ -46,7 +46,8 @@ for (const perm of Object.keys(PERMISSIONS) as Array<keyof typeof PERMISSIONS>) 
   assert(true, `finance_admin: refund ✓`);
   requireRole("finance_admin", "view_admin");
   assert(true, `finance_admin: view_admin ✓`);
-  assertThrows(() => requireRole("finance_admin", "restrict"), `finance_admin: restrict ✗`);
+  requireRole("finance_admin", "restrict");
+  assert(true, `finance_admin: restrict ✓`);
   assertThrows(() => requireRole("finance_admin", "panic"), `finance_admin: panic ✗`);
   assertThrows(() => requireRole("finance_admin", "close"), `finance_admin: close ✗`);
   assertThrows(() => requireRole("finance_admin", "manage_staff"), `finance_admin: manage_staff ✗`);

@@ -49,7 +49,7 @@ export default function HelpSupportPage() {
                 </p>
                 <p className={`text-sm ${ui.muted}`}>{s.desc}</p>
               </div>
-              <span className="ml-auto text-white/30 group-hover:text-white/60 transition">
+              <span className="ml-auto text-white/45 group-hover:text-white/60 transition">
                 →
               </span>
             </div>

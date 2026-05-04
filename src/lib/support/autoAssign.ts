@@ -388,7 +388,7 @@ async function selectAndAssign(
 ): Promise<AvailableAdmin | null> {
   // Prefer "online" over "busy"
   const online = candidates.filter((a) => a.availability === "online");
-  let pool = online.length > 0 ? online : candidates;
+  const pool = online.length > 0 ? online : candidates;
 
   // Performance-weighted sorting: combine load + avg resolution time
   const perfScores = await getPerformanceScores(issueType);

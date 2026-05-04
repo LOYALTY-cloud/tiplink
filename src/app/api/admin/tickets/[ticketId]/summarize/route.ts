@@ -19,14 +19,22 @@ export async function POST(
 
   const { ticketId } = await params;
 
-  const result = await generateTicketSummary(ticketId);
+  try {
+    const result = await generateTicketSummary(ticketId);
 
-  if (!result) {
+    if (!result) {
+      return NextResponse.json(
+        { error: "Could not generate summary (already exists or ticket not found)" },
+        { status: 422 }
+      );
+    }
+
+    return NextResponse.json({ summary: result });
+  } catch (err) {
+    console.error("[summarize] AI generation failed:", err);
     return NextResponse.json(
-      { error: "Could not generate summary (already exists or ticket not found)" },
-      { status: 422 }
+      { error: "Failed to generate summary" },
+      { status: 500 }
     );
   }
-
-  return NextResponse.json({ summary: result });
 }

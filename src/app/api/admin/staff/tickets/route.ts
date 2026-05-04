@@ -1,20 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
+import { requireRole } from "@/lib/auth/requireRole";
+import { notifyDisciplinaryReportIssued } from "@/lib/adminNotifications";
 
 export const runtime = "nodejs";
-
-/**
- * Role hierarchy: owner > super_admin > admin
- * owner can write tickets to everyone
- * super_admin can write tickets to admin only
- * admin cannot write tickets to anyone
- */
-const ROLE_RANK: Record<string, number> = {
-  owner: 3,
-  super_admin: 2,
-  admin: 1,
-};
 
 const VALID_TYPES = ["warning", "performance_review", "policy_violation", "escalation", "note"];
 
@@ -30,6 +20,7 @@ export async function GET(req: Request) {
   try {
     const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    try { requireRole(session.role, "staff"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
     const url = new URL(req.url);
     const toAdmin = url.searchParams.get("to");
@@ -60,7 +51,7 @@ export async function GET(req: Request) {
   }
 }
 
-// POST — create a discipline/communication ticket (hierarchy-enforced)
+// POST — create a discipline/communication ticket between admin-level users
 export async function POST(req: Request) {
   try {
     const session = await getAdminFromRequest(req);
@@ -77,25 +68,46 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid ticket type. Must be: " + VALID_TYPES.join(", ") }, { status: 400 });
     }
 
-    // Get sender's admin row + profile role
-    const { data: sender } = await supabaseAdmin
+    // Get sender's detailed role from profiles first
+    const { data: senderProfile } = await supabaseAdmin
+      .from("profiles")
+      .select("role, display_name")
+      .eq("user_id", session.userId)
+      .maybeSingle();
+
+    if (!senderProfile) {
+      return NextResponse.json({ error: "Sender profile not found" }, { status: 404 });
+    }
+
+    const senderRole = normalizeRole(senderProfile.role ?? "admin");
+
+    // Get sender's admin row — auto-create if missing (lazy population)
+    let { data: sender } = await supabaseAdmin
       .from("admins")
       .select("id, role")
       .eq("user_id", session.userId)
       .maybeSingle();
 
     if (!sender) {
-      return NextResponse.json({ error: "Sender admin record not found" }, { status: 404 });
+      const { data: created } = await supabaseAdmin
+        .from("admins")
+        .upsert(
+          {
+            user_id: session.userId,
+            full_name: senderProfile.display_name ?? "Unknown",
+            role: senderProfile.role === "owner" ? "owner" : "admin",
+            status: "active",
+          },
+          { onConflict: "user_id" },
+        )
+        .select("id, role")
+        .maybeSingle();
+      sender = created;
     }
 
-    // Get sender's detailed role from profiles
-    const { data: senderProfile } = await supabaseAdmin
-      .from("profiles")
-      .select("role")
-      .eq("user_id", session.userId)
-      .maybeSingle();
-
-    const senderRole = normalizeRole(senderProfile?.role ?? "admin");
+    if (!sender) {
+      return NextResponse.json({ error: "Sender admin record could not be found or created" }, { status: 500 });
+    }
 
     // Get target admin
     const { data: target } = await supabaseAdmin
@@ -110,18 +122,7 @@ export async function POST(req: Request) {
 
     const targetRole = target.role;
 
-    // ── HIERARCHY CHECK ──
-    // sender must outrank target
-    const senderRank = ROLE_RANK[senderRole] ?? 0;
-    const targetRank = ROLE_RANK[targetRole] ?? 0;
-
-    if (senderRank <= targetRank) {
-      return NextResponse.json({
-        error: `${senderRole} cannot write tickets to ${targetRole}. You can only write to roles below yours.`,
-      }, { status: 403 });
-    }
-
-    // Cannot write to yourself
+    // Cannot write to yourself.
     if (sender.id === target.id) {
       return NextResponse.json({ error: "Cannot send a ticket to yourself" }, { status: 400 });
     }
@@ -135,12 +136,16 @@ export async function POST(req: Request) {
         to_role: targetRole,
         type,
         message: message.trim(),
-        auto_generated: false,
       })
       .select()
       .single();
 
     if (error) {
+      if (type === "note" && /admin_tickets_type_check/i.test(error.message)) {
+        return NextResponse.json({
+          error: "Note tickets are not enabled in the current database schema yet. Run APPLY_ADMIN_TICKETS_COLUMNS.sql to sync the admin_tickets constraint.",
+        }, { status: 400 });
+      }
       return NextResponse.json({ error: "Failed to create ticket: " + error.message }, { status: 500 });
     }
 
@@ -165,6 +170,12 @@ export async function POST(req: Request) {
         to_role: targetRole,
         to_admin_id: toAdminId,
       },
+    }).then(() => {}, () => {});
+
+    await notifyDisciplinaryReportIssued({
+      adminId: toAdminId,
+      ticketId: ticket.id,
+      reason: message.trim(),
     }).then(() => {}, () => {});
 
     return NextResponse.json({ ok: true, ticket });
@@ -227,6 +238,18 @@ export async function PATCH(req: Request) {
         severity: "info",
         metadata: { ticket_id: ticketId },
       }).then(() => {}, () => {});
+
+      await supabaseAdmin
+        .from("admin_notifications")
+        .update({
+          read: true,
+          status: "resolved",
+          resolved_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("ticket_id", ticketId)
+        .eq("admin_id", ticket.to_admin_id)
+        .then(() => {}, () => {});
 
     } else if (action === "resolve") {
       // Sender or owner can resolve

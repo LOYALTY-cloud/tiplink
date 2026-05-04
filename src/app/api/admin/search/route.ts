@@ -20,6 +20,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ users: [], tips: [], transactions: [] });
   }
 
+  // Escape SQL wildcards to prevent wildcard injection
+  const escaped = q.replace(/%/g, "\\%").replace(/_/g, "\\_");
+
   // Run all searches in parallel on the server
   const [byId, byText, tips, txs] = await Promise.all([
     supabaseAdmin
@@ -30,7 +33,7 @@ export async function GET(req: Request) {
     supabaseAdmin
       .from("profiles")
       .select("user_id, handle, display_name, account_status")
-      .or(`handle.ilike.%${q}%,display_name.ilike.%${q}%`)
+      .or(`handle.ilike.%${escaped}%,display_name.ilike.%${escaped}%`)
       .limit(5),
     supabaseAdmin
       .from("tip_intents")

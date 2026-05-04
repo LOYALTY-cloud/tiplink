@@ -4,7 +4,9 @@ import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { showGlobalToast } from "@/components/GlobalToast";
 import { ui } from "@/lib/ui";
+import { getResolvedSupportFileUrl, useResolvedSupportFiles } from "@/hooks/useResolvedSupportFiles";
 
 type TicketMessage = {
   id: string;
@@ -31,7 +33,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   open: { label: "Open", color: "text-blue-400 bg-blue-500/15" },
   in_progress: { label: "In Progress", color: "text-yellow-400 bg-yellow-500/15" },
   resolved: { label: "Resolved", color: "text-green-400 bg-green-500/15" },
-  closed: { label: "Closed", color: "text-white/40 bg-white/5" },
+  closed: { label: "Closed", color: "text-white/55 bg-white/5" },
 };
 
 const TIMELINE_STEPS = [
@@ -54,6 +56,7 @@ export default function TicketDetailPage() {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const resolvedFiles = useResolvedSupportFiles(messages.map((m) => m.file_url), "user");
 
   useEffect(() => {
     loadTicket();
@@ -74,6 +77,20 @@ export default function TicketDetailPage() {
             if (prev.some((m) => m.id === payload.new.id)) return prev;
             return [...prev, payload.new as TicketMessage];
           });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "support_ticket_messages",
+          filter: `ticket_id=eq.${ticketId}`,
+        },
+        (payload) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === payload.new.id ? (payload.new as TicketMessage) : m))
+          );
         }
       )
       .subscribe();
@@ -109,11 +126,21 @@ export default function TicketDetailPage() {
 
   async function loadTicket() {
     setLoading(true);
-    const res = await fetch(`/api/support/tickets/${ticketId}`);
-    if (res.ok) {
-      const data = await res.json();
-      setTicket(data.ticket);
-      setMessages(data.messages ?? []);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess?.session?.access_token;
+      const res = await fetch(`/api/support/tickets/${ticketId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTicket(data.ticket);
+        setMessages(data.messages ?? []);
+      } else {
+        showGlobalToast("Failed to load ticket");
+      }
+    } catch {
+      showGlobalToast("Failed to load ticket");
     }
     setLoading(false);
   }
@@ -123,20 +150,38 @@ export default function TicketDetailPage() {
     if (!reply.trim() || sending) return;
     setSending(true);
 
-    await fetch(`/api/support/tickets/${ticketId}/reply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: reply.trim() }),
-    });
-
-    setReply("");
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess?.session?.access_token;
+      const res = await fetch(`/api/support/tickets/${ticketId}/reply`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ message: reply.trim() }),
+      });
+      if (res.ok) {
+        setReply("");
+        // Real-time subscription will add the message
+      } else {
+        showGlobalToast("Failed to send reply");
+      }
+    } catch {
+      showGlobalToast("Failed to send reply");
+    }
     setSending(false);
   }
 
   if (loading) {
     return (
-      <div className="max-w-xl mx-auto px-4 py-8 text-center">
-        <p className={ui.muted}>Loading ticket...</p>
+      <div className="max-w-xl mx-auto px-4 py-8 space-y-4 animate-[fadeIn_0.3s_ease]">
+        <div className="h-5 w-48 bg-white/[0.06] rounded-xl animate-pulse" />
+        <div className="rounded-2xl bg-white/5 border border-white/[0.12] p-5 space-y-3">
+          <div className="h-4 w-32 bg-white/[0.06] rounded-xl animate-pulse" />
+          <div className="h-16 bg-white/[0.06] rounded-xl animate-pulse" />
+          <div className="h-4 w-20 bg-white/[0.06] rounded-xl animate-pulse" />
+        </div>
       </div>
     );
   }
@@ -200,7 +245,7 @@ export default function TicketDetailPage() {
                         ? "bg-green-500/20 border-2 border-green-400 ring-2 ring-green-400/20"
                         : isActive
                         ? "bg-green-500/15 border border-green-400/40"
-                        : "bg-white/5 border border-white/10"
+                        : "bg-white/5 border border-white/[0.12]"
                     }`}
                   >
                     {step.icon}
@@ -265,15 +310,21 @@ export default function TicketDetailPage() {
                   <p className="text-sm leading-relaxed">{m.message}</p>
                   {m.file_url && (
                     <div className="mt-2">
-                      {isImageUrl(m.file_url, m.file_type) ? (
+                      {(() => {
+                        const attachmentUrl = getResolvedSupportFileUrl(m.file_url, resolvedFiles);
+                        if (!attachmentUrl) {
+                          return <p className="text-xs text-white/55">Loading attachment…</p>;
+                        }
+
+                        return isImageUrl(attachmentUrl, m.file_type) ? (
                         <a
-                          href={m.file_url}
+                          href={attachmentUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="block rounded-lg overflow-hidden border border-white/10 hover:border-white/30 transition max-w-[200px]"
+                          className="block rounded-lg overflow-hidden border border-white/[0.12] hover:border-white/30 transition max-w-[200px]"
                         >
                           <img
-                            src={m.file_url}
+                            src={attachmentUrl}
                             alt="Attachment"
                             className="max-h-[150px] w-auto object-cover"
                             loading="lazy"
@@ -281,10 +332,10 @@ export default function TicketDetailPage() {
                         </a>
                       ) : (
                         <a
-                          href={m.file_url}
+                          href={attachmentUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2 hover:bg-white/10 transition"
+                          className="inline-flex items-center gap-2 bg-white/5 border border-white/[0.12] rounded-lg px-3 py-2 hover:bg-white/10 transition"
                         >
                           <span className="text-lg">
                             {m.file_type?.includes("pdf") ? "📄" : m.file_type?.includes("doc") ? "📝" : "📎"}
@@ -293,12 +344,13 @@ export default function TicketDetailPage() {
                             <p className="text-xs text-white/80 font-medium truncate max-w-[150px]">
                               {m.message || "File"}
                             </p>
-                            <p className="text-[10px] text-white/40">
+                            <p className="text-[10px] text-white/55">
                               {m.file_type?.split("/")[1]?.toUpperCase() || "FILE"} · Download
                             </p>
                           </div>
                         </a>
-                      )}
+                        );
+                      })()}
                     </div>
                   )}
                   <p className={`text-[10px] ${ui.muted2} mt-1`}>

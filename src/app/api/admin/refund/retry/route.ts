@@ -203,6 +203,13 @@ export async function POST(req: Request) {
         { idempotencyKey }
       );
     } catch (e: unknown) {
+      // Restore original initiated timestamp so stale detection stays accurate
+      if (tip.refund_initiated_at) {
+        await supabaseAdmin
+          .from("tip_intents")
+          .update({ refund_initiated_at: tip.refund_initiated_at })
+          .eq("receipt_id", tip.receipt_id);
+      }
       const errMsg = e instanceof Error ? e.message : String(e ?? "Stripe refund retry failed");
       return NextResponse.json({ error: errMsg }, { status: 400 });
     }
@@ -213,7 +220,7 @@ export async function POST(req: Request) {
       action: "refund_retry",
       target_user: tip.creator_user_id,
       metadata: { tip_intent_id: tip.receipt_id, amount: owed, refund_id: stripeRefund.id },
-      severity: "danger",
+      severity: "critical",
     });
 
     return NextResponse.json({

@@ -95,7 +95,7 @@ export default function FraudCases() {
           <div className="flex items-center justify-between">
             <h2 className={`${ui.h2} text-lg`}>
               Frozen Accounts{" "}
-              <span className="text-white/40 text-sm font-normal">({cases.length})</span>
+              <span className="text-white/55 text-sm font-normal">({cases.length})</span>
             </h2>
             <button onClick={fetchCases} className={`${ui.btnGhost} ${ui.btnSmall}`}>
               Refresh
@@ -117,7 +117,7 @@ export default function FraudCases() {
                   className={`w-full text-left rounded-xl p-4 transition border ${
                     selectedId === c.user_id
                       ? "bg-white/10 border-blue-400/30"
-                      : "bg-white/5 border-white/10 hover:bg-white/8 hover:border-white/15"
+                      : "bg-white/5 border-white/[0.12] hover:bg-white/8 hover:border-white/15"
                   }`}
                 >
                   <div className="flex items-center justify-between">
@@ -125,12 +125,12 @@ export default function FraudCases() {
                       <p className="text-white font-medium">
                         {c.handle ? `@${c.handle}` : c.display_name ?? c.user_id.slice(0, 8) + "…"}
                       </p>
-                      <p className="text-white/40 text-xs mt-0.5">{c.email ?? "No email"}</p>
+                      <p className="text-white/55 text-xs mt-0.5">{c.email ?? "No email"}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-red-400 text-xs font-medium">🔒 Frozen</p>
                       {c.frozen_at && (
-                        <p className="text-white/30 text-xs mt-0.5">
+                        <p className="text-white/45 text-xs mt-0.5">
                           {new Date(c.frozen_at).toLocaleDateString()}
                         </p>
                       )}
@@ -174,7 +174,7 @@ export default function FraudCases() {
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                   <div>
-                    <span className="text-white/40 text-xs">User ID</span>
+                    <span className="text-white/55 text-xs">User ID</span>
                     <Link
                       href={`/admin/users/${selected.user_id}`}
                       className="block text-blue-400 hover:underline text-xs font-mono mt-0.5"
@@ -183,15 +183,15 @@ export default function FraudCases() {
                     </Link>
                   </div>
                   <div>
-                    <span className="text-white/40 text-xs">Email</span>
+                    <span className="text-white/55 text-xs">Email</span>
                     <p className="text-white/80 text-xs mt-0.5">{selected.email ?? "–"}</p>
                   </div>
                   <div>
-                    <span className="text-white/40 text-xs">Status</span>
+                    <span className="text-white/55 text-xs">Status</span>
                     <p className="text-white/80 text-xs mt-0.5">{selected.account_status ?? "–"}</p>
                   </div>
                   <div>
-                    <span className="text-white/40 text-xs">Flagged</span>
+                    <span className="text-white/55 text-xs">Flagged</span>
                     <p className={`text-xs mt-0.5 ${selected.is_flagged ? "text-red-400" : "text-green-400"}`}>
                       {selected.is_flagged ? "Yes" : "No"}
                     </p>
@@ -203,7 +203,7 @@ export default function FraudCases() {
                   <p className="text-red-400 text-xs font-semibold mb-1">🔒 Freeze Reason</p>
                   <p className="text-white/70 text-sm">{selected.freeze_reason ?? "No reason recorded"}</p>
                   {selected.frozen_at && (
-                    <p className="text-white/30 text-xs mt-1">
+                    <p className="text-white/45 text-xs mt-1">
                       Since {new Date(selected.frozen_at).toLocaleString()}
                     </p>
                   )}
@@ -238,7 +238,7 @@ export default function FraudCases() {
             </div>
           ) : (
             <div className={`${ui.card} ${ui.cardInner} p-12 text-center`}>
-              <p className="text-white/30 text-lg mb-1">← Select a case</p>
+              <p className="text-white/45 text-lg mb-1">← Select a case</p>
               <p className={ui.muted}>Choose a frozen account to investigate</p>
             </div>
           )}

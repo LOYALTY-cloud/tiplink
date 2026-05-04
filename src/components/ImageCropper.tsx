@@ -52,7 +52,7 @@ export default function ImageCropper({ image, onCropComplete, aspect = 1 }: Prop
 
   return (
     <div className="relative w-full h-80 flex items-center justify-center bg-black/5">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
+      { }
       <img src={image} alt="crop preview" className="max-h-80 object-contain" />
     </div>
   );

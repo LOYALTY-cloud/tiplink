@@ -69,11 +69,11 @@ export default function EarningsCard({ userId }: { userId: string }) {
   }, [userId, handleTip])
 
   return (
-    <div className={`rounded-2xl border border-neutral-800 bg-neutral-900 p-6 transition-all duration-300 ${glow ? "revenue-glow" : ""}`}>
+    <div className={`rounded-2xl border border-white/[0.12] bg-gradient-to-b from-white/[0.07] to-white/[0.03] backdrop-blur-xl p-6 transition-all duration-300 ${glow ? "revenue-glow" : ""}`}>
 
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm text-neutral-400">Earnings</h2>
-        <Link href="/dashboard/earnings" className="text-xs text-blue-400 hover:text-blue-300 transition">
+        <h2 className="text-sm text-white/50 uppercase tracking-wider font-medium">Earnings</h2>
+        <Link href="/dashboard/earnings" className="text-xs text-blue-400 hover:text-blue-300 font-medium transition">
           View all →
         </Link>
       </div>
@@ -81,10 +81,10 @@ export default function EarningsCard({ userId }: { userId: string }) {
       <div className="grid grid-cols-3 gap-4">
 
         <div>
-          <p className="text-xs text-neutral-500">Today</p>
+          <p className="text-xs text-white/55">Today</p>
           <p
             className={`text-lg font-semibold transition-colors duration-300 ${
-              data.today > 0 ? "text-emerald-500" : "text-neutral-300"
+              data.today > 0 ? "text-emerald-400" : "text-white/80"
             }`}
           >
             {formatMoney(data.today)}
@@ -92,10 +92,10 @@ export default function EarningsCard({ userId }: { userId: string }) {
         </div>
 
         <div>
-          <p className="text-xs text-neutral-500">This Week</p>
+          <p className="text-xs text-white/55">This Week</p>
           <p
             className={`text-lg font-semibold transition-colors duration-300 ${
-              data.week > 0 ? "text-emerald-500" : "text-neutral-300"
+              data.week > 0 ? "text-emerald-400" : "text-white/80"
             }`}
           >
             {formatMoney(data.week)}
@@ -103,10 +103,10 @@ export default function EarningsCard({ userId }: { userId: string }) {
         </div>
 
         <div>
-          <p className="text-xs text-neutral-500">This Month</p>
+          <p className="text-xs text-white/55">This Month</p>
           <p
             className={`text-lg font-semibold transition-colors duration-300 ${
-              data.month > 0 ? "text-emerald-500" : "text-neutral-300"
+              data.month > 0 ? "text-emerald-400" : "text-white/80"
             }`}
           >
             {formatMoney(data.month)}

@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { createSupabaseRouteClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createNotification } from "@/lib/notifications";
 
 /**
  * POST /api/auth/password-changed
- * Called after a successful password update to send a confirmation email.
+ * Called after a successful password update to:
+ * 1. Revoke all other sessions (security best practice)
+ * 2. Send a confirmation notification
  */
 export async function POST() {
   try {
@@ -18,11 +21,14 @@ export async function POST() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Revoke all sessions for this user globally — forces re-login on all devices
+    await supabaseAdmin.auth.admin.signOut(user.id, "global");
+
     await createNotification({
       userId: user.id,
       type: "security",
       title: "Your 1neLink password was changed",
-      body: "Your password was just changed.",
+      body: "Your password was just changed. All other sessions have been signed out.",
       meta: {
         action: "password_changed",
       },

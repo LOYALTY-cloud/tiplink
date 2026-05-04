@@ -44,19 +44,28 @@ export async function POST(req: Request) {
       .eq("user_id", user_id)
       .maybeSingle();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("stripe/connect/session profile", error);
+      return NextResponse.json({ error: "Failed to load profile" }, { status: 500 });
+    }
 
     let stripeAccountId = profile?.stripe_account_id;
 
     // Ensure a profiles row exists for this user
     if (!profile) {
       const { error: insErr } = await supabase.from("profiles").upsert({ user_id, handle: user_id }, { onConflict: "user_id" });
-      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+      if (insErr) {
+        console.error("stripe/connect/session upsert", insErr);
+        return NextResponse.json({ error: "Failed to create profile" }, { status: 500 });
+      }
     }
 
     // Fetch email from Supabase Auth (admin) — profiles table doesn't store email
     const { data: authUserRes, error: authUserErr } = await supabase.auth.admin.getUserById(user_id);
-    if (authUserErr) return NextResponse.json({ error: authUserErr.message }, { status: 500 });
+    if (authUserErr) {
+      console.error("stripe/connect/session auth user", authUserErr);
+      return NextResponse.json({ error: "Failed to load user" }, { status: 500 });
+    }
 
     const email = authUserRes?.user?.email ?? undefined;
 
@@ -72,10 +81,15 @@ export async function POST(req: Request) {
 
       stripeAccountId = acct.id;
 
-      await supabase
+      const { error: updateErr } = await supabase
         .from("profiles")
         .update({ stripe_account_id: stripeAccountId })
         .eq("user_id", user_id);
+
+      if (updateErr) {
+        console.error("stripe/connect/session save stripe_account_id", updateErr);
+        return NextResponse.json({ error: "Failed to save Stripe account" }, { status: 500 });
+      }
     }
 
     const components = mode === "manage"
@@ -89,7 +103,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ client_secret: accountSession.client_secret });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("stripe/connect/session error:", e);
+    return NextResponse.json({ error: "An error occurred. Please try again." }, { status: 500 });
   }
 }

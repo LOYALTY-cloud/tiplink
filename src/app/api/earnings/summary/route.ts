@@ -38,6 +38,15 @@ export async function GET(req: Request) {
 
   const rows = tips ?? [];
 
+  // Fetch theme sales for this year (creator earnings)
+  const { data: themeSalesYear } = await supabaseAdmin
+    .from("theme_sales")
+    .select("creator_earnings, amount, platform_fee, created_at")
+    .eq("seller_id", userId)
+    .gte("created_at", startOfYear.toISOString());
+
+  const themeSalesRows = themeSalesYear ?? [];
+
   // Get fee data from tips table
   const refIds = rows.filter((r) => r.reference_id).map((r) => r.reference_id!);
   const feeMap = new Map<string, { gross: number; platform_fee: number; net: number }>();
@@ -80,6 +89,26 @@ export async function GET(req: Request) {
       monthGross += fee.gross;
       monthFees += fee.platform_fee;
       monthNet += fee.net;
+      monthCount += 1;
+    }
+  }
+
+  // Include theme sale creator earnings in summary
+  for (const r of themeSalesRows) {
+    const ts = new Date(r.created_at);
+    const gross = Number(r.amount);
+    const fees = Number(r.platform_fee);
+    const net = Number(r.creator_earnings);
+
+    ytdGross += gross;
+    ytdFees += fees;
+    ytdNet += net;
+    ytdCount += 1;
+
+    if (ts >= startOfMonth) {
+      monthGross += gross;
+      monthFees += fees;
+      monthNet += net;
       monthCount += 1;
     }
   }

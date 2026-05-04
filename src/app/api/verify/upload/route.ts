@@ -160,7 +160,8 @@ export async function POST(req: Request) {
       });
 
     if (insertErr) {
-      return NextResponse.json({ error: insertErr.message }, { status: 500 });
+      console.error("verify/upload insert", insertErr);
+      return NextResponse.json({ error: "Failed to save verification" }, { status: 500 });
     }
 
     // Update profile: kyc_status + bump rate limit counter

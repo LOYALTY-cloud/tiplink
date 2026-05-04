@@ -37,8 +37,7 @@ export async function GET(req: Request) {
       .order("created_at", { ascending: false })
       .limit(limit);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
+    if (error) return NextResponse.json({ error: "Failed to load activity feed." }, { status: 500 });
     const adminFeed = (data ?? []).map((a: any) => ({
       id: a.id,
       action: a.action,

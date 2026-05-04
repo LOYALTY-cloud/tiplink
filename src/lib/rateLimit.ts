@@ -21,9 +21,12 @@ export async function rateLimit(
   });
 
   if (error) {
-    // Fail open — don't block legitimate users if the rate limit table is down
+    // Fail open in development, fail closed in production
     console.error("rateLimit RPC error:", error.message);
-    return { allowed: true };
+    if (process.env.NODE_ENV === "development") {
+      return { allowed: true };
+    }
+    return { allowed: false };
   }
 
   return { allowed: Boolean(data) };

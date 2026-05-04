@@ -67,7 +67,19 @@ export async function POST(req: Request) {
     const supporter_name = body.supporter_name ? String(body.supporter_name).trim().slice(0, 100) : null;
     const message = body.message ? String(body.message).trim().slice(0, 200) : null;
     const is_anonymous = body.is_anonymous !== false;
-    const supporter_user_id = body.supporter_user_id ? String(body.supporter_user_id) : null;
+    // Resolve supporter identity from server-side session only — never from client body.
+    // This ensures daily limits and chargeback checks apply to authenticated tippers.
+    let supporter_user_id: string | null = null;
+    const bearerToken = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
+    if (bearerToken) {
+      try {
+        const { data: authData } = await supabaseAdmin.auth.getUser(bearerToken);
+        supporter_user_id = authData?.user?.id ?? null;
+      } catch {
+        // Auth failure is non-fatal — tip proceeds anonymously
+      }
+    }
+    const supporter_email = body.supporter_email ? String(body.supporter_email).trim().toLowerCase().slice(0, 200) : null;
     const ipHeader = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "";
     const supporter_ip = ipHeader.split(",")[0].trim();
 
@@ -130,14 +142,14 @@ export async function POST(req: Request) {
       if (supporter_user_id) {
         const { count } = await supabaseAdmin
           .from("tip_intents")
-          .select("id", { count: "exact" })
+          .select("receipt_id", { count: "exact" })
           .eq("supporter_user_id", supporter_user_id)
           .gt("created_at", since60s);
         recentCount = count ?? 0;
       } else if (supporter_ip) {
         const { count } = await supabaseAdmin
           .from("tip_intents")
-          .select("id", { count: "exact" })
+          .select("receipt_id", { count: "exact" })
           .eq("supporter_ip", supporter_ip)
           .gt("created_at", since60s);
         recentCount = count ?? 0;
@@ -175,7 +187,7 @@ export async function POST(req: Request) {
         const since5m = new Date(Date.now() - 5 * 60 * 1000).toISOString();
         const { count } = await supabaseAdmin
           .from("tip_intents")
-          .select("id", { count: "exact" })
+          .select("receipt_id", { count: "exact" })
           .eq("supporter_ip", supporter_ip)
           .lt("tip_amount", 2)
           .gt("created_at", since5m);
@@ -387,6 +399,7 @@ export async function POST(req: Request) {
         status: "pending",
         supporter_user_id: supporter_user_id,
         supporter_ip: supporter_ip || null,
+        supporter_email: supporter_email,
       })
       .select()
       .single();

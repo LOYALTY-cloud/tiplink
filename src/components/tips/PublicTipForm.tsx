@@ -55,7 +55,7 @@ export default function PublicTipForm() {
           placeholder="10.00"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-3 py-3 text-white"
+          className="w-full mt-1 bg-white/5 border border-white/[0.12] rounded-lg px-3 py-3 text-white"
         />
       </div>
 
@@ -67,7 +67,7 @@ export default function PublicTipForm() {
           value={message}
           maxLength={200}
           onChange={(e) => setMessage(e.target.value)}
-          className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-3 py-3 text-white"
+          className="w-full mt-1 bg-white/5 border border-white/[0.12] rounded-lg px-3 py-3 text-white"
         />
       </div>
 
@@ -79,13 +79,13 @@ export default function PublicTipForm() {
             placeholder="Toni"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-3 py-3 text-white"
+            className="w-full mt-1 bg-white/5 border border-white/[0.12] rounded-lg px-3 py-3 text-white"
           />
         </div>
       )}
 
       {/* Toggle */}
-      <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-lg p-3">
+      <div className="flex items-center justify-between bg-white/5 border border-white/[0.12] rounded-lg p-3">
         <span className="text-sm text-white/80">Send anonymously</span>
 
         <button

@@ -80,20 +80,23 @@ export default function ActivityFeedPage() {
 
       await fetchFeed();
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [router]);
 
   async function fetchFeed() {
-    const headers = getAdminHeaders();
-    if (!headers["X-Admin-Id"]) return;
+    try {
+      const headers = getAdminHeaders();
+      if (!headers["X-Admin-Id"]) return;
 
-    const res = await fetch("/api/admin/activity-feed?limit=100", {
-      headers,
-    });
-    if (!res.ok) { setLoading(false); return; }
-    const json = await res.json();
-    setItems((json.data ?? []).map((d: FeedItem) => ({ ...d, source: "api" as const })));
-    setLoading(false);
+      const res = await fetch("/api/admin/activity-feed?limit=100", {
+        headers,
+      });
+      if (!res.ok) { setLoading(false); return; }
+      const json = await res.json();
+      setItems((json.data ?? []).map((d: FeedItem) => ({ ...d, source: "api" as const })));
+    } catch { /* ignore */ } finally {
+      setLoading(false);
+    }
   }
 
   // Helper: resolve user display info from profile

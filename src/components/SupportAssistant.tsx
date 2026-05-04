@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { getSupportReply } from "@/lib/supportEngine";
 import { getInitials } from "@/lib/getInitials";
+import { encodeSupportFileRef } from "@/lib/supportFiles";
+import { getResolvedSupportFileUrl, useResolvedSupportFiles } from "@/hooks/useResolvedSupportFiles";
 
 type Action = { label: string; href: string };
 type Feedback = "none" | "pending" | "yes" | "no";
@@ -78,6 +80,7 @@ export default function SupportAssistant() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [convertingToTicket, setConvertingToTicket] = useState(false);
+  const resolvedFiles = useResolvedSupportFiles(messages.map((m) => m.file_url), "user");
   const [userName, setUserName] = useState<string | null>(null);
   const [sessionClosed, setSessionClosed] = useState(false);
   const [inactivityWarning, setInactivityWarning] = useState(false);
@@ -632,11 +635,20 @@ export default function SupportAssistant() {
     }).then((r) => r.json()).catch(() => ({ ok: false }));
 
     if (res.assigned) {
-      // The realtime subscription will handle startLiveSupport
+      // The realtime session subscription handles the live handoff.
       setSessionMode("human");
-    } else {
-      setMessages((prev) => [...prev, { role: "system", text: "No agents available right now. The AI assistant will keep helping you." }]);
+      return;
     }
+
+    if (res.queued) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "system", text: "No admin is active right now. Your chat is marked priority and an admin will join when one becomes available." },
+      ]);
+      return;
+    }
+
+    setMessages((prev) => [...prev, { role: "system", text: "No agents available right now. The AI assistant will keep helping you." }]);
   }
 
   function startLiveSupport(admin?: { id: string; name: string; admin_id?: string }) {
@@ -795,15 +807,37 @@ export default function SupportAssistant() {
   }
 
   return (
-    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 md:p-5 flex flex-col" style={{ height: "calc(100vh - 160px)", minHeight: 400 }}>
-      <div ref={menuRef} className="flex items-center justify-between mb-3 relative">
-        <h3 className="text-white font-semibold">
+    <>
+      {/* Backdrop — mobile only */}
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 md:hidden" onClick={() => router.back()} />
+
+      <div className="
+        fixed bottom-0 left-0 right-0 z-50
+        h-[75dvh] max-h-[600px]
+        bg-[#0A1128] border-t border-white/10
+        rounded-t-2xl shadow-2xl
+        animate-slideUp
+        flex flex-col
+        pb-[env(safe-area-inset-bottom)]
+        md:relative md:inset-auto md:z-auto
+        md:h-[calc(100dvh-160px)] md:min-h-[400px] md:max-h-none
+        md:bg-white/5 md:border md:border-white/[0.12] md:rounded-2xl md:shadow-none
+        md:animate-none md:pb-0
+        p-3 md:p-5
+      ">
+        {/* Drag handle — mobile only */}
+        <div className="flex justify-center py-1 mb-1 md:hidden">
+          <div className="w-10 h-1.5 bg-white/20 rounded-full" />
+        </div>
+
+        <div ref={menuRef} className="flex items-center justify-between mb-3 relative">
+        <h3 className="text-white font-semibold text-sm md:text-base truncate mr-2">
           {mode === "agent" ? (
             <>
               {connectionStatus === "connected" ? "🟢" : connectionStatus === "reconnecting" ? "🟡" : "🔴"}{" "}
               Live Support • {agentName || "Agent"}
               {connectionStatus !== "connected" && (
-                <span className="text-xs text-white/40 ml-2 font-normal">
+                <span className="text-xs text-white/55 ml-2 font-normal">
                   {connectionStatus === "reconnecting" ? "Reconnecting…" : "Disconnected"}
                 </span>
               )}
@@ -812,7 +846,7 @@ export default function SupportAssistant() {
         </h3>
         <button onClick={() => setMenuOpen((v) => !v)} className="text-white/60 hover:text-white text-lg px-2">⋮</button>
         {menuOpen && (
-          <div className="absolute right-0 top-8 bg-black border border-white/10 rounded-lg shadow-lg z-50 min-w-[180px]">
+          <div className="absolute right-0 top-8 bg-black border border-white/[0.12] rounded-lg shadow-lg z-50 min-w-[180px]">
             <button onClick={convertToTicket} disabled={convertingToTicket} className="w-full text-left px-4 py-2 text-sm text-white/70 hover:bg-white/10 rounded-t-lg disabled:opacity-40">
               {convertingToTicket ? "Creating…" : "📋 Convert to Ticket"}
             </button>
@@ -854,7 +888,7 @@ export default function SupportAssistant() {
             {/* System messages */}
             {m.role === "system" ? (
               <div className="text-center py-1">
-                <span className="text-white/30 text-xs italic">
+                <span className="text-white/45 text-xs italic">
                   {m.text}
                   {isConnecting && m.text.includes("Connecting") && (
                     <span className="ml-1 animate-pulse">●●●</span>
@@ -863,14 +897,14 @@ export default function SupportAssistant() {
               </div>
             ) : (
               <div className={`flex ${isUser ? "justify-end" : "justify-start"} animate-[fadeIn_0.2s_ease]`}>
-                <div className="flex items-start gap-2.5 max-w-[85%]">
+                <div className="flex items-start gap-1.5 md:gap-2.5 max-w-[92%] md:max-w-[85%]">
 
                   {/* Avatar LEFT for bot/agent */}
                   {!isUser && (
                     isGrouped ? (
-                      <div className="w-8 shrink-0" />
+                      <div className="w-6 md:w-8 shrink-0" />
                     ) : (
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-semibold text-white shrink-0 ${avatarColor}`}>
+                      <div className={`w-6 h-6 md:w-8 md:h-8 rounded-full flex items-center justify-center text-[9px] md:text-[10px] font-semibold text-white shrink-0 ${avatarColor}`}>
                         {initials}
                       </div>
                     )
@@ -885,7 +919,7 @@ export default function SupportAssistant() {
                       </div>
                     )}
                     {isUser && !isGrouped && (
-                      <div className="text-xs text-white/40 mb-1 text-right">
+                      <div className="text-xs text-white/55 mb-1 text-right">
                         You
                       </div>
                     )}
@@ -895,28 +929,33 @@ export default function SupportAssistant() {
                         isUser
                           ? "bg-emerald-500/20 text-white"
                           : isAgent
-                          ? "bg-white/5 border border-white/10 text-white"
-                          : "bg-white/5 border border-white/10 text-white"
+                          ? "bg-white/5 border border-white/[0.12] text-white"
+                          : "bg-white/5 border border-white/[0.12] text-white"
                       } ${isGrouped
                           ? isUser ? "rounded-xl rounded-tr-sm" : "rounded-xl rounded-tl-sm"
                           : isUser ? "rounded-xl rounded-br-sm" : "rounded-xl rounded-bl-sm"
                       }`}
                     >
-                      {m.file_url ? (
-                        m.file_type?.startsWith("image/") ? (
-                          <a href={m.file_url} target="_blank" rel="noopener noreferrer">
-                            <img src={m.file_url} alt={m.text} className="max-w-[240px] rounded-lg mb-1" />
+                      {m.file_url ? (() => {
+                        const attachmentUrl = getResolvedSupportFileUrl(m.file_url, resolvedFiles);
+                        if (!attachmentUrl) {
+                          return <span className="text-xs text-white/50">Loading attachment…</span>;
+                        }
+
+                        return m.file_type?.startsWith("image/") ? (
+                          <a href={attachmentUrl} target="_blank" rel="noopener noreferrer">
+                            <img src={attachmentUrl} alt={m.text} className="max-w-[180px] md:max-w-[240px] rounded-lg mb-1" />
                           </a>
                         ) : (
-                          <a href={m.file_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline text-xs">
+                          <a href={attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline text-xs">
                             📎 {m.text || "View attachment"}
                           </a>
-                        )
-                      ) : (
+                        );
+                      })() : (
                         <Linkify text={m.text} className={isUser ? "underline text-white break-all" : "underline text-blue-400 break-all"} />
                       )}
                       {showTimestamp && (
-                        <div className={`text-[10px] mt-1 ${isUser ? "text-white/30 text-right" : "text-white/25"}`}>
+                        <div className={`text-[10px] mt-1 ${isUser ? "text-white/45 text-right" : "text-white/25"}`}>
                           {new Date(m.timestamp!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </div>
                       )}
@@ -939,9 +978,9 @@ export default function SupportAssistant() {
                   {/* Avatar RIGHT for user */}
                   {isUser && (
                     isGrouped ? (
-                      <div className="w-8 shrink-0" />
+                      <div className="w-6 md:w-8 shrink-0" />
                     ) : (
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-semibold text-white shrink-0 ${avatarColor}`}>
+                      <div className={`w-6 h-6 md:w-8 md:h-8 rounded-full flex items-center justify-center text-[9px] md:text-[10px] font-semibold text-white shrink-0 ${avatarColor}`}>
                         {initials}
                       </div>
                     )
@@ -953,7 +992,7 @@ export default function SupportAssistant() {
 
             {/* Seen indicator for last user message in agent mode */}
             {mode === "agent" && m.role === "user" && !messages.slice(i + 1).some((n) => n.role === "user") && (
-              <p className="text-[10px] text-white/30 text-right pr-1 mt-0.5">
+              <p className="text-[10px] text-white/45 text-right pr-1 mt-0.5">
                 {seenByAdmin ? "Seen" : "Delivered"}
               </p>
             )}
@@ -961,17 +1000,17 @@ export default function SupportAssistant() {
             {/* Follow-up feedback (only in assistant mode) */}
             {mode === "assistant" && m.feedback === "pending" && (
               <FadeIn delay={1200}>
-                <div className="max-w-[85%] mr-auto flex items-center gap-3 pl-10">
-                  <span className="text-white/40 text-xs">Did this help?</span>
+                <div className="max-w-[92%] md:max-w-[85%] mr-auto flex items-center gap-3 pl-8 md:pl-10">
+                  <span className="text-white/55 text-xs">Did this help?</span>
                   <button
                     onClick={() => handleFeedback(i, "yes")}
-                    className="text-white/40 hover:text-emerald-400 text-sm transition"
+                    className="text-white/55 hover:text-emerald-400 text-sm transition"
                   >
                     👍
                   </button>
                   <button
                     onClick={() => handleFeedback(i, "no")}
-                    className="text-white/40 hover:text-red-400 text-sm transition"
+                    className="text-white/55 hover:text-red-400 text-sm transition"
                   >
                     👎
                   </button>
@@ -979,12 +1018,12 @@ export default function SupportAssistant() {
               </FadeIn>
             )}
             {m.feedback === "yes" && (
-              <div className="max-w-[85%] mr-auto pl-10">
+              <div className="max-w-[92%] md:max-w-[85%] mr-auto pl-8 md:pl-10">
                 <span className="text-emerald-400/60 text-xs">👍 Helpful</span>
               </div>
             )}
             {m.feedback === "no" && (
-              <div className="max-w-[85%] mr-auto pl-10">
+              <div className="max-w-[92%] md:max-w-[85%] mr-auto pl-8 md:pl-10">
                 <span className="text-red-400/60 text-xs">👎 Not helpful</span>
               </div>
             )}
@@ -1058,7 +1097,7 @@ export default function SupportAssistant() {
             onClick={() => { resetInactivityTimer(); setInactivityWarning(false); }}
             className="text-xs bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 px-3 py-1.5 rounded-lg transition mt-2"
           >
-            I'm still here
+            I&apos;m still here
           </button>
         </div>
       )}
@@ -1066,7 +1105,7 @@ export default function SupportAssistant() {
       {/* Session closed — prompt to start new chat */}
       {sessionClosed ? (
         <div className="text-center py-4 space-y-3">
-          <p className="text-white/40 text-xs">This conversation has ended.</p>
+          <p className="text-white/55 text-xs">This conversation has ended.</p>
           <button
             onClick={startNewChat}
             className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition active:scale-95"
@@ -1090,15 +1129,15 @@ export default function SupportAssistant() {
             const filePath = `${sessionId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
             const { error: uploadErr } = await supabase.storage.from("support-files").upload(filePath, file);
             if (uploadErr) { setUploading(false); alert("Upload failed: " + uploadErr.message); return; }
-            const { data: urlData } = supabase.storage.from("support-files").getPublicUrl(filePath);
+            const fileRef = encodeSupportFileRef(filePath);
             const { data: authSess } = await supabase.auth.getSession();
             const authTok = authSess.session?.access_token;
             await fetch("/api/support/message/send", {
               method: "POST",
               headers: { "Content-Type": "application/json", ...(authTok ? { Authorization: `Bearer ${authTok}` } : {}) },
-              body: JSON.stringify({ sessionId, senderType: "user", message: file.name, file_url: urlData.publicUrl, file_type: file.type }),
+              body: JSON.stringify({ sessionId, senderType: "user", message: file.name, file_url: fileRef, file_type: file.type }),
             });
-            setMessages((prev) => [...prev, { role: "user", text: file.name, file_url: urlData.publicUrl, file_type: file.type, source: "human", timestamp: new Date().toISOString() }]);
+            setMessages((prev) => [...prev, { role: "user", text: file.name, file_url: fileRef, file_type: file.type, source: "human", timestamp: new Date().toISOString() }]);
             setUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = "";
           }}
@@ -1107,7 +1146,7 @@ export default function SupportAssistant() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="text-white/40 hover:text-white/70 text-lg transition active:scale-90 shrink-0 self-center"
+            className="text-white/55 hover:text-white/70 text-lg transition active:scale-90 shrink-0 self-center"
             title="Attach file"
           >
             {uploading ? <span className="animate-spin inline-block">⏳</span> : "📎"}
@@ -1136,17 +1175,18 @@ export default function SupportAssistant() {
           }}
           onKeyDown={handleKeyDown}
           placeholder="Ask something..."
-          className="flex-1 px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder:text-white/30 outline-none focus:border-white/20 transition"
+          className="flex-1 min-w-0 px-3 py-2 md:py-2.5 bg-white/5 border border-white/[0.12] rounded-xl text-white text-sm placeholder:text-white/45 outline-none focus:border-white/20 transition"
         />
         <button
           onClick={sendMessage}
           disabled={!input.trim() || loading}
-          className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 rounded-xl text-sm font-medium text-white transition active:scale-95"
+          className="px-3 md:px-4 py-2 md:py-2.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 rounded-xl text-sm font-medium text-white transition active:scale-95 shrink-0"
         >
           {loading ? "…" : "Send"}
         </button>
       </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }

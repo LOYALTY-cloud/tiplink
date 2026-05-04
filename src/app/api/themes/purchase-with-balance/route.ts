@@ -4,6 +4,9 @@ import { THEME_KEYS, type ThemeKey, FREE_THEMES } from "@/lib/themes";
 
 const THEME_PRICE_DOLLARS = 1.99;
 const BUNDLE_PRICE_DOLLARS = 4.99;
+const ARMY_PACK_PRICE_DOLLARS = 2.99;
+const IMHER_PACK_PRICE_DOLLARS = 4.99;
+const VALID_PACKS = ["army_pack", "imher_pack"];
 
 export async function POST(req: Request) {
   try {
@@ -21,14 +24,14 @@ export async function POST(req: Request) {
     const { theme } = await req.json();
 
     // Validate theme
-    if (!theme || (theme !== "all" && !THEME_KEYS.includes(theme as ThemeKey))) {
+    if (!theme || (theme !== "all" && !VALID_PACKS.includes(theme) && !THEME_KEYS.includes(theme as ThemeKey))) {
       return NextResponse.json({ error: "Invalid theme" }, { status: 400 });
     }
     if (FREE_THEMES.includes(theme as ThemeKey)) {
       return NextResponse.json({ error: "This theme is free" }, { status: 400 });
     }
 
-    const price = theme === "all" ? BUNDLE_PRICE_DOLLARS : THEME_PRICE_DOLLARS;
+    const price = theme === "all" ? BUNDLE_PRICE_DOLLARS : theme === "army_pack" ? ARMY_PACK_PRICE_DOLLARS : theme === "imher_pack" ? IMHER_PACK_PRICE_DOLLARS : THEME_PRICE_DOLLARS;
 
     // Single atomic RPC — row-level lock, balance check, ledger insert,
     // wallet recalc, and theme_purchases insert all in one transaction.
@@ -54,7 +57,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, theme });
   } catch (e: unknown) {
     console.error("Theme balance purchase error:", e);
-    const msg = e instanceof Error ? e.message : "Server error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: "Purchase failed. Please try again." }, { status: 500 });
   }
 }

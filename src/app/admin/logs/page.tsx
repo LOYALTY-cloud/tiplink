@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getAdminHeaders } from "@/lib/auth/adminSession";
+import { useRouter } from "next/navigation";
+import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
 
 type ActionLog = {
@@ -16,11 +17,18 @@ type ActionLog = {
 };
 
 export default function AdminLogsPage() {
+  const router = useRouter();
   const [logs, setLogs] = useState<ActionLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authorized, setAuthorized] = useState(false);
   const [profileMap, setProfileMap] = useState<Record<string, { handle: string | null; display_name: string | null }>>({});
 
   useEffect(() => {
+    const session = getAdminSession();
+    if (!session) { router.replace("/admin/login"); return; }
+    const allowed = ["owner", "super_admin"];
+    if (!allowed.includes(session.role)) { router.replace("/admin"); return; }
+    setAuthorized(true);
     fetchLogs();
 
     // Poll for new logs every 10 seconds (realtime blocked by RLS)
@@ -59,6 +67,8 @@ export default function AdminLogsPage() {
       default: return ui.muted;
     }
   }
+
+  if (!authorized) return null;
 
   return (
     <div className="space-y-4">

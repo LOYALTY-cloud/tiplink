@@ -5,6 +5,7 @@ import { detectFraudPatterns, type PatternResult } from "@/lib/fraudPatternDetec
 import { calculateFraudScore, type FraudScoreResult } from "@/lib/fraudScoring"
 import { groupSessions, type Session } from "@/lib/sessionGrouper"
 import FraudScoreChart from "@/components/admin/FraudScoreChart"
+import { getAdminHeaders } from "@/lib/auth/adminSession"
 
 type TimelineItem = {
   id: string
@@ -89,16 +90,15 @@ export default function ActivityTimeline({
     // 3. Session grouping (instant)
     setSessions(groupSessions(timeline))
 
-    const adminSession = localStorage.getItem("admin_session")
-    const adminId = adminSession ? JSON.parse(adminSession)?.admin_id : null
+    const headers = getAdminHeaders()
 
     // 4. Auto-flag if high risk
-    if (score.shouldFlag && userId && adminId) {
+    if (score.shouldFlag && userId && Object.keys(headers).length) {
       fetch("/api/admin/auto-flag", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Admin-Id": adminId,
+          ...headers,
         },
         body: JSON.stringify({
           userId,
@@ -119,13 +119,13 @@ export default function ActivityTimeline({
     }
 
     // 5. AI explanation (async)
-    if (adminId) {
+    if (Object.keys(headers).length) {
       setAiLoading(true)
       fetch("/api/admin/ai-timeline", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Admin-Id": adminId,
+          ...headers,
         },
         body: JSON.stringify({ events: timeline }),
       })
@@ -137,11 +137,11 @@ export default function ActivityTimeline({
   }, [timeline, userId])
 
   if (loading) {
-    return <p className="text-white/40 text-xs py-2">Loading timeline…</p>
+    return <p className="text-white/55 text-xs py-2">Loading timeline…</p>
   }
 
   if (timeline.length === 0) {
-    return <p className="text-white/30 text-xs py-2">No related activity</p>
+    return <p className="text-white/45 text-xs py-2">No related activity</p>
   }
 
   return (
@@ -149,7 +149,7 @@ export default function ActivityTimeline({
       {/* Fraud Score */}
       {fraudScore && (
         <div className="mb-4">
-          <p className="text-white/40 text-[11px] font-semibold uppercase tracking-wider mb-1.5">
+          <p className="text-white/55 text-[11px] font-semibold uppercase tracking-wider mb-1.5">
             Fraud Score
           </p>
           <div className={`text-sm font-medium p-2.5 rounded-lg ${
@@ -172,12 +172,12 @@ export default function ActivityTimeline({
             </p>
           )}
           {flagSkipReason === "already_flagged" && (
-            <p className="text-white/40 text-xs mt-1.5">
+            <p className="text-white/55 text-xs mt-1.5">
               Already flagged with equal or higher score
             </p>
           )}
           {flagSkipReason === "cooldown" && (
-            <p className="text-white/40 text-xs mt-1.5">
+            <p className="text-white/55 text-xs mt-1.5">
               Flag cooldown active (10min window)
             </p>
           )}
@@ -195,11 +195,11 @@ export default function ActivityTimeline({
             className={`rounded-lg border p-2.5 ${
               session.suspicious
                 ? "border-red-500/25 bg-red-500/5"
-                : "border-white/10 bg-white/[.03]"
+                : "border-white/[0.12] bg-white/[.03]"
             }`}
           >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] text-white/40">
+              <span className="text-[10px] text-white/55">
                 {session.suspicious ? "🔴 " : ""}Session {i + 1} · {session.events.length} event{session.events.length !== 1 ? "s" : ""}
               </span>
               <span className="text-[10px] text-white/25">
@@ -251,7 +251,7 @@ export default function ActivityTimeline({
                   ? "bg-red-500/10 border-red-500/20 text-red-300"
                   : p.severity === "medium"
                   ? "bg-amber-500/10 border-amber-500/20 text-amber-300"
-                  : "bg-white/5 border-white/10 text-white/60"
+                  : "bg-white/5 border-white/[0.12] text-white/60"
               }`}
             >
               {p.message}
@@ -263,14 +263,14 @@ export default function ActivityTimeline({
       {/* AI Insight */}
       {aiLoading ? (
         <div className="mt-4">
-          <p className="text-white/30 text-xs">🤖 Analyzing timeline…</p>
+          <p className="text-white/45 text-xs">🤖 Analyzing timeline…</p>
         </div>
       ) : aiExplanation ? (
         <div className="mt-4">
-          <p className="text-white/40 text-[11px] font-semibold uppercase tracking-wider mb-1.5">
+          <p className="text-white/55 text-[11px] font-semibold uppercase tracking-wider mb-1.5">
             🤖 AI Insight
           </p>
-          <div className="text-xs text-white/70 bg-white/5 border border-white/10 p-3 rounded-lg leading-relaxed">
+          <div className="text-xs text-white/70 bg-white/5 border border-white/[0.12] p-3 rounded-lg leading-relaxed">
             {aiExplanation}
           </div>
         </div>

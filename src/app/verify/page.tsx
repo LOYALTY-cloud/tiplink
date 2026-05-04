@@ -83,7 +83,7 @@ function VerifyContent() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-[#060B18]">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-8 text-center space-y-4">
+      <div className="w-full max-w-md rounded-2xl border border-white/[0.12] bg-white/5 p-8 text-center space-y-4">
         <div className={`text-4xl ${info.iconColor}`}>{info.icon}</div>
 
         <h1 className="text-xl font-semibold text-white">{info.title}</h1>
@@ -91,7 +91,7 @@ function VerifyContent() {
         <p className="text-sm text-white/60 leading-relaxed">{info.body}</p>
 
         {isSuccess && (
-          <p className="text-xs text-white/40 animate-pulse">
+          <p className="text-xs text-white/55 animate-pulse">
             Redirecting to dashboard in 3 seconds…
           </p>
         )}
@@ -110,7 +110,7 @@ function VerifyContent() {
         </div>
 
         {!isSuccess && status && (
-          <p className="text-xs text-white/30 pt-2">
+          <p className="text-xs text-white/45 pt-2">
             Need help?{" "}
             <Link href="/dashboard" className="underline text-white/50 hover:text-white/70">
               Open support

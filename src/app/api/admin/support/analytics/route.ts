@@ -148,7 +148,7 @@ export async function GET(req: Request) {
     const adminIds = Array.from(adminMap.keys()).filter(
       (id) => id !== "00000000-0000-0000-0000-000000000000"
     );
-    let adminNames: Record<string, string> = {};
+    const adminNames: Record<string, string> = {};
     if (adminIds.length > 0) {
       const { data: profiles } = await supabaseAdmin
         .from("profiles")

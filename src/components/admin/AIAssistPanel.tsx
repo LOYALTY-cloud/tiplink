@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { isAIAssistMode } from "@/lib/aiAssistMode"
 import { getSuggestion, getWarnings } from "@/lib/adminSuggestionEngine"
 import { handleSmartFallback } from "@/lib/aiFallback"
+import { getAdminHeaders } from "@/lib/auth/adminSession"
 
 type Message = { role: "user" | "ai"; text: string; action?: { label: string; route: string } }
 
@@ -141,7 +142,7 @@ export default function AIAssistPanel() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Admin-Id": session.admin_id,
+          ...getAdminHeaders(),
         },
         body: JSON.stringify({
           messages: updatedMessages.map((m) => ({
@@ -156,7 +157,18 @@ export default function AIAssistPanel() {
         }),
       })
 
-      if (!res.ok) throw new Error("Failed")
+      if (!res.ok) {
+        // Try to read error body for specific messages
+        const errBody = await res.json().catch(() => null)
+        if (res.status === 401) {
+          throw new Error("Your admin session has expired. Please log in again.")
+        }
+        if (res.status === 429 && errBody?.reply) {
+          setMessages((prev) => [...prev, { role: "ai", text: errBody.reply }])
+          return
+        }
+        throw new Error(errBody?.error || "Failed")
+      }
 
       const data = await res.json()
       setMessages((prev) => [...prev, {
@@ -164,14 +176,19 @@ export default function AIAssistPanel() {
         text: data.reply,
         ...(data.action && { action: data.action }),
       }])
-    } catch {
-      // Client-side smart fallback
-      const fallback = handleSmartFallback({ message: text.trim(), currentPage: pathname })
-      setMessages((prev) => [...prev, {
-        role: "ai",
-        text: fallback.text,
-        ...(fallback.action && { action: fallback.action }),
-      }])
+    } catch (err) {
+      // Client-side smart fallback with error context
+      const errMsg = err instanceof Error ? err.message : ""
+      if (errMsg.includes("session has expired")) {
+        setMessages((prev) => [...prev, { role: "ai", text: errMsg }])
+      } else {
+        const fallback = handleSmartFallback({ message: text.trim(), currentPage: pathname })
+        setMessages((prev) => [...prev, {
+          role: "ai",
+          text: fallback.text,
+          ...(fallback.action && { action: fallback.action }),
+        }])
+      }
     } finally {
       setLoading(false)
     }
@@ -204,19 +221,19 @@ export default function AIAssistPanel() {
 
       {/* Panel */}
       {open && (
-        <div className="fixed bottom-6 right-6 z-50 w-[380px] max-h-[600px] bg-black border border-white/10 rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden">
+        <div className="fixed bottom-6 right-6 z-50 w-[380px] max-h-[600px] bg-black border border-white/[0.12] rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-white/[0.03]">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.12] bg-white/[0.03]">
             <div className="flex items-center gap-2">
               <span className="text-lg">🧠</span>
               <div>
                 <div className="text-sm font-semibold text-white">AI Assistant</div>
-                <div className="text-[10px] text-white/40">Suggestions only — no actions taken</div>
+                <div className="text-[10px] text-white/55">Suggestions only — no actions taken</div>
               </div>
             </div>
             <button
               onClick={() => setOpen(false)}
-              className="text-white/40 hover:text-white text-lg px-2 py-1 transition"
+              className="text-white/55 hover:text-white text-lg px-2 py-1 transition"
               aria-label="Close"
             >
               ✕
@@ -225,7 +242,7 @@ export default function AIAssistPanel() {
 
           {/* Context header */}
           <div className="px-4 py-2 border-b border-white/5 bg-white/[0.02]">
-            <div className="text-[11px] text-white/40">
+            <div className="text-[11px] text-white/55">
               You are viewing: <span className="text-white/70 font-medium">{getPageLabel(pathname)}</span>
             </div>
           </div>
@@ -249,7 +266,7 @@ export default function AIAssistPanel() {
             {/* Quick questions (when no messages) */}
             {messages.length === 0 && (
               <div className="space-y-1.5">
-                <div className="text-[11px] text-white/30 font-medium uppercase tracking-wider">Quick questions</div>
+                <div className="text-[11px] text-white/45 font-medium uppercase tracking-wider">Quick questions</div>
                 {quickQuestions.map((q) => (
                   <button
                     key={q}
@@ -298,7 +315,7 @@ export default function AIAssistPanel() {
           </div>
 
           {/* Input */}
-          <div className="border-t border-white/10 p-3 bg-white/[0.02]">
+          <div className="border-t border-white/[0.12] p-3 bg-white/[0.02]">
             <form
               onSubmit={(e) => {
                 e.preventDefault()
@@ -313,7 +330,7 @@ export default function AIAssistPanel() {
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Ask anything about this page…"
                 maxLength={1000}
-                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-emerald-500/50 transition"
+                className="flex-1 bg-white/5 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-emerald-500/50 transition"
                 disabled={loading}
               />
               <button

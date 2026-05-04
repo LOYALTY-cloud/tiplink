@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ui } from "@/lib/ui";
-import { getAdminHeaders } from "@/lib/auth/adminSession";
+import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
 
 type Ticket = {
   id: string;
@@ -46,12 +46,19 @@ export default function AdminStaffTicketsPage() {
   const router = useRouter();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authorized, setAuthorized] = useState(false);
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "acknowledged" | "resolved">("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
 
   useEffect(() => {
-    loadTickets();
-  }, [statusFilter, typeFilter]);
+    const s = getAdminSession();
+    if (!s || !["owner", "super_admin", "finance_admin", "support_admin"].includes(s.role)) { router.replace("/admin"); return; }
+    setAuthorized(true);
+  }, [router]);
+
+  useEffect(() => {
+    if (authorized) loadTickets();
+  }, [statusFilter, typeFilter, authorized]);
 
   async function loadTickets() {
     setLoading(true);
@@ -62,7 +69,12 @@ export default function AdminStaffTicketsPage() {
       const res = await fetch(`/api/admin/staff/tickets?${params}`, { headers: getAdminHeaders() });
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setTickets(data.tickets ?? []);
+      const list = data.tickets ?? [];
+      list.sort(
+        (left: Ticket, right: Ticket) =>
+          new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
+      );
+      setTickets(list);
     } catch {
       setTickets([]);
     } finally {
@@ -93,6 +105,8 @@ export default function AdminStaffTicketsPage() {
   const openCount = tickets.filter((t) => t.status === "open").length;
   const warningCount = tickets.filter((t) => t.type === "warning").length;
   const unresolvedCount = tickets.filter((t) => t.status !== "resolved").length;
+
+  if (!authorized) return null;
 
   return (
     <div className="space-y-6">

@@ -14,7 +14,7 @@ export async function POST(req: Request) {
     .eq("user_id", user.id)
     .eq("is_completed", false);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: "Failed to complete goal" }, { status: 500 });
 
   return NextResponse.json({ success: true });
 }

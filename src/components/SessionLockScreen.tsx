@@ -59,7 +59,7 @@ export default function SessionLockScreen({ email }: Props) {
       clearTimeout(autoLogoutTimer.current)
       clearInterval(interval)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [])
 
   async function handleUnlock() {
@@ -95,11 +95,11 @@ export default function SessionLockScreen({ email }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black flex items-center justify-center z-[100]">
-      <div className="bg-black border border-white/10 p-6 rounded-2xl text-white w-[320px]">
+      <div className="bg-black border border-white/[0.12] p-6 rounded-2xl text-white w-[320px]">
         <h2 className="text-lg font-semibold mb-2">🔒 Session Locked</h2>
 
         {reason && (
-          <p className="text-[11px] text-white/30 mb-2 uppercase tracking-wide">Reason: {reason}</p>
+          <p className="text-[11px] text-white/45 mb-2 uppercase tracking-wide">Reason: {reason}</p>
         )}
 
         {email && (
@@ -107,7 +107,7 @@ export default function SessionLockScreen({ email }: Props) {
         )}
 
         {lastActive && (
-          <p className="text-[11px] text-white/40 mb-3">Last active: {lastActive}</p>
+          <p className="text-[11px] text-white/55 mb-3">Last active: {lastActive}</p>
         )}
 
         <p className="text-xs text-white/60 mb-4">
@@ -124,7 +124,7 @@ export default function SessionLockScreen({ email }: Props) {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 px-3 py-2 rounded-xl mb-2 text-white placeholder:text-white/30"
+            className="w-full bg-white/5 border border-white/[0.12] px-3 py-2 rounded-xl mb-2 text-white placeholder:text-white/45"
             placeholder="Password"
             autoFocus
           />

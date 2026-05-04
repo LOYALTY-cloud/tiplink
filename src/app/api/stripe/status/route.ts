@@ -34,7 +34,10 @@ export async function GET(req: Request) {
     .maybeSingle()
     .returns<ProfileRow | null>();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("stripe/status", error);
+    return NextResponse.json({ error: "Failed to load status" }, { status: 500 });
+  }
 
   const connected = !!prof?.stripe_account_id;
   const payoutsEnabled = !!prof?.stripe_payouts_enabled;

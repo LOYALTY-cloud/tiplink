@@ -20,7 +20,7 @@ export async function GET(req: Request) {
 
   const { data } = await supabaseAdmin
     .from("payout_methods")
-    .select("id, brand, last4, is_default, type, stripe_external_account_id, provider, created_at")
+    .select("id, brand, last4, is_default, type, stripe_external_account_id, provider, provider_ref, created_at")
     .eq("user_id", userId)
     .eq("status", "active")
     .order("is_default", { ascending: false })

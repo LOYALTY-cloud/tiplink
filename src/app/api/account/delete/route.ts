@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createClient } from "@supabase/supabase-js";
 import type { ProfileRow, WalletRow } from "@/types/db";
 import { stripe } from "@/lib/stripe/server";
 
@@ -18,15 +19,41 @@ export async function POST(req: Request) {
 
     const user = userRes.user;
 
+    // ── Server-side password re-verification ──────────────────────
+    let password: string | undefined;
+    try {
+      const body = await req.clone().json();
+      password = body?.password;
+    } catch {
+      // no body — backwards compat, will fail below
+    }
+
+    if (!password || typeof password !== "string") {
+      return NextResponse.json({ error: "Password confirmation required" }, { status: 400 });
+    }
+
+    const verifyClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false } }
+    );
+    const { error: pwErr } = await verifyClient.auth.signInWithPassword({
+      email: user.email!,
+      password,
+    });
+    if (pwErr) {
+      return NextResponse.json({ error: "Incorrect password" }, { status: 401 });
+    }
+
     const { data: profile, error: profErr } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_account_id")
-      .eq("id", user.id)
+      .select("id, stripe_account_id")
+      .eq("user_id", user.id)
       .maybeSingle()
       .returns<ProfileRow | null>();
 
     if (profErr) {
-      return NextResponse.json({ error: profErr.message }, { status: 500 });
+      return NextResponse.json({ error: "Failed to delete account. Please try again." }, { status: 500 });
     }
 
     const stripeAccountId = profile?.stripe_account_id ?? null;
@@ -40,7 +67,7 @@ export async function POST(req: Request) {
       .returns<WalletRow | null>();
 
     if (walletErr) {
-      return NextResponse.json({ error: walletErr.message }, { status: 500 });
+      return NextResponse.json({ error: "Failed to delete account. Please try again." }, { status: 500 });
     }
 
     const balance = Number(wallet?.balance ?? 0);
@@ -65,7 +92,7 @@ export async function POST(req: Request) {
       .limit(1);
 
     if (wErr) {
-      return NextResponse.json({ error: wErr.message }, { status: 500 });
+      return NextResponse.json({ error: "Failed to delete account. Please try again." }, { status: 500 });
     }
 
     if (pendingWithdrawals && pendingWithdrawals.length > 0) {
@@ -79,26 +106,43 @@ export async function POST(req: Request) {
       try {
         await stripe.accounts.del(stripeAccountId);
       } catch (e: unknown) {
-        const stripeErrMsg = e instanceof Error ? e.message : String(e ?? "Stripe error");
+        console.error("Stripe account deletion failed:", e);
         return NextResponse.json(
           {
             error:
               "Stripe account could not be deleted yet. If there are pending funds/payouts, try again after settlement.",
-            stripeError: stripeErrMsg,
           },
           { status: 409 }
         );
       }
     }
 
+    // Clean up application data before deleting auth user
+    const profileId = profile?.id;
+    await Promise.allSettled([
+      supabaseAdmin.from("login_logs").delete().eq("user_id", user.id),
+      supabaseAdmin.from("notifications").delete().eq("user_id", user.id),
+      supabaseAdmin.from("user_settings").delete().eq("user_id", user.id),
+      supabaseAdmin.from("goals").delete().eq("user_id", user.id),
+      supabaseAdmin.from("theme_purchases").delete().eq("user_id", user.id),
+      supabaseAdmin.from("transactions_ledger").delete().eq("user_id", user.id),
+      supabaseAdmin.from("payout_methods").delete().eq("user_id", user.id),
+      supabaseAdmin.from("withdrawals").delete().eq("user_id", user.id),
+      supabaseAdmin.from("tip_intents").delete().eq("creator_user_id", user.id),
+      supabaseAdmin.from("wallets").delete().eq("user_id", user.id),
+      ...(profileId
+        ? [supabaseAdmin.from("social_links").delete().eq("profile_id", profileId)]
+        : []),
+      supabaseAdmin.from("profiles").delete().eq("user_id", user.id),
+    ]);
+
     const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(user.id);
     if (delErr) {
-      return NextResponse.json({ error: delErr.message }, { status: 500 });
+      return NextResponse.json({ error: "Failed to delete account. Please try again." }, { status: 500 });
     }
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    return NextResponse.json({ error: "Failed to delete account. Please try again." }, { status: 500 });
   }
 }

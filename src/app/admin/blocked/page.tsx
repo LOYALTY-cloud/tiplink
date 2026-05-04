@@ -2,12 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { ui } from "@/lib/ui";
+import { clearAdminSession } from "@/lib/auth/adminSession";
 
 export default function AdminBlockedPage() {
   const router = useRouter();
 
   const handleLogout = () => {
-    localStorage.removeItem("admin_session");
+    clearAdminSession();
     router.replace("/admin/login");
   };
 

@@ -29,9 +29,7 @@ export async function POST(req: Request) {
       .update({ admin_override: override })
       .eq("id", anomaly_id);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    // If false positive, consider unrestricting the user
+    if (error) return NextResponse.json({ error: "Failed to update fraud anomaly." }, { status: 500 });
     if (override === "false_positive") {
       const { data: anomaly } = await supabaseAdmin
         .from("fraud_anomalies")

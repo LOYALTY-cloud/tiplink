@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { loadStripe } from "@stripe/stripe-js";
 import {
   Elements,
-  PaymentElement,
+  CardElement,
   useElements,
   useStripe,
 } from "@stripe/react-stripe-js";
@@ -22,17 +22,13 @@ function Inner({ onDone }: { onDone: () => void }) {
 
   const submit = async () => {
     setMsg(null);
-    if (!stripe || !elements) return;
+    const cardElement = elements?.getElement(CardElement);
+    if (!stripe || !cardElement) return;
 
     setLoading(true);
 
-    const { error, setupIntent } = await stripe.confirmSetup({
-      elements,
-      confirmParams: {
-        return_url: `${window.location.origin}/dashboard/wallet`,
-      },
-      redirect: "if_required",
-    });
+    // Create a token from the card element — this gives us tok_xxx which Stripe allows on connected accounts
+    const { token, error } = await stripe.createToken(cardElement);
 
     if (error) {
       setLoading(false);
@@ -40,10 +36,9 @@ function Inner({ onDone }: { onDone: () => void }) {
       return;
     }
 
-    const pmId = (setupIntent as any)?.payment_method as string | undefined;
-    if (!pmId) {
+    if (!token?.id) {
       setLoading(false);
-      setMsg("No payment method returned.");
+      setMsg("No token returned from card.");
       return;
     }
 
@@ -56,8 +51,8 @@ function Inner({ onDone }: { onDone: () => void }) {
     }
 
     const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) {
+    const authToken = sess.session?.access_token;
+    if (!authToken) {
       setLoading(false);
       setMsg("Session expired.");
       return;
@@ -65,8 +60,8 @@ function Inner({ onDone }: { onDone: () => void }) {
 
     const r = await fetch("/api/stripe/store-payout-method", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ paymentMethodId: pmId }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ token: token.id }),
     });
 
     if (!r.ok) {
@@ -83,14 +78,29 @@ function Inner({ onDone }: { onDone: () => void }) {
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-        <PaymentElement />
+        <CardElement
+          options={{
+            style: {
+              base: {
+                fontSize: '16px',
+                color: '#32325d',
+                '::placeholder': {
+                  color: '#aab7c4',
+                },
+              },
+              invalid: {
+                color: '#fa755a',
+              },
+            },
+          }}
+        />
       </div>
 
       {msg && <div className="text-sm text-red-600">{msg}</div>}
 
       <button
         onClick={submit}
-        disabled={!stripe || !elements || loading}
+        disabled={!stripe || loading}
         className="w-full rounded-xl bg-gray-900 text-white py-3 font-semibold hover:bg-gray-800 disabled:opacity-50"
       >
         {loading ? "Linking..." : "Link debit card"}
@@ -116,35 +126,14 @@ export default function LinkDebitCardModal({
 
   useEffect(() => {
     if (!open) return;
-    (async () => {
-      const { data: sess } = await supabase.auth.getSession();
-      const token = sess.session?.access_token;
-      if (!token) { setClientSecret(null); return; }
-      const r = await fetch("/api/stripe/setup-intent", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!r.ok) {
-        setClientSecret(null);
-        return;
-      }
-
-      const text = await r.text();
-      if (!text) {
-        setClientSecret(null);
-        return;
-      }
-
-      const j = JSON.parse(text) as { clientSecret?: string };
-      setClientSecret(j.clientSecret ?? null);
-    })();
+    // Just set a dummy value to load Elements — we don't need a SetupIntent for token-based flow
+    setClientSecret("placeholder");
   }, [open]);
 
   const options = useMemo(
     () =>
       clientSecret
         ? {
-            clientSecret,
             appearance: { theme: "stripe" as const },
           }
         : undefined,

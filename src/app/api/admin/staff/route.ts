@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { evaluateAndPersistAdminRisk } from "@/lib/adminRiskEngine";
 import { ADMIN_ROLES } from "@/lib/auth/permissions";
+import { requireRole } from "@/lib/auth/requireRole";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,7 @@ export async function GET(req: Request) {
   try {
     const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    try { requireRole(session.role, "staff"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
     // Lazy-sync: ensure every profile with an admin role has a row in `admins`
     const { data: adminProfiles } = await supabaseAdmin

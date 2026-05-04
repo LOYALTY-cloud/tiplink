@@ -37,16 +37,20 @@ export async function POST(req: Request) {
       }
     }
 
-    await supabaseAdmin.from("admin_actions").insert({
-      admin_id: userId ?? "00000000-0000-0000-0000-000000000000",
-      action: `session_${event}`,
-      metadata: {
-        reason,
-        user_type: userType,
-        timestamp: timestamp ?? Date.now(),
-        user_agent: req.headers.get("user-agent")?.slice(0, 200) ?? null,
-      },
-    })
+    // Only persist audit log for authenticated users — anonymous writes are silently discarded
+    // to prevent audit log pollution and IDOR abuse via spoofed x-admin-id header.
+    if (userId) {
+      await supabaseAdmin.from("admin_actions").insert({
+        admin_id: userId,
+        action: `session_${event}`,
+        metadata: {
+          reason,
+          user_type: userType,
+          timestamp: timestamp ?? Date.now(),
+          user_agent: req.headers.get("user-agent")?.slice(0, 200) ?? null,
+        },
+      })
+    }
 
     return NextResponse.json({ ok: true })
   } catch {

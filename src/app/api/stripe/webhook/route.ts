@@ -8,10 +8,24 @@ import type { StripeWebhookEvent } from "@/types/stripe";
 import type { WalletRow } from "@/types/db";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logCaughtError } from "@/lib/errorLogger";
+import { sendAdminAlert } from "@/lib/adminAlerts";
+import { reversePayoutOnce } from "@/lib/payoutReversals";
+import { triggerAIAlerts } from "@/lib/ai/alerts";
+import { createNotification } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
-const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+
+// Hard-fail at module load if the webhook secret is missing in production.
+// An empty secret causes constructEvent to reject every legitimate Stripe
+// request, silently breaking all payment processing.
+if (!endpointSecret && process.env.NODE_ENV === "production") {
+  throw new Error(
+    "CRITICAL: STRIPE_WEBHOOK_SECRET is not set. All Stripe webhooks will be rejected. " +
+    "Set this env var in your deployment configuration before deploying."
+  );
+}
 
 async function isDuplicate(supabaseClient: SupabaseClient, eventId: string) {
   try {
@@ -19,15 +33,25 @@ async function isDuplicate(supabaseClient: SupabaseClient, eventId: string) {
     return !!data;
   } catch (e) {
     console.error("isDuplicate check failed:", e);
-    return false;
+    return true; // Fail CLOSED — skip event on DB error; Stripe will retry
   }
 }
 
+/**
+ * Atomically mark event as processed. Uses upsert with onConflict so
+ * concurrent deliveries don't both pass the isDuplicate check.
+ * Throws on failure so the caller knows the event was NOT recorded.
+ */
 async function markProcessed(supabaseClient: SupabaseClient, eventId: string, type: string) {
-  try {
-    await supabaseClient.from("stripe_webhook_events").insert({ id: eventId, type, processed_at: new Date().toISOString() });
-  } catch (e) {
-    console.error("markProcessed failed:", e);
+  const { error } = await supabaseClient
+    .from("stripe_webhook_events")
+    .upsert(
+      { id: eventId, type, processed_at: new Date().toISOString() },
+      { onConflict: "id", ignoreDuplicates: true }
+    );
+  if (error) {
+    console.error("markProcessed failed:", error);
+    throw new Error(`markProcessed failed for ${eventId}: ${error.message}`);
   }
 }
 
@@ -43,6 +67,12 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     console.error("⚠️ Webhook signature verification failed:", err instanceof Error ? err.message : err);
     logCaughtError("stripe/webhook", err, { severity: "critical", metadata: { reason: "signature_verification_failed" } });
+    sendAdminAlert({
+      subject: "Stripe webhook signature failed",
+      body: "A Stripe webhook event could not be verified. This may indicate a misconfigured secret or a spoofed request.",
+      severity: "critical",
+      meta: { error: err instanceof Error ? err.message : String(err) },
+    });
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
@@ -52,7 +82,16 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     console.error("Webhook processing failed:", err);
     logCaughtError("stripe/webhook", err, { severity: "critical", metadata: { reason: "processing_failed" } });
-    return NextResponse.json({ error: "Processing failed" }, { status: 500 });
+    sendAdminAlert({
+      subject: "Stripe webhook processing failed",
+      body: `Webhook event ${event.type} (${event.id}) failed to process. Event was acknowledged to prevent retries.`,
+      severity: "critical",
+      meta: { event_type: event.type, event_id: event.id, error: err instanceof Error ? err.message : String(err) },
+    });
+    // Always return 200 to prevent Stripe retry storms on permanent failures.
+    // Transient failures (e.g. lock contention) skip markProcessed so the
+    // event can be re-processed on manual retry or reconciliation.
+    return NextResponse.json({ received: true, error: "Processing failed" });
   }
 
   return NextResponse.json({ received: true });
@@ -163,18 +202,11 @@ export async function handleStripeEvent(
       // Acquire wallet lock (use same lock type as withdrawals so they serialize)
       const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
       if (!lock.ok) {
-        console.warn("Could not acquire wallet lock for tip_intent, skipping processing:", tipIntent.id, lock.reason);
-        break;
+        throw new Error(`Wallet lock failed for tip_intent ${tipIntent.id}: ${lock.reason}`);
       }
 
       try {
-        // Mark intent succeeded and attach Stripe PI id
-        await supabaseClient
-          .from("tip_intents")
-          .update({ status: "succeeded", stripe_payment_intent_id: pi.id })
-          .eq("id", tipIntent.id);
-
-        // Record canonical ledger entry and trigger wallet recalculation
+        // Record canonical ledger entry FIRST (source of truth)
         const receivedAmount = Number(tipIntent.tip_amount ?? (tipIntent.amount as any));
         await ledgerFn({
           user_id: tipIntent.creator_user_id,
@@ -196,6 +228,12 @@ export async function handleStripeEvent(
             is_anonymous: tipIntent.is_anonymous ?? true,
           },
         });
+
+        // Mark intent succeeded AFTER ledger write succeeds
+        await supabaseClient
+          .from("tip_intents")
+          .update({ status: "succeeded", stripe_payment_intent_id: pi.id })
+          .eq("id", tipIntent.id);
 
         // Auto-offset owed_balance if creator had a negative obligation
         const { data: creatorProf } = await supabaseClient
@@ -226,8 +264,32 @@ export async function handleStripeEvent(
             meta: { amount: receivedAmount, fee: 0, net: receivedAmount },
           });
         } catch (_) {}
+
+        // Send receipt email to supporter if they provided an email
+        if (tipIntent.supporter_email) {
+          try {
+            const { sendTipReceipt } = await import("@/lib/email/sendTipReceipt");
+            const { data: creatorData } = await supabaseClient
+              .from("profiles")
+              .select("display_name, handle")
+              .eq("user_id", tipIntent.creator_user_id)
+              .maybeSingle();
+            const creatorLabel = creatorData?.display_name || creatorData?.handle || "Creator";
+            sendTipReceipt({
+              to: tipIntent.supporter_email,
+              receiptId: receiptId,
+              amountUsd: `$${receivedAmount.toFixed(2)}`,
+              creatorName: creatorLabel,
+              createdAt: new Date().toLocaleString("en-US", {
+                month: "short", day: "numeric", year: "numeric",
+                hour: "numeric", minute: "2-digit", timeZoneName: "short",
+              }),
+            }).catch(() => {});
+          } catch (_) {}
+        }
       } catch (e) {
         console.error("Failed to record ledger entry for tip_intent", tipIntent.id, e);
+        throw e;
       } finally {
         try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (e) {}
       }
@@ -238,14 +300,57 @@ export async function handleStripeEvent(
         await evaluateRisk(supabaseClient, tipIntent.creator_user_id);
       } catch (_e) {}
 
-      // Set 24h payout hold on new funds
+      // Set graduated payout hold on new funds (decreases as trust grows)
       try {
-        await supabaseClient
+        const { data: creatorProfile } = await supabaseClient
           .from("profiles")
-          .update({
-            payout_hold_until: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          })
-          .eq("user_id", tipIntent.creator_user_id);
+          .select("successful_payouts")
+          .eq("user_id", tipIntent.creator_user_id)
+          .maybeSingle();
+
+        const payouts = creatorProfile?.successful_payouts ?? 0;
+        let holdHours: number;
+        if (payouts >= 20) holdHours = 0;       // instant eligibility
+        else if (payouts >= 6) holdHours = 2;   // 2h hold
+        else if (payouts >= 3) holdHours = 12;  // 12h hold
+        else holdHours = 24;                    // 24h hold for new users
+
+        if (holdHours > 0) {
+          const newHold = new Date(Date.now() + holdHours * 60 * 60 * 1000).toISOString();
+          // Atomic GREATEST — only extend, never shorten an existing hold
+          await supabaseClient.rpc("set_payout_hold_if_later", {
+            p_user_id: tipIntent.creator_user_id,
+            p_hold_until: newHold,
+          });
+        }
+      } catch (_) {}
+
+      // Refresh user baseline — throttled to avoid expensive recalculation on every tip.
+      // Only refreshes if 5+ new transactions since the last baseline update.
+      try {
+        const { data: bl } = await supabaseClient
+          .from("user_baselines")
+          .select("total_tips_count, updated_at")
+          .eq("user_id", tipIntent.creator_user_id)
+          .maybeSingle();
+
+        const lastUpdate = bl?.updated_at ? new Date(bl.updated_at).getTime() : 0;
+        const minInterval = 15 * 60 * 1000; // 15 minutes minimum
+        const stale = Date.now() - lastUpdate > minInterval;
+
+        if (!bl || stale) {
+          // Count tips since last baseline refresh
+          const { count: newTips } = await supabaseClient
+            .from("transactions_ledger")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", tipIntent.creator_user_id)
+            .eq("type", "tip")
+            .gt("created_at", bl?.updated_at ?? "1970-01-01T00:00:00Z");
+
+          if (!bl || (newTips ?? 0) >= 5) {
+            await supabaseClient.rpc("refresh_user_baseline", { p_user_id: tipIntent.creator_user_id });
+          }
+        }
       } catch (_) {}
 
       break;
@@ -332,11 +437,21 @@ export async function handleStripeEvent(
 
       const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
       if (!lock.ok) {
-        console.warn("refund.created: could not acquire wallet lock", tipIntent.id, lock.reason);
-        break;
+        throw new Error(`Wallet lock failed for refund.created on tip ${tipIntent.id}: ${lock.reason}`);
       }
 
       try {
+        // Re-check idempotency after acquiring lock to close the race window
+        const { data: alreadyProcessedPostLock } = await supabaseClient
+          .from("processed_refunds")
+          .select("refund_id")
+          .eq("refund_id", refundId)
+          .maybeSingle();
+        if (alreadyProcessedPostLock) {
+          console.log("refund.created: already processed (post-lock check)", refundId);
+          break;
+        }
+
         const tipAmount = Number(tipIntent.tip_amount ?? (tipIntent.amount as any));
         const previouslyRefunded = Number(tipIntent.refunded_amount ?? 0);
         const newRefundedTotal = Number((previouslyRefunded + sliceAmount).toFixed(2));
@@ -460,6 +575,19 @@ export async function handleStripeEvent(
       const refundId = charge.refunds?.data?.[0]?.id ?? null;
       const refundAmount = latestRefund / 100;
 
+      // Skip if this refund was already processed by refund.created (prevents double-debit)
+      if (refundId) {
+        const { data: alreadyProcessed } = await supabaseClient
+          .from("processed_refunds")
+          .select("refund_id")
+          .eq("refund_id", refundId)
+          .maybeSingle();
+        if (alreadyProcessed) {
+          console.log("charge.refunded: already processed by refund.created, skipping", refundId);
+          break;
+        }
+      }
+
       if (receiptId) {
         const { data: tipIntent, error: tipErr } = await supabaseClient
           .from("tip_intents")
@@ -492,8 +620,7 @@ export async function handleStripeEvent(
         // Acquire wallet lock before mutating ledger/wallet
         const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
         if (!lock.ok) {
-          console.warn("Could not acquire wallet lock for refund, skipping processing:", tipIntent.id, lock.reason);
-          break;
+          throw new Error(`Wallet lock failed for charge.refunded on tip ${tipIntent.id}: ${lock.reason}`);
         }
 
         try {
@@ -503,44 +630,44 @@ export async function handleStripeEvent(
           const isFull = newRefundedTotal >= tipAmount;
           const newRefundStatus = isFull ? "full" : "partial";
 
-          // Update tip_intent with running refund totals
-          await supabaseClient
-            .from("tip_intents")
-            .update({
-              status: isFull ? "refunded" : "partially_refunded",
-              refunded_amount: newRefundedTotal,
-              refund_status: newRefundStatus,
-              last_refund_id: charge.id,
-              stripe_charge_id: charge.id,
-              ...(refundId ? { processed_refund_ids: [...(tipIntent.processed_refund_ids ?? []), refundId] } : {}),
-              refund_initiated_at: null, // clear gap window so withdrawal guard releases
-            })
-            .eq("id", tipIntent.id);
+          // Build refund meta for audit
+          const refundMeta = {
+            action: "refund",
+            tip_intent_id: tipIntent.id,
+            refund_id: refundId ?? charge.id,
+            payment_intent_id: tipIntent.stripe_payment_intent_id ?? null,
+            slice_amount: refundAmount,
+            refund_type: newRefundStatus,
+            total_refunded: newRefundedTotal,
+            fee: 0,
+            net: -refundAmount,
+            currency: charge.currency,
+            event_id: event.id,
+            external_id: charge.id,
+          };
 
-          // Ledger debit — only the new refund slice, not the cumulative total
-          await ledgerFn({
-            user_id: tipIntent.creator_user_id,
-            type: "tip_refunded",
-            amount: -refundAmount,
-            reference_id: tipIntent.id,
-            meta: {
-              action: "refund",
-              tip_intent_id: tipIntent.id,
-              refund_id: refundId ?? charge.id,
-              payment_intent_id: tipIntent.stripe_payment_intent_id ?? null,
-              slice_amount: refundAmount,
-              refund_type: newRefundStatus,
-              total_refunded: newRefundedTotal,
-              fee: 0,
-              net: -refundAmount,
-              currency: charge.currency,
-              event_id: event.id,
-              external_id: charge.id,
-            },
+          // Atomic: ledger insert + tip_intent update + processed_refunds insert in one DB transaction
+          const { error: rpcError } = await supabaseClient.rpc("apply_refund_slice", {
+            p_tip_id: tipIntent.id,
+            p_user_id: tipIntent.creator_user_id,
+            p_amount: refundAmount,
+            p_refund_id: refundId ?? charge.id,
+            p_meta: refundMeta,
           });
+
+          if (rpcError) {
+            // If unique constraint violation → idempotent skip
+            if (rpcError.message?.includes("processed_refunds_pkey") || rpcError.code === "23505") {
+              console.log("charge.refunded: duplicate caught by unique constraint", refundId);
+              break;
+            }
+            throw new Error(`charge.refunded apply_refund_slice RPC failed: ${rpcError.message}`);
+          }
+
           console.log(`Tip ${newRefundStatus} refund: $${refundAmount} for user ${tipIntent.creator_user_id}`);
         } catch (e) {
           console.error("Failed to record refund ledger entry for tip_intent", tipIntent.id, e);
+          throw e;
         } finally {
           try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (e) {}
         }
@@ -550,8 +677,7 @@ export async function handleStripeEvent(
           // Acquire wallet lock for fallback user-based refund
           const lock = await acquireWalletLock(supabaseClient, userId, "withdrawal", 300);
           if (!lock.ok) {
-            console.warn("Could not acquire wallet lock for fallback refund, skipping processing:", userId, lock.reason);
-            break;
+            throw new Error(`Wallet lock failed for fallback refund on user ${userId}: ${lock.reason}`);
           }
 
           try {
@@ -559,6 +685,7 @@ export async function handleStripeEvent(
             console.log(`Tip refunded: $${refundAmount} for user ${userId}`);
           } catch (e) {
             console.error("Failed to record fallback refund ledger entry for user", userId, e);
+            throw e;
           } finally {
             try { await releaseWalletLock(supabaseClient, userId, "withdrawal"); } catch (e) {}
           }
@@ -572,51 +699,48 @@ export async function handleStripeEvent(
     case "payout.paid": {
       const payout = event.data.object as Stripe.Payout;
       const userId = payout.metadata?.user_id as string | undefined;
+      const withdrawalId = payout.metadata?.withdrawal_id as string | undefined;
       const amount = payout.amount / 100;
       if (userId) {
-        const lock = await acquireWalletLock(supabaseClient, userId, "withdrawal", 300);
-        if (!lock.ok) {
-          console.warn("Could not acquire wallet lock for payout, skipping ledger entry:", userId, lock.reason);
-          break;
+        // DO NOT debit the ledger here — the withdrawal API already debited
+        // when it created the withdrawal. This handler only confirms delivery.
+
+        // Mark withdrawal row as paid
+        if (withdrawalId) {
+          await supabaseClient
+            .from("withdrawals")
+            .update({ status: "paid" })
+            .eq("id", withdrawalId);
         }
 
+        console.log(`Payout completed: $${amount} for user ${userId}`);
+
+        // Fire notification (best-effort)
         try {
-          await ledgerFn({ user_id: userId, type: "payout", amount: -amount, reference_id: payout.id, meta: { action: "payout", fee: 0, net: -amount, currency: payout.currency, event_id: event.id, external_id: payout.id } });
-          console.log(`Payout completed: $${amount} for user ${userId}`);
-
-          // Fire notification (best-effort)
-          try {
-            const { createNotification } = await import("@/lib/notifications");
-            // Look up withdrawal record for fee details
-            const withdrawalId = payout.metadata?.withdrawal_id;
-            let fee = 0;
-            let net = amount;
-            if (withdrawalId) {
-              const { data: wRow } = await supabaseClient
-                .from("withdrawals")
-                .select("fee, net")
-                .eq("id", withdrawalId)
-                .maybeSingle();
-              if (wRow) {
-                fee = Number(wRow.fee) || 0;
-                net = Number(wRow.net) || amount;
-              }
+          const { createNotification } = await import("@/lib/notifications");
+          let fee = 0;
+          let net = amount;
+          if (withdrawalId) {
+            const { data: wRow } = await supabaseClient
+              .from("withdrawals")
+              .select("fee, net")
+              .eq("id", withdrawalId)
+              .maybeSingle();
+            if (wRow) {
+              fee = Number(wRow.fee) || 0;
+              net = Number(wRow.net) || amount;
             }
-            await createNotification({
-              userId,
-              type: "payout",
-              title: "🏦 Payout Sent",
-              body: fee > 0
-                ? `$${net.toFixed(2)} has been sent to your bank (fee: $${fee.toFixed(2)})`
-                : `$${amount.toFixed(2)} has been sent to your bank`,
-              meta: { amount, fee, net },
-            });
-          } catch (_) {}
-        } catch (e) {
-          console.error("Failed to record payout ledger entry for user", userId, e);
-        } finally {
-          try { await releaseWalletLock(supabaseClient, userId, "withdrawal"); } catch (e) {}
-        }
+          }
+          await createNotification({
+            userId,
+            type: "payout",
+            title: "🏦 Payout Sent",
+            body: fee > 0
+              ? `$${net.toFixed(2)} has been sent to your bank (fee: $${fee.toFixed(2)})`
+              : `$${amount.toFixed(2)} has been sent to your bank`,
+            meta: { amount, fee, net },
+          });
+        } catch (_) {}
       }
       break;
     }
@@ -636,34 +760,50 @@ export async function handleStripeEvent(
             .eq("id", withdrawalId);
         }
 
-        // Reverse the ledger debit so the balance is restored
+        void triggerAIAlerts("stripe.webhook:payout_failed");
+
+        // Acquire wallet lock before reversing balance
+        const lock = await acquireWalletLock(supabaseClient, userId, "withdrawal", 300);
+        if (!lock.ok) {
+          throw new Error(`Wallet lock failed for payout.failed on user ${userId}: ${lock.reason}`);
+        }
+
         try {
+          // Reverse the ledger debit so the balance is restored
           const refAmt = (payout.amount ?? 0) / 100;
-          await ledgerFn({
-            user_id: userId,
-            type: "payout_reversal",
+          if (!payout.amount || refAmt <= 0) {
+            throw new Error(`payout.failed: missing or zero amount for payout ${payout.id}`);
+          }
+          await reversePayoutOnce({
+            supabase: supabaseClient,
+            userId,
             amount: refAmt,
-            reference_id: payout.id,
-            meta: {
-              action: "payout_failed_reversal",
-              original_payout_id: payout.id,
+            withdrawalId: withdrawalId ?? null,
+            payoutId: payout.id,
+            reason: payout.failure_message ?? "Unknown error",
+            action: "payout_failed_reversal",
+            eventId: event.id,
+            extraMeta: {
               failure_message: payout.failure_message,
-              event_id: event.id,
             },
-            status: "completed",
           });
         } catch (e) {
           console.error("Failed to reverse ledger for failed payout:", userId, e);
+          throw e;
+        } finally {
+          try { await releaseWalletLock(supabaseClient, userId, "withdrawal"); } catch (_e) {}
         }
 
-        // Notify user
+        // Notify user (best-effort, after lock released)
         try {
           const { createNotification } = await import("@/lib/notifications");
+          const { humanizePayoutFailure } = await import("@/lib/payoutErrors");
+          const friendlyMessage = humanizePayoutFailure(payout.failure_code, payout.failure_message);
           await createNotification({
             userId,
             type: "payout_failed",
             title: "⚠️ Payout Failed",
-            body: `Your withdrawal could not be completed: ${payout.failure_message ?? "unknown error"}. The funds have been returned to your balance.`,
+            body: `${friendlyMessage} The funds have been returned to your balance.`,
             meta: { payout_id: payout.id, failure_message: payout.failure_message },
           });
         } catch (_) {}
@@ -704,9 +844,15 @@ export async function handleStripeEvent(
     }
 
     case "account.application.deauthorized": {
-      const account = event.data.object as Stripe.Account;
-      await supabaseClient.from("profiles").update({ stripe_account_status: "disconnected" }).eq("stripe_account_id", account.id);
-      console.warn(`Account disconnected: ${account.id}`);
+      // event.data.object is an Application, not an Account.
+      // The connected account ID is on event.account.
+      const connectedAccountId = (event as any).account as string | undefined;
+      if (connectedAccountId) {
+        await supabaseClient.from("profiles").update({ stripe_account_status: "disconnected" }).eq("stripe_account_id", connectedAccountId);
+        console.warn(`Account disconnected: ${connectedAccountId}`);
+      } else {
+        console.warn("account.application.deauthorized: no connected account ID found", event.id);
+      }
       break;
     }
 
@@ -750,8 +896,7 @@ export async function handleStripeEvent(
 
       const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
       if (!lock.ok) {
-        console.error(`[ALERT] charge.dispute.created: could not acquire wallet lock for user ${tipIntent.creator_user_id}`);
-        break;
+        throw new Error(`Wallet lock failed for dispute on user ${tipIntent.creator_user_id}: ${lock.reason}`);
       }
 
       try {
@@ -808,6 +953,7 @@ export async function handleStripeEvent(
         );
       } catch (e) {
         console.error(`[ALERT] charge.dispute.created: failed to process dispute ${dispute.id}:`, e);
+        throw e;
       } finally {
         try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (_e) {}
       }
@@ -816,6 +962,46 @@ export async function handleStripeEvent(
       try {
         const { evaluateRisk } = await import("@/lib/riskEngine");
         await evaluateRisk(supabaseClient, tipIntent.creator_user_id);
+      } catch (_e) {}
+
+      // Targeted realtime alert to privileged admins + assigned admin
+      try {
+        const { sendDisputeAlert, getAssignedAdmin } = await import("@/lib/disputeAlerts");
+        const { supabaseAdmin: sAdmin } = await import("@/lib/supabase/admin");
+
+        // Count existing disputes for this creator to compute severity
+        const { count: disputeCount } = await supabaseClient
+          .from("tip_intents")
+          .select("receipt_id", { count: "exact", head: true })
+          .eq("creator_user_id", tipIntent.creator_user_id)
+          .eq("status", "disputed");
+        const severity = (disputeCount ?? 0) >= 3 ? "high" : (disputeCount ?? 0) >= 1 ? "medium" : "low";
+
+        const assignedAdmin = await getAssignedAdmin(sAdmin, tipIntent.receipt_id);
+
+        await sendDisputeAlert(sAdmin, {
+          receipt_id: tipIntent.receipt_id,
+          amount: disputeAmount,
+          creator_id: tipIntent.creator_user_id,
+          severity,
+          reason: dispute.reason || undefined,
+          event: "new_dispute",
+        }, assignedAdmin);
+      } catch (_e) {
+        console.error("[dispute-alert] Failed to send realtime alert:", _e);
+      }
+
+      // Timeline event: dispute created (system)
+      try {
+        const { logDisputeEvent } = await import("@/lib/disputeEvents");
+        await logDisputeEvent(
+          supabaseClient,
+          tipIntent.receipt_id,
+          "system",
+          `Dispute created — $${disputeAmount.toFixed(2)} chargeback (${dispute.reason || "unspecified"})`,
+          null,
+          { stripe_dispute_id: dispute.id, amount: disputeAmount, reason: dispute.reason },
+        );
       } catch (_e) {}
 
       break;
@@ -828,21 +1014,510 @@ export async function handleStripeEvent(
       const userId = session.metadata?.userId;
       const purchaseType = session.metadata?.type;
 
+      // ── Preset theme purchase (string key, e.g. "army_black") ──────────────
       if (purchaseType === "theme_purchase" && theme && userId) {
-        try {
-          await supabaseClient.from("theme_purchases").upsert(
-            {
-              user_id: userId,
-              theme,
-              stripe_session_id: session.id,
-              amount: session.amount_total,
-            },
-            { onConflict: "user_id,theme" }
-          );
-          console.log(`Theme unlocked: ${theme} for user ${userId}`);
-        } catch (e) {
-          console.error("Failed to unlock theme:", e);
+        if (session.payment_status !== "paid") {
+          console.warn(`Skipping unpaid preset theme checkout session ${session.id}`);
+          break;
         }
+        try {
+          const PACK_THEMES: Record<string, string[]> = {
+            army_pack: ["army_black", "army_pink", "army_red"],
+            imher_pack: ["pink_luxe", "ice_blue", "lavender", "peach", "glitter"],
+          };
+          const themesToInsert = PACK_THEMES[theme] ?? [theme];
+
+          for (const t of themesToInsert) {
+            await supabaseClient.from("theme_purchases").upsert(
+              {
+                user_id: userId,
+                theme: t,
+                stripe_session_id: session.id,
+                amount: Math.round((session.amount_total ?? 0) / themesToInsert.length),
+              },
+              { onConflict: "user_id,theme" }
+            );
+          }
+          console.log(`Preset theme unlocked: ${theme} (${themesToInsert.join(", ")}) for user ${userId}`);
+        } catch (e) {
+          console.error("Failed to unlock preset theme:", e);
+        }
+      }
+
+      // ── Custom (builder) theme purchase (UUID theme_id) ─────────────────────
+      if (purchaseType === "custom_theme_purchase") {
+        const buyerId  = session.metadata?.buyer_id  as string | undefined;
+        const sellerId = session.metadata?.seller_id as string | undefined;
+        const themeId  = session.metadata?.theme_id  as string | undefined;
+
+        if (buyerId && sellerId && themeId) {
+          try {
+            if (session.payment_status !== "paid") {
+              console.warn(`Skipping unpaid custom theme checkout session ${session.id}`);
+              break;
+            }
+
+            const amountDollars = (session.amount_total ?? 0) / 100;
+            const feeCents      = parseInt(session.metadata?.platform_fee_cents ?? "0", 10);
+            const platformFee   = feeCents / 100;
+            const creatorEarns  = amountDollars - platformFee;
+
+            const { data: existingUnlock } = await supabaseClient
+              .from("theme_unlocks")
+              .select("id")
+              .eq("user_id", buyerId)
+              .eq("theme_id", themeId)
+              .maybeSingle();
+
+            if (existingUnlock) {
+              console.log(`Custom theme ${themeId} already unlocked for buyer ${buyerId}`);
+              break;
+            }
+
+            const { data: snapshotTheme } = await supabaseClient
+              .from("themes")
+              .select("id, user_id, name, config, parent_theme_id")
+              .eq("id", themeId)
+              .maybeSingle();
+
+            const payoutSellerId = snapshotTheme?.user_id ?? sellerId;
+            if (!payoutSellerId || payoutSellerId === buyerId) {
+              console.error(`Invalid custom theme payout attribution for session ${session.id}`, {
+                buyerId,
+                metadataSellerId: sellerId,
+                snapshotSellerId: snapshotTheme?.user_id ?? null,
+                themeId,
+              });
+              break;
+            }
+
+            // Idempotent: unique index (user_id, theme_id) silently drops dups.
+            const { error: unlockErr } = await supabaseClient
+              .from("theme_unlocks")
+              .upsert(
+                {
+                  user_id: buyerId,
+                  theme_id: themeId,
+                  creator_id: payoutSellerId,
+                  theme_name: snapshotTheme?.name ?? null,
+                  theme_config: snapshotTheme?.config ?? null,
+                  parent_theme_id: snapshotTheme?.parent_theme_id ?? null,
+                  unlocked_via: "payment",
+                  source: "payment",
+                  amount_paid: amountDollars,
+                },
+                { onConflict: "user_id,theme_id", ignoreDuplicates: true }
+              );
+
+            if (!unlockErr) {
+              await supabaseClient.from("user_theme_activity").insert({
+                user_id: buyerId,
+                theme_id: themeId,
+                creator_id: payoutSellerId,
+                action: "purchase",
+                category_slug: null,
+                animation_type: typeof snapshotTheme?.config === "object" && snapshotTheme?.config
+                  ? (typeof (snapshotTheme.config as Record<string, unknown>).motion === "string"
+                      ? (snapshotTheme.config as Record<string, unknown>).motion
+                      : typeof (snapshotTheme.config as Record<string, unknown>).animationType === "string"
+                        ? (snapshotTheme.config as Record<string, unknown>).animationType
+                        : typeof (snapshotTheme.config as Record<string, unknown>).animation === "string"
+                          ? (snapshotTheme.config as Record<string, unknown>).animation
+                          : null)
+                  : null,
+                price: amountDollars,
+              });
+
+              // Revenue record
+              const { error: saleErr } = await supabaseClient.from("theme_sales").insert({
+                theme_id: themeId,
+                buyer_id: buyerId,
+                seller_id: payoutSellerId,
+                stripe_session_id: session.id,
+                amount: amountDollars,
+                platform_fee: platformFee,
+                creator_earnings: creatorEarns,
+              });
+
+              if (saleErr) {
+                console.error("Failed to insert theme_sale; creator earnings not recorded", {
+                  sessionId: session.id,
+                  buyerId,
+                  sellerId: payoutSellerId,
+                  themeId,
+                  error: saleErr.message,
+                });
+                break;
+              }
+
+              // Increment unlock counter (best-effort)
+              await supabaseClient.rpc("increment_theme_unlock", { theme_id_input: themeId });
+
+              // Notify creator: their theme was sold
+              void createNotification({
+                userId: payoutSellerId,
+                type: "theme_sold",
+                title: "Theme sold \ud83c\udf89",
+                body: `${snapshotTheme?.name ?? "Your theme"} was purchased`,
+                category: "sales",
+                actorId: buyerId,
+                entityId: themeId,
+                meta: { amount: amountDollars },
+              });
+
+              // Notify buyer: their theme is now unlocked
+              void createNotification({
+                userId: buyerId,
+                type: "theme_unlocked",
+                title: "Theme unlocked \ud83c\udfa8",
+                body: `${snapshotTheme?.name ?? "A theme"} has been added to your library`,
+                category: "sales",
+                actorId: payoutSellerId,
+                entityId: themeId,
+              });
+
+              console.log(`Custom theme ${themeId} unlocked for buyer ${buyerId}; creator earns $${creatorEarns.toFixed(2)}`);
+            }
+          } catch (e) {
+            console.error("Failed to unlock custom theme:", e);
+          }
+        }
+      }
+
+      // ── Creator Store subscription ────────────────────────────────────────
+      if (purchaseType === "store_subscription") {
+        const storeUserId = session.metadata?.user_id as string | undefined;
+        const subscriptionId = session.subscription as string | undefined;
+        const stripeInvoiceId = typeof session.invoice === "string" ? session.invoice : null;
+
+        if (storeUserId && subscriptionId) {
+          try {
+            const { stripe } = await import("@/lib/stripe/server");
+            const sub = await stripe.subscriptions.retrieve(subscriptionId) as unknown as { current_period_end?: number };
+            const renewsAt = sub.current_period_end
+              ? new Date(sub.current_period_end * 1000).toISOString()
+              : null;
+
+            const { error: upsertErr } = await supabaseClient
+              .from("creator_stores")
+              .upsert(
+                {
+                  user_id:                storeUserId,
+                  is_active:              true,
+                  billing_type:           "stripe",
+                  billing_status:         "active",
+                  grace_until:            null,
+                  renews_at:              renewsAt,
+                  stripe_subscription_id: subscriptionId,
+                  updated_at:             new Date().toISOString(),
+                },
+                { onConflict: "user_id" }
+              );
+
+            if (upsertErr) {
+              await supabaseClient
+                .from("creator_stores")
+                .upsert(
+                  {
+                    user_id:                storeUserId,
+                    is_active:              true,
+                    stripe_subscription_id: subscriptionId,
+                    updated_at:             new Date().toISOString(),
+                  },
+                  { onConflict: "user_id" }
+                );
+            }
+
+            const { data: storeRow } = await supabaseClient
+              .from("creator_stores")
+              .select("id")
+              .eq("user_id", storeUserId)
+              .maybeSingle();
+
+            if (stripeInvoiceId) {
+              const invoicePayload = {
+                user_id: storeUserId,
+                store_id: storeRow?.id ?? null,
+                amount: (session.amount_total ?? 0) / 100,
+                status: "pending",
+                billing_type: "stripe",
+                stripe_invoice_id: stripeInvoiceId,
+              };
+
+              const { data: existingInvoice } = await supabaseClient
+                .from("store_invoices")
+                .select("id")
+                .eq("stripe_invoice_id", stripeInvoiceId)
+                .maybeSingle();
+
+              if (existingInvoice?.id) {
+                await supabaseClient
+                  .from("store_invoices")
+                  .update(invoicePayload)
+                  .eq("id", existingInvoice.id);
+              } else {
+                await supabaseClient
+                  .from("store_invoices")
+                  .insert(invoicePayload);
+              }
+            }
+            console.log(`Creator store activated for user ${storeUserId} (sub: ${subscriptionId})`);
+          } catch (e) {
+            console.error("Failed to activate creator store:", e);
+          }
+        }
+      }
+
+      break;
+    }
+
+    // CREATOR STORE invoices
+    case "invoice.payment_succeeded": {
+      const invoice = event.data.object as Stripe.Invoice & { subscription?: string | null };
+      const subscriptionId = typeof invoice.subscription === "string" ? invoice.subscription : null;
+      const stripeInvoiceId = invoice.id;
+
+      try {
+        let storeId: string | null = null;
+        let ownerUserId: string | null = (invoice.metadata?.user_id as string) || null;
+
+        if (subscriptionId) {
+          const { data: store } = await supabaseClient
+            .from("creator_stores")
+            .select("id, user_id")
+            .eq("stripe_subscription_id", subscriptionId)
+            .maybeSingle();
+
+          if (store) {
+            storeId = store.id;
+            ownerUserId = ownerUserId ?? store.user_id;
+          }
+        }
+
+        if (storeId) {
+          await supabaseClient
+            .from("creator_stores")
+            .update({
+              is_active: true,
+              billing_status: "active",
+              grace_until: null,
+              renews_at: invoice.period_end ? new Date(invoice.period_end * 1000).toISOString() : null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", storeId);
+
+          // Re-publish themes that were hidden when subscription lapsed
+          await supabaseClient
+            .from("themes")
+            .update({ is_public: true })
+            .eq("store_id", storeId)
+            .eq("is_market_active", true);
+        }
+
+        if (ownerUserId) {
+          const invoicePayload = {
+            user_id: ownerUserId,
+            store_id: storeId,
+            amount: (invoice.amount_paid ?? invoice.amount_due ?? 0) / 100,
+            status: "paid",
+            billing_type: "stripe",
+            stripe_invoice_id: stripeInvoiceId,
+            paid_at: new Date().toISOString(),
+          };
+
+          const { data: existingInvoice } = await supabaseClient
+            .from("store_invoices")
+            .select("id")
+            .eq("stripe_invoice_id", stripeInvoiceId)
+            .maybeSingle();
+
+          if (existingInvoice?.id) {
+            await supabaseClient
+              .from("store_invoices")
+              .update(invoicePayload)
+              .eq("id", existingInvoice.id);
+          } else {
+            await supabaseClient
+              .from("store_invoices")
+              .insert(invoicePayload);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to process invoice.payment_succeeded:", e);
+      }
+      break;
+    }
+
+    case "invoice.payment_failed": {
+      const invoice = event.data.object as Stripe.Invoice & { subscription?: string | null };
+      const subscriptionId = typeof invoice.subscription === "string" ? invoice.subscription : null;
+      const stripeInvoiceId = invoice.id;
+      const graceUntil = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+
+      try {
+        let storeId: string | null = null;
+        let ownerUserId: string | null = (invoice.metadata?.user_id as string) || null;
+
+        if (subscriptionId) {
+          const { data: store } = await supabaseClient
+            .from("creator_stores")
+            .select("id, user_id")
+            .eq("stripe_subscription_id", subscriptionId)
+            .maybeSingle();
+
+          if (store) {
+            storeId = store.id;
+            ownerUserId = ownerUserId ?? store.user_id;
+          }
+        }
+
+        if (storeId) {
+          await supabaseClient
+            .from("creator_stores")
+            .update({
+              billing_status: "past_due",
+              grace_until: graceUntil,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", storeId);
+        }
+
+        if (ownerUserId) {
+          const invoicePayload = {
+            user_id: ownerUserId,
+            store_id: storeId,
+            amount: (invoice.amount_due ?? 0) / 100,
+            status: "failed",
+            billing_type: "stripe",
+            stripe_invoice_id: stripeInvoiceId,
+          };
+
+          const { data: existingInvoice } = await supabaseClient
+            .from("store_invoices")
+            .select("id")
+            .eq("stripe_invoice_id", stripeInvoiceId)
+            .maybeSingle();
+
+          if (existingInvoice?.id) {
+            await supabaseClient
+              .from("store_invoices")
+              .update(invoicePayload)
+              .eq("id", existingInvoice.id);
+          } else {
+            await supabaseClient
+              .from("store_invoices")
+              .insert(invoicePayload);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to process invoice.payment_failed:", e);
+      }
+      break;
+    }
+
+    // CREATOR STORE — subscription cancelled / payment failed
+    case "customer.subscription.deleted": {
+      const sub = event.data.object as Stripe.Subscription;
+      try {
+        // Deactivate the store and unpublish all its themes
+        const { data: store } = await supabaseClient
+          .from("creator_stores")
+          .select("id")
+          .eq("stripe_subscription_id", sub.id)
+          .maybeSingle();
+
+        if (store) {
+          const { error: deactivateErr } = await supabaseClient
+            .from("creator_stores")
+            .update({
+              is_active: false,
+              billing_status: "canceled",
+              grace_until: null,
+              stripe_subscription_id: null,
+              renews_at: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", store.id);
+
+          if (deactivateErr) {
+            await supabaseClient
+              .from("creator_stores")
+              .update({
+                is_active: false,
+                stripe_subscription_id: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", store.id);
+          }
+
+          // Hide themes from store feed — preserve store_id so they auto-restore on renewal
+          await supabaseClient
+            .from("themes")
+            .update({ is_market_active: false, is_public: false })
+            .eq("store_id", store.id);
+
+          console.log(`Creator store ${store.id} deactivated (sub ${sub.id} cancelled)`);
+        }
+      } catch (e) {
+        console.error("Failed to deactivate creator store:", e);
+      }
+      break;
+    }
+    // CREATOR STORE — subscription updated (plan change, pause, payment status change)
+    case "customer.subscription.updated": {
+      const sub = event.data.object as unknown as Stripe.Subscription & { current_period_end?: number };
+      try {
+        const { data: store } = await supabaseClient
+          .from("creator_stores")
+          .select("id, user_id")
+          .eq("stripe_subscription_id", sub.id)
+          .maybeSingle();
+
+        if (store) {
+          const renewsAt = sub.current_period_end
+            ? new Date(sub.current_period_end * 1000).toISOString()
+            : null;
+
+          // Map Stripe subscription status to our billing_status
+          let billingStatus: string;
+          let isActive: boolean;
+          if (sub.status === "active") {
+            billingStatus = "active";
+            isActive = true;
+          } else if (sub.status === "past_due") {
+            billingStatus = "past_due";
+            isActive = true; // stays visible during grace
+          } else if (sub.status === "canceled" || sub.status === "unpaid") {
+            billingStatus = "canceled";
+            isActive = false;
+          } else {
+            // paused, incomplete, trialing — keep current is_active, update renews_at
+            billingStatus = sub.status;
+            isActive = sub.status !== "paused";
+          }
+
+          await supabaseClient
+            .from("creator_stores")
+            .update({
+              billing_status: billingStatus,
+              is_active: isActive,
+              renews_at: renewsAt,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", store.id);
+
+          // Hide themes from store feed — preserve store_id so they auto-restore on renewal
+          if (!isActive) {
+            await supabaseClient
+              .from("themes")
+              .update({ is_market_active: false, is_public: false })
+              .eq("store_id", store.id);
+          }
+
+          console.log(`Creator store ${store.id} updated: ${sub.status} (sub ${sub.id})`);
+        }
+      } catch (e) {
+        console.error("Failed to handle customer.subscription.updated:", e);
       }
       break;
     }

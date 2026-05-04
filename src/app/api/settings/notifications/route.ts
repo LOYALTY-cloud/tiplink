@@ -18,7 +18,7 @@ export async function GET(req: Request) {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: "Failed to load notification settings." }, { status: 500 });
 
     // First visit: insert default row so future toggles always upsert cleanly
     if (!data) {
@@ -42,10 +42,10 @@ export async function POST(req: Request) {
     if (!user) return unauthorized();
 
     const body = await req.json();
-    const key = body.key as string;
+    const key = body.key;
     const value = body.value;
 
-    if (!ALLOWED_KEYS.includes(key as SettingKey)) {
+    if (!key || typeof key !== "string" || !ALLOWED_KEYS.includes(key as SettingKey)) {
       return NextResponse.json({ error: "Invalid setting key" }, { status: 400 });
     }
     if (typeof value !== "boolean") {
@@ -63,7 +63,10 @@ export async function POST(req: Request) {
         { onConflict: "user_id" }
       );
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("settings/notifications POST", error);
+      return NextResponse.json({ error: "Failed to update notification settings" }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true });
   } catch (e: unknown) {
@@ -89,6 +92,6 @@ function unauthorized() {
 }
 
 function serverError(e: unknown) {
-  const msg = e instanceof Error ? e.message : String(e ?? "Server error");
-  return NextResponse.json({ error: msg }, { status: 500 });
+  console.error("settings/notifications", e);
+  return NextResponse.json({ error: "Server error" }, { status: 500 });
 }

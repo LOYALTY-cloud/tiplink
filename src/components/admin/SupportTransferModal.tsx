@@ -6,13 +6,13 @@ import { getAdminHeaders } from "@/lib/auth/adminSession";
 
 type SupportNotification = {
   id: string;
-  session_id: string;
-  from_admin_id: string;
-  from_admin_name: string;
+  session_id: string | null;
+  from_admin_id: string | null;
+  from_admin_name: string | null;
   to_admin_id: string;
   type: string;
   status: string;
-  metadata: { target_admin_name?: string; last_message?: string };
+  metadata: { target_admin_name?: string; last_message?: string; issue_type?: string; message_preview?: string; session_id?: string };
   created_at: string;
 };
 
@@ -90,6 +90,40 @@ export default function SupportTransferModal() {
 
   async function handleAccept() {
     if (!request) return;
+
+    // Direct assignment/escalation notifications: open chat immediately, ack in background.
+    if (request.type !== "transfer_request") {
+      const sid = request.session_id || request.metadata?.session_id || null;
+      if (!sid) {
+        alert("This notification is missing a chat session ID.");
+        return;
+      }
+
+      setResponding(true);
+      setResult("accepted");
+      setRequest(null);
+      setTimeout(() => {
+        setResult(null);
+      }, 900);
+
+      // Fire-and-forget acknowledgement so redirect is never blocked by network/API latency.
+      fetch("/api/support/notification/ack", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAdminHeaders(),
+        },
+        body: JSON.stringify({
+          notificationId: request.id,
+          action: "accept",
+        }),
+      }).catch(() => {});
+
+      router.push(`/admin/support/${sid}`);
+      setResponding(false);
+      return;
+    }
+
     setResponding(true);
     const admin = getAdmin();
 
@@ -97,7 +131,7 @@ export default function SupportTransferModal() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-admin-id": admin?.admin_id || "",
+        ...getAdminHeaders(),
       },
       body: JSON.stringify({
         notificationId: request.id,
@@ -124,6 +158,34 @@ export default function SupportTransferModal() {
 
   async function handleDecline(isTimeout = false) {
     if (!request) return;
+
+    // Direct assignment/escalation notifications: just acknowledge dismissal
+    if (request.type !== "transfer_request") {
+      setResponding(true);
+      await fetch("/api/support/notification/ack", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAdminHeaders(),
+        },
+        body: JSON.stringify({
+          notificationId: request.id,
+          action: "dismiss",
+        }),
+      }).catch(() => {});
+
+      setResponding(false);
+      setResult(isTimeout ? "expired" : "declined");
+      setTimeout(() => {
+        setRequest(null);
+        setResult(null);
+        setShowDeclineForm(false);
+        setDeclineReason("");
+        setDeclineCustom("");
+      }, 1200);
+      return;
+    }
+
     setResponding(true);
     const admin = getAdmin();
     const reason = isTimeout
@@ -136,7 +198,7 @@ export default function SupportTransferModal() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-admin-id": admin?.admin_id || "",
+        ...getAdminHeaders(),
       },
       body: JSON.stringify({
         notificationId: request.id,
@@ -160,7 +222,7 @@ export default function SupportTransferModal() {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] animate-[fadeIn_0.2s_ease]">
-      <div className="bg-black border border-white/10 rounded-2xl p-5 w-[340px] text-white shadow-2xl animate-[slideIn_0.3s_ease]">
+      <div className="bg-black border border-white/[0.12] rounded-2xl p-5 w-[340px] text-white shadow-2xl animate-[slideIn_0.3s_ease]">
         {/* Pulse ring */}
         <div className="flex items-center gap-3 mb-4">
           <div className="relative">
@@ -170,20 +232,30 @@ export default function SupportTransferModal() {
             <div className="absolute inset-0 w-10 h-10 rounded-full bg-blue-500/30 animate-ping" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold">Transfer Request</h2>
-            <p className="text-xs text-white/40">Incoming support handoff</p>
+            <h2 className="text-sm font-semibold">
+              {request.type === "transfer_request" ? "Transfer Request" : "New Assigned Chat"}
+            </h2>
+            <p className="text-xs text-white/55">
+              {request.type === "transfer_request" ? "Incoming support handoff" : "A chat was routed to you"}
+            </p>
           </div>
         </div>
 
-        <p className="text-sm text-white/70 mb-3">
-          <span className="text-blue-400 font-medium">{request.from_admin_name}</span>{" "}
-          is requesting you to take over a chat.
-        </p>
+        {request.type === "transfer_request" ? (
+          <p className="text-sm text-white/70 mb-3">
+            <span className="text-blue-400 font-medium">{request.from_admin_name}</span>{" "}
+            is requesting you to take over a chat.
+          </p>
+        ) : (
+          <p className="text-sm text-white/70 mb-3">
+            This support chat needs your attention. Open it to review and take over manually.
+          </p>
+        )}
 
         {/* Last message preview */}
         {request.metadata?.last_message && (
-          <div className="bg-white/5 border border-white/10 rounded-xl p-3 mb-4">
-            <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Last message</p>
+          <div className="bg-white/5 border border-white/[0.12] rounded-xl p-3 mb-4">
+            <p className="text-[10px] text-white/55 uppercase tracking-wider mb-1">Last message</p>
             <p className="text-xs text-white/60 line-clamp-2">
               {request.metadata.last_message}
             </p>
@@ -213,20 +285,20 @@ export default function SupportTransferModal() {
               disabled={responding}
               className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-black py-2.5 rounded-xl text-sm font-semibold transition active:scale-95"
             >
-              {responding ? "…" : "Accept"}
+              {responding ? "…" : request.type === "transfer_request" ? "Accept" : "Open Chat"}
             </button>
             <button
-              onClick={() => setShowDeclineForm(true)}
+              onClick={() => (request.type === "transfer_request" ? setShowDeclineForm(true) : handleDecline(false))}
               disabled={responding}
               className="flex-1 bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white py-2.5 rounded-xl text-sm font-medium transition active:scale-95"
             >
-              Decline
+              {request.type === "transfer_request" ? "Decline" : "Dismiss"}
             </button>
           </div>
         )}
 
         {/* Decline reason form */}
-        {!result && showDeclineForm && (
+        {!result && showDeclineForm && request.type === "transfer_request" && (
           <div className="space-y-2 animate-[fadeIn_0.2s_ease]">
             <p className="text-xs text-white/50 font-medium">Why are you declining?</p>
             <div className="flex flex-wrap gap-1.5">
@@ -237,7 +309,7 @@ export default function SupportTransferModal() {
                   className={`text-xs px-3 py-1.5 rounded-lg border transition active:scale-95 ${
                     declineReason === r
                       ? "bg-red-500/15 border-red-500/30 text-red-400"
-                      : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+                      : "bg-white/5 border-white/[0.12] text-white/60 hover:bg-white/10"
                   }`}
                 >
                   {r}
@@ -250,7 +322,7 @@ export default function SupportTransferModal() {
                 onChange={(e) => setDeclineCustom(e.target.value)}
                 placeholder="Brief reason…"
                 maxLength={120}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-white/20 transition"
+                className="w-full bg-white/5 border border-white/[0.12] rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/45 outline-none focus:border-white/20 transition"
                 autoFocus
               />
             )}

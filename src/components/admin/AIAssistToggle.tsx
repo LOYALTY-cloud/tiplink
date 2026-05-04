@@ -24,7 +24,7 @@ export default function AIAssistToggle() {
       className={`text-xs px-3 py-1 rounded-lg border transition ${
         enabled
           ? "bg-emerald-500/20 border-emerald-400 text-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.2)]"
-          : "bg-white/5 border-white/10 text-white/50"
+          : "bg-white/5 border-white/[0.12] text-white/50"
       }`}
     >
       🧠 AI Assist: {enabled ? "ON" : "OFF"}

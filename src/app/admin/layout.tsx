@@ -7,11 +7,15 @@ import { ui } from "@/lib/ui";
 import SupportTransferModal from "@/components/admin/SupportTransferModal";
 import { useInactivity } from "@/hooks/useInactivity";
 import SessionWarningModal from "@/components/SessionWarningModal";
-import { guardFetch, unguardFetch } from "@/lib/guardedFetch";
 import AIAssistToggle from "@/components/admin/AIAssistToggle";
-import AIAssistPanel from "@/components/admin/AIAssistPanel";
+import { clearAdminSession, getAdminHeaders } from "@/lib/auth/adminSession";
 import FraudAlertsBanner from "@/components/admin/FraudAlertsBanner";
 import AdminAlertProvider from "@/components/admin/AdminAlertProvider";
+import AIAssistPanel from "@/components/admin/AIAssistPanel";
+import AdminDisciplinaryAlertBanner from "@/components/admin/AdminDisciplinaryAlertBanner";
+import DisciplinaryModal from "@/components/admin/DisciplinaryModal";
+import { useDisciplinaryReports } from "@/hooks/useDisciplinaryReports";
+import NotificationBell from "@/components/admin/NotificationBell";
 
 type SearchResult = {
   type: "user" | "transaction" | "tip";
@@ -40,8 +44,10 @@ export default function AdminLayout({
   const [adminDrawerOpen, setAdminDrawerOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [sessionWarning, setSessionWarning] = useState(false);
+  const disciplinary = useDisciplinaryReports();
   const searchRef = useRef<HTMLDivElement>(null);
-  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const drawerScrollRef = useRef<HTMLDivElement>(null);
+  const moreMenuScrollRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Admin: tighter 5-min timeout, 4-min warning
@@ -66,7 +72,9 @@ export default function AdminLayout({
 
     // Check admin session from localStorage
     const raw = localStorage.getItem("admin_session");
-    if (!raw) {
+    const token = localStorage.getItem("admin_token");
+    if (!raw || !token) {
+      clearAdminSession();
       router.replace("/admin/login");
       return;
     }
@@ -76,7 +84,7 @@ export default function AdminLayout({
       const session = JSON.parse(raw);
       const adminRoles = ["owner", "super_admin", "finance_admin", "support_admin"];
       if (!session?.role || !adminRoles.includes(session.role) || !session?.admin_id) {
-        localStorage.removeItem("admin_session");
+        clearAdminSession();
         router.replace("/admin/login");
         return;
       }
@@ -84,7 +92,7 @@ export default function AdminLayout({
       // Check session expiry (8-hour max lifetime)
       // Sessions without expires_at are from before this check — force re-login
       if (!session.expires_at || Date.now() > session.expires_at) {
-        localStorage.removeItem("admin_session");
+        clearAdminSession();
         router.replace("/admin/login");
         return;
       }
@@ -95,7 +103,7 @@ export default function AdminLayout({
       // Check admin status (restricted / suspended / terminated)
       try {
         const statusRes = await fetch("/api/admin/status", {
-          headers: { "X-Admin-Id": session.admin_id },
+          headers: getAdminHeaders(),
         });
         if (statusRes.ok) {
           const statusData = await statusRes.json();
@@ -112,18 +120,35 @@ export default function AdminLayout({
 
       setLoading(false);
     } catch {
-      localStorage.removeItem("admin_session");
+      clearAdminSession();
       router.replace("/admin/login");
     }
     })();
   }, [pathname, router]);
 
   const adminLogout = () => {
-    localStorage.removeItem("admin_session");
+    const raw = localStorage.getItem("admin_session");
+    if (raw) {
+      try {
+        const session = JSON.parse(raw);
+        if (session?.admin_id) {
+          navigator.sendBeacon(
+            "/api/admin/availability",
+            new Blob([JSON.stringify({ availability: "offline", _admin_id: session.admin_id })], { type: "application/json" })
+          );
+          // End work session for payroll tracking
+          navigator.sendBeacon(
+            "/api/admin/session/end",
+            new Blob([JSON.stringify({ admin_id: session.id })], { type: "application/json" })
+          );
+        }
+      } catch {}
+    }
+    clearAdminSession();
     router.replace("/admin/login");
   };
 
-  // Heartbeat: ping availability API every 2 min to stay online
+  // Heartbeat: ping presence API every 20s to stay online (production-grade)
   useEffect(() => {
     if (pathname === "/admin/login") return;
     const raw = localStorage.getItem("admin_session");
@@ -131,22 +156,80 @@ export default function AdminLayout({
     const session = JSON.parse(raw);
     if (!session?.admin_id) return;
 
-    // Initial ping on mount
-    fetch("/api/admin/availability", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Admin-Id": session.admin_id },
-      body: JSON.stringify({ heartbeat: true }),
-    }).catch(() => {});
+    // Initial ping on mount (only if tab is visible)
+    if (document.visibilityState === "visible") {
+      fetch("/api/admin/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAdminHeaders() },
+      }).catch(() => {});
+    }
 
     const interval = setInterval(() => {
-      fetch("/api/admin/availability", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Admin-Id": session.admin_id },
-        body: JSON.stringify({ heartbeat: true }),
-      }).catch(() => {});
-    }, 2 * 60 * 1000);
+      // Multi-tab fix: only send heartbeat when tab is visible
+      if (document.visibilityState === "visible") {
+        fetch("/api/admin/presence", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...getAdminHeaders() },
+        }).catch(() => {});
+      }
+    }, 20_000); // every 20 seconds
 
     return () => clearInterval(interval);
+  }, [pathname]);
+
+  // Mark offline on tab close / hide
+  useEffect(() => {
+    if (pathname === "/admin/login") return;
+    const raw = localStorage.getItem("admin_session");
+    if (!raw) return;
+    let adminId: string | null = null;
+    let userId: string | null = null;
+    try {
+      const parsed = JSON.parse(raw);
+      adminId = parsed?.admin_id;
+      userId = parsed?.id;
+    } catch {}
+    if (!adminId) return;
+
+    function sendOffline() {
+      if (!adminId) return;
+      navigator.sendBeacon(
+        "/api/admin/availability",
+        new Blob([JSON.stringify({ availability: "offline", _admin_id: adminId })], { type: "application/json" })
+      );
+    }
+
+    function endWorkSession() {
+      if (!userId) return;
+      navigator.sendBeacon(
+        "/api/admin/session/end",
+        new Blob([JSON.stringify({ admin_id: userId })], { type: "application/json" })
+      );
+    }
+
+    function handleVisibility() {
+      if (document.visibilityState === "hidden") sendOffline();
+      else {
+        // Tab re-focused → presence ping to come back online
+        fetch("/api/admin/presence", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...getAdminHeaders() },
+        }).catch(() => {});
+      }
+    }
+
+    function handleBeforeUnload() {
+      sendOffline();
+      endWorkSession();
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [pathname]);
 
   // Close search dropdown on outside click
@@ -155,13 +238,78 @@ export default function AdminLayout({
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
         setSearchOpen(false);
       }
-      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
-        setMoreMenuOpen(false);
-      }
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  // Prevent scroll-chaining into the page while admin menus are open.
+  useEffect(() => {
+    const shouldLock = adminDrawerOpen || moreMenuOpen;
+    if (!shouldLock) return;
+
+    const body = document.body;
+    const scrollY = window.scrollY;
+    const prevPosition = body.style.position;
+    const prevTop = body.style.top;
+    const prevLeft = body.style.left;
+    const prevRight = body.style.right;
+    const prevWidth = body.style.width;
+    const prevOverflow = body.style.overflow;
+
+    // Freeze the page at the current scroll position to prevent wheel jitter
+    // from chaining into the document while menus are open.
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      const top = body.style.top;
+      const restoreY = top ? Math.abs(parseInt(top, 10)) || 0 : 0;
+      body.style.position = prevPosition;
+      body.style.top = prevTop;
+      body.style.left = prevLeft;
+      body.style.right = prevRight;
+      body.style.width = prevWidth;
+      body.style.overflow = prevOverflow;
+      document.documentElement.style.overflow = "";
+      window.scrollTo(0, restoreY);
+    };
+  }, [adminDrawerOpen, moreMenuOpen]);
+
+  // Native wheel event prevention — fires with { passive: false } so
+  // e.preventDefault() at scroll edges actually blocks page scroll.
+  useEffect(() => {
+    const panel = moreMenuScrollRef.current;
+    if (!panel || !moreMenuOpen) return;
+    const onWheel = (e: WheelEvent) => {
+      e.stopPropagation();
+      const { scrollTop, scrollHeight, clientHeight } = panel;
+      const atTop = scrollTop === 0 && e.deltaY < 0;
+      const atBottom = scrollTop + clientHeight >= scrollHeight - 1 && e.deltaY > 0;
+      if (atTop || atBottom) e.preventDefault();
+    };
+    panel.addEventListener("wheel", onWheel, { passive: false });
+    return () => panel.removeEventListener("wheel", onWheel);
+  }, [moreMenuOpen]);
+
+  useEffect(() => {
+    const drawer = drawerScrollRef.current;
+    if (!drawer || !adminDrawerOpen) return;
+    const onWheel = (e: WheelEvent) => {
+      e.stopPropagation();
+      const { scrollTop, scrollHeight, clientHeight } = drawer;
+      const atTop = scrollTop === 0 && e.deltaY < 0;
+      const atBottom = scrollTop + clientHeight >= scrollHeight - 1 && e.deltaY > 0;
+      if (atTop || atBottom) e.preventDefault();
+    };
+    drawer.addEventListener("wheel", onWheel, { passive: false });
+    return () => drawer.removeEventListener("wheel", onWheel);
+  }, [adminDrawerOpen]);
 
   // Debounced search
   useEffect(() => {
@@ -176,13 +324,11 @@ export default function AdminLayout({
   }, [searchQuery]);
 
   async function runSearch(q: string) {
-    const raw = localStorage.getItem("admin_session");
-    if (!raw) return;
-    const session = JSON.parse(raw);
-    if (!session?.admin_id) return;
+    const headers = getAdminHeaders();
+    if (!Object.keys(headers).length) return;
 
     const res = await fetch(`/api/admin/search?q=${encodeURIComponent(q)}`, {
-      headers: { "X-Admin-Id": session.admin_id },
+      headers,
     });
     if (!res.ok) return;
 
@@ -239,81 +385,108 @@ export default function AdminLayout({
     }`;
 
   const revenueRoles = ["owner", "super_admin"];
+  const staffRoles = ["owner", "super_admin"];
+  const fraudRoles = ["owner", "super_admin", "finance_admin"];
+  const overrideRoles = ["owner", "super_admin", "finance_admin"];
+  const logRoles = ["owner", "super_admin"];
+  const activityRoles = ["owner", "super_admin"];
+  const storeHeroRoles = ["owner", "super_admin"];
+  const ownerOnlyRoles = ["owner"];
 
-  const adminNavItems = [
-    { label: "Overview", href: "/admin" },
-    { label: "Users", href: "/admin/users" },
-    { label: "Transactions", href: "/admin/transactions" },
-    ...(userRole && revenueRoles.includes(userRole)
-      ? [{ label: "Revenue", href: "/admin/revenue" }]
-      : []),
-    ...(userRole === "owner"
-      ? [{ label: "Staff", href: "/admin/staff" }]
-      : []),
+  const NAV_SECTIONS = [
+    {
+      title: "Core",
+      items: [
+        { label: "Overview", href: "/admin", icon: "🏠" },
+        { label: "Users", href: "/admin/users", icon: "👤" },
+        { label: "Transactions", href: "/admin/transactions", icon: "💳" },
+        ...(userRole && revenueRoles.includes(userRole)
+          ? [{ label: "Revenue", href: "/admin/revenue", icon: "💰" }]
+          : []),
+      ],
+    },
+    {
+      title: "Risk & Finance",
+      items: [
+        { label: "Refunds", href: "/admin/refunds", icon: "💸" },
+        { label: "Disputes", href: "/admin/disputes", icon: "⚠️" },
+        ...(userRole && fraudRoles.includes(userRole)
+          ? [{ label: "Fraud", href: "/admin/fraud", icon: "🚨" }]
+          : []),
+        { label: "Verifications", href: "/admin/verifications", icon: "🔍" },
+        { label: "Creator Applications", href: "/admin/creator-applications", icon: "🎨" },
+        { label: "Elite Applications", href: "/admin/creators", icon: "⭐" },
+      ],
+    },
+    {
+      title: "Support",
+      items: [
+        { label: "Tickets", href: "/admin/tickets", icon: "🎫" },
+        { label: "Live Chat", href: "/admin/support", icon: "💬" },
+        { label: "Analytics", href: "/admin/support/analytics", icon: "📊" },
+      ],
+    },
+    {
+      title: "System",
+      items: [
+        ...(userRole && staffRoles.includes(userRole)
+          ? [
+              { label: "Staff", href: "/admin/staff", icon: "🛡️" },
+              { label: "Discipline", href: "/admin/staff/tickets", icon: "🧾" },
+              { label: "Payroll", href: "/admin/payroll", icon: "💰" },
+            ]
+          : []),
+        { label: "Approvals", href: "/admin/approvals", icon: "✅" },
+        ...(userRole && overrideRoles.includes(userRole)
+          ? [{ label: "Overrides", href: "/admin/overrides", icon: "⚙️" }]
+          : []),
+        ...(userRole && logRoles.includes(userRole)
+          ? [{ label: "Logs", href: "/admin/logs", icon: "📜" }]
+          : []),
+        ...(userRole && activityRoles.includes(userRole)
+          ? [
+              { label: "Activity", href: "/admin/activity", icon: "📋" },
+              { label: "Activity Calendar", href: "/admin/activity-calendar", icon: "🗓️" },
+            ]
+          : []),
+        ...(userRole && storeHeroRoles.includes(userRole)
+          ? [{ label: "Store Hero Ads", href: "/admin/store-hero", icon: "🎬" }]
+          : []),
+        ...(userRole && ownerOnlyRoles.includes(userRole)
+          ? [{ label: "Owner AI", href: "/admin/owner-ai", icon: "🧠" }]
+          : []),
+        { label: "Guide", href: "/admin/guide", icon: "📖" },
+      ],
+    },
   ];
 
-  const moreNavItems = [
-    { label: "Refunds", href: "/admin/refunds" },
-    { label: "Approvals", href: "/admin/approvals" },
-    { label: "Verifications", href: "/admin/verifications" },
-    { label: "Disputes", href: "/admin/disputes" },
-    { label: "Support", href: "/admin/support" },
-    { label: "Tickets", href: "/admin/tickets" },
-    { label: "Support Analytics", href: "/admin/support/analytics" },
-    { label: "Overrides", href: "/admin/overrides" },
-    { label: "Logs", href: "/admin/logs" },
-    { label: "Activity", href: "/admin/activity" },
-    { label: "Fraud", href: "/admin/fraud" },
-    { label: "Guide", href: "/admin/guide" },
-  ];
-
-  const allNavItems = [...adminNavItems, ...moreNavItems];
+  const adminNavItems = NAV_SECTIONS[0].items;
 
   return (
     <div className="min-h-screen">
-      <header className={`sticky top-0 z-10 ${ui.cardInner}`}>
-        <div className="max-w-7xl mx-auto px-4 md:px-8 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
+      <header className="sticky top-0 z-10 bg-black/60 backdrop-blur-xl border-b border-white/10 [will-change:transform] [transform:translateZ(0)]">
+        <div className="max-w-7xl mx-auto px-3 md:px-8 h-12 md:h-auto md:py-3 flex items-center justify-between gap-2 md:gap-3">
+          <div className="flex items-center gap-2 md:gap-4">
             <button
               onClick={() => setAdminDrawerOpen(true)}
-              className={`md:hidden ${ui.btnGhost} px-3 py-2 ${ui.btnSmall}`}
+              className="md:hidden text-white/60 hover:text-white text-lg px-2 py-1 transition"
               aria-label="Open menu"
             >
               ☰
             </button>
 
-            <div ref={moreMenuRef} className="relative flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <Link href="/admin" className="flex items-center gap-2">
-                <span className={`${ui.h2} tracking-tight`}>ADMIN</span>
+                <span className="text-sm md:text-lg font-semibold tracking-wide">ADMIN</span>
               </Link>
 
               <button
                 onClick={() => setMoreMenuOpen((v) => !v)}
-                className="text-white/60 hover:text-white text-lg px-2 py-1 transition flex-shrink-0"
+                className="hidden md:block text-white/60 hover:text-white text-lg px-2 py-1 flex-shrink-0"
                 aria-label="More pages"
               >
                 ☰
               </button>
-
-              {moreMenuOpen && (
-                <div className="absolute top-10 left-0 bg-black border border-white/10 rounded-xl shadow-lg p-2 w-48 z-50">
-                  {moreNavItems.map((it) => {
-                    const active = pathname === it.href || pathname?.startsWith(it.href);
-                    return (
-                      <button
-                        key={it.href}
-                        id={`nav-${it.href.split("/").pop()}`}
-                        onClick={() => { router.push(it.href); setMoreMenuOpen(false); }}
-                        className={`w-full text-left px-3 py-2 text-sm rounded-lg transition ${
-                          active ? "text-white bg-white/10" : "text-white/70 hover:bg-white/10 hover:text-white"
-                        }`}
-                      >
-                        {it.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
             </div>
 
             <nav className="hidden md:flex items-center gap-1">
@@ -325,7 +498,7 @@ export default function AdminLayout({
             </nav>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 md:gap-3">
             {/* Search Everywhere */}
             <div ref={searchRef} className="relative hidden md:block">
               <input
@@ -365,13 +538,11 @@ export default function AdminLayout({
               <div className={`text-xs ${ui.muted2}`}>Admin</div>
               <div className={`text-sm ${ui.muted}`}>{email}</div>
             </div>
+            <NotificationBell />
             <AIAssistToggle />
-            <Link href="/dashboard" className={ui.btnGhost}>
-              ← Dashboard
-            </Link>
             <button
               onClick={adminLogout}
-              className={`${ui.btnGhost} text-red-400 hover:text-red-300`}
+              className={`${ui.btnGhost} text-red-400 hover:text-red-300 hidden md:inline-flex text-xs md:text-sm`}
             >
               Log out
             </button>
@@ -379,90 +550,185 @@ export default function AdminLayout({
         </div>
       </header>
 
+      {/* Desktop more-pages side panel — rendered outside the sticky header to
+          avoid any interaction with the header's backdrop-blur compositing layer. */}
+      <div
+        className={`fixed inset-0 z-[199] hidden md:block transition-none pointer-events-none`}
+        aria-hidden={!moreMenuOpen}
+      >
+        {/* Overlay */}
+        <div
+          className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+            moreMenuOpen ? "opacity-100 pointer-events-auto" : "opacity-0"
+          }`}
+          onClick={() => setMoreMenuOpen(false)}
+        />
+        {/* Slide panel */}
+        <aside
+          className={`absolute left-0 top-0 h-full w-64 bg-[#0B1220] border-r border-white/10 shadow-[4px_0_40px_rgba(0,0,0,0.7)] flex flex-col pointer-events-auto transition-transform duration-200 ease-out ${
+            moreMenuOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
+            <div>
+              <p className="text-[10px] text-white/40 uppercase tracking-wider">Admin</p>
+              <p className="text-sm font-semibold">More Pages</p>
+            </div>
+            <button
+              onClick={() => setMoreMenuOpen(false)}
+              className="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </div>
+          <div
+            ref={moreMenuScrollRef}
+            className="flex-1 overflow-y-auto overscroll-contain px-2 py-3 space-y-4"
+            onTouchMove={(e) => e.stopPropagation()}
+          >
+            {NAV_SECTIONS.slice(1).map((section) => (
+              <div key={section.title}>
+                <p className="text-[10px] text-white/30 uppercase tracking-wider px-3 mb-1">{section.title}</p>
+                <div className="space-y-0.5">
+                  {section.items.map((it) => {
+                    const active = pathname === it.href || (it.href !== "/admin" && pathname?.startsWith(it.href));
+                    return (
+                      <button
+                        key={it.href}
+                        onClick={() => { router.push(it.href); setMoreMenuOpen(false); }}
+                        className={`admin-menu-item w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${
+                          active
+                            ? "bg-blue-500/20 text-blue-400 border border-blue-400/20"
+                            : "text-white/70 hover:bg-white/5 hover:text-white"
+                        }`}
+                      >
+                        <span className="text-base">{it.icon}</span>
+                        <span>{it.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+      </div>
+
       {/* Admin mobile drawer */}
       {adminDrawerOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <button
             aria-label="Close menu"
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/60"
             onClick={() => setAdminDrawerOpen(false)}
           />
-          <aside className={`${ui.card} absolute left-0 top-0 h-full w-[80%] max-w-[300px] border-r border-white/10 transform transition-transform duration-300 translate-x-0`}>
-            <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+          <aside className="absolute left-0 top-0 h-full w-[85%] max-w-[320px] bg-[#0B1220] border-r border-white/10 shadow-[0_0_40px_rgba(0,0,0,0.6)] flex flex-col transform transition-transform duration-300 translate-x-0">
+            {/* Drawer header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
               <div>
-                <div className={`text-xs font-medium text-red-400`}>ADMIN</div>
-                <div className={`text-sm font-semibold ${ui.muted}`}>Navigation</div>
+                <p className="text-[10px] text-white/40 uppercase tracking-wider">Admin</p>
+                <p className="text-sm font-semibold">Navigation</p>
               </div>
               <button
                 onClick={() => setAdminDrawerOpen(false)}
-                className={`${ui.btnGhost} px-2 py-1 ${ui.btnSmall}`}
+                className="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition"
                 aria-label="Close"
               >
                 ✕
               </button>
             </div>
-            <nav className="p-2">
-              {allNavItems.map((it) => {
-                const active = pathname === it.href || (it.href !== "/admin" && pathname?.startsWith(it.href));
-                return (
-                  <Link
-                    key={it.href}
-                    href={it.href}
-                    onClick={() => setAdminDrawerOpen(false)}
-                    className={`${active ? ui.navActive : ui.navIdle} w-full flex items-center gap-3`}
-                  >
-                    <span className="h-2 w-2 rounded-full bg-current opacity-60" />
-                    {it.label}
-                  </Link>
-                );
-              })}
-              <div className="border-t border-white/10 mt-2 pt-2">
-                <Link
-                  href="/dashboard"
-                  onClick={() => setAdminDrawerOpen(false)}
-                  className={`${ui.navIdle} w-full flex items-center gap-3`}
-                >
-                  <span className="h-2 w-2 rounded-full bg-current opacity-60" />
-                  ← Dashboard
-                </Link>
-                <button
-                  onClick={() => { setAdminDrawerOpen(false); adminLogout(); }}
-                  className={`${ui.navIdle} w-full flex items-center gap-3 text-red-400`}
-                >
-                  <span className="h-2 w-2 rounded-full bg-current opacity-60" />
-                  Log out
-                </button>
-              </div>
-            </nav>
+
+            {/* Grouped nav sections */}
+            <div
+              ref={drawerScrollRef}
+              className="menu-scroll-stable flex-1 overflow-y-auto overscroll-contain px-2 py-3 space-y-4"
+              onTouchMove={(e) => e.stopPropagation()}
+            >
+              {NAV_SECTIONS.map((section) => (
+                <div key={section.title}>
+                  <p className="text-[10px] text-white/30 uppercase tracking-wider px-3 mb-1">
+                    {section.title}
+                  </p>
+                  <div className="space-y-0.5">
+                    {section.items.map((item) => {
+                      const active = pathname === item.href || (item.href !== "/admin" && pathname?.startsWith(item.href));
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setAdminDrawerOpen(false)}
+                          className={`admin-menu-item flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${
+                            active
+                              ? "bg-blue-500/20 text-blue-400 border border-blue-400/20"
+                              : "text-white/70 hover:bg-white/5 hover:text-white"
+                          }`}
+                        >
+                          <span className="text-base">{item.icon}</span>
+                          <span>{item.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Bottom actions */}
+            <div className="border-t border-white/10 p-3 space-y-1">
+              <button
+                onClick={() => { setAdminDrawerOpen(false); adminLogout(); }}
+                className="admin-menu-item flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 w-full"
+              >
+                <span className="text-base">⏻</span>
+                <span>Log out</span>
+              </button>
+            </div>
           </aside>
         </div>
       )}
 
-      <FraudAlertsBanner />
+      <div className={disciplinary.locked ? "pointer-events-none blur-[1.5px] select-none" : ""}>
+        <FraudAlertsBanner />
+        <AdminDisciplinaryAlertBanner
+          alerts={disciplinary.reports}
+          loading={disciplinary.loading}
+          busyId={disciplinary.busyId}
+          acknowledge={disciplinary.acknowledge}
+        />
 
-      {/* Restricted mode banner */}
-      {adminStatus === "restricted" && (
-        <div className="max-w-7xl mx-auto px-4 md:px-8 pt-4">
-          <div className="p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-300 text-sm flex items-center gap-2">
-            <span>⚠️</span>
-            <span>
-              Your account is in <strong>restricted mode</strong> — view-only access.
-              {restrictedUntil && (
-                <span className="ml-1 text-yellow-200/70">
-                  Expires {new Date(restrictedUntil).toLocaleString()}
-                </span>
-              )}
-            </span>
+        {/* Restricted mode banner */}
+        {adminStatus === "restricted" && (
+          <div className="max-w-7xl mx-auto px-4 md:px-8 pt-4">
+            <div className="p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-300 text-sm flex items-center gap-2">
+              <span>⚠️</span>
+              <span>
+                Your account is in <strong>restricted mode</strong> — view-only access.
+                {restrictedUntil && (
+                  <span className="ml-1 text-yellow-200/70">
+                    Expires {new Date(restrictedUntil).toLocaleString()}
+                  </span>
+                )}
+              </span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <main className="max-w-7xl mx-auto px-4 md:px-8 py-6">{children}</main>
+        <main className="max-w-7xl mx-auto px-3 md:px-8 py-4 md:py-6">{children}</main>
 
-      {/* Global transfer notification modal */}
-      <SupportTransferModal />
-      <AIAssistPanel />
-      <AdminAlertProvider />
+        {/* Global transfer notification modal */}
+        <SupportTransferModal />
+        <AIAssistPanel />
+        <AdminAlertProvider />
+      </div>
+
+      <DisciplinaryModal
+        reports={disciplinary.reports}
+        loading={disciplinary.loading}
+        busyId={disciplinary.busyId}
+        markAsRead={disciplinary.markAsRead}
+        acknowledge={disciplinary.acknowledge}
+      />
 
       <SessionWarningModal
         open={sessionWarning}

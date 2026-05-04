@@ -3,10 +3,47 @@ import { handleStripeEvent } from "../../src/app/api/stripe/webhook/route";
 import { acquireWalletLock, releaseWalletLock } from "../../src/lib/walletLocks";
 
 // In-memory mock Supabase + ledger to simulate concurrency and verify locks
-function makeMockSupabase() {
+function makeMockSupabase(onRefundSlice?: (userId: string, amount: number) => void) {
   const intents: Record<string, any> = {};
   const events: Record<string, any> = {};
   const locks: Record<string, any> = {};
+  const processedRefunds: Record<string, boolean> = {};
+
+  function makeWalletLockDeleteQuery() {
+    const filters: Record<string, any> = {};
+    let expiresAtLt: string | null = null;
+    const query: any = {
+      eq: (col: string, val: any) => {
+        filters[col] = val;
+        if (filters.user_id && filters.lock_type && !expiresAtLt) {
+          for (const key of Object.keys(locks)) {
+            const row = locks[key];
+            if (row.user_id === filters.user_id && row.lock_type === filters.lock_type) {
+              delete locks[key];
+            }
+          }
+        }
+        return query;
+      },
+      lt: (col: string, val: any) => {
+        if (col === "expires_at") expiresAtLt = String(val);
+        return query;
+      },
+      select: async () => {
+        const deleted: Array<{ id: string }> = [];
+        for (const key of Object.keys(locks)) {
+          const row = locks[key];
+          if (filters.user_id && row.user_id !== filters.user_id) continue;
+          if (filters.lock_type && row.lock_type !== filters.lock_type) continue;
+          if (expiresAtLt && !(row.expires_at < expiresAtLt)) continue;
+          deleted.push({ id: row.id });
+          delete locks[key];
+        }
+        return { data: deleted, error: null };
+      },
+    };
+    return query;
+  }
 
   return {
     from: (table: string) => {
@@ -22,7 +59,19 @@ function makeMockSupabase() {
       if (table === "stripe_webhook_events") {
         return {
           select: () => ({ eq: (col: string, val: any) => ({ maybeSingle: async () => ({ data: events[val] ? { id: val } : null }) }) }),
+          upsert: async (payload: any) => {
+            events[payload.id] = payload;
+            return { error: null };
+          },
           insert: (payload: any) => ({ single: async () => { events[payload.id] = payload; return { data: payload }; } }),
+        };
+      }
+
+      if (table === "processed_refunds") {
+        return {
+          select: () => ({
+            eq: (_col: string, val: any) => ({ maybeSingle: async () => ({ data: processedRefunds[String(val)] ? { refund_id: String(val) } : null }) }),
+          }),
         };
       }
 
@@ -43,21 +92,7 @@ function makeMockSupabase() {
               }),
             };
           },
-          delete: () => ({
-            eq: async (col: string, val: any) => {
-              if (col === "user_id") {
-                const userId = val as string;
-                for (const k of Object.keys(locks)) {
-                  if (k.startsWith(`${userId}::`)) delete locks[k];
-                }
-              } else if (col === "id") {
-                for (const k of Object.keys(locks)) {
-                  if (locks[k].id === val) delete locks[k];
-                }
-              }
-              return { data: null };
-            },
-          }),
+          delete: () => makeWalletLockDeleteQuery(),
           select: () => ({
             eq: (col: string, val: any) => ({
               maybeSingle: async () => {
@@ -75,14 +110,34 @@ function makeMockSupabase() {
 
       return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }), insert: async () => ({ data: null }) };
     },
-    rpc: async () => ({ data: null }),
+    rpc: async (fn: string, args: any) => {
+      if (fn === "apply_refund_slice") {
+        const tip = Object.values(intents).find((it: any) => it.id === args.p_tip_id) as any;
+        if (!tip) return { error: { message: "tip_not_found" } };
+
+        if (processedRefunds[args.p_refund_id]) {
+          return { error: { message: "duplicate key value violates unique constraint processed_refunds_pkey", code: "23505" } };
+        }
+
+        processedRefunds[args.p_refund_id] = true;
+        tip.refunded_amount = Number((Number(tip.refunded_amount ?? 0) + Number(args.p_amount)).toFixed(2));
+        tip.refund_status = tip.refunded_amount >= Number(tip.tip_amount ?? tip.amount ?? 0) ? "full" : "partial";
+        tip.processed_refund_ids = [...(tip.processed_refund_ids ?? []), args.p_refund_id];
+        if (onRefundSlice) onRefundSlice(args.p_user_id, Number(args.p_amount));
+        return { error: null };
+      }
+      return { data: null };
+    },
     __seedTipIntent: (receipt: string, row: any) => { intents[receipt] = row; },
     __getTipByReceipt: (receipt: string) => intents[receipt],
   } as any;
 }
 
 async function run() {
-  const mockSupabase = makeMockSupabase();
+  const balances: Record<string, number> = {};
+  const mockSupabase = makeMockSupabase((userId: string, amount: number) => {
+    balances[userId] = (balances[userId] || 0) - amount;
+  });
 
   const user = crypto.randomUUID();
   const receipt = `r-${crypto.randomUUID()}`;
@@ -91,8 +146,6 @@ async function run() {
   const tip = { id: `intent-${crypto.randomUUID()}`, creator_user_id: user, amount: 50, receipt_id: receipt, status: "succeeded" };
   mockSupabase.__seedTipIntent(receipt, tip);
 
-  // Simple in-memory ledger balance
-  const balances: Record<string, number> = {};
   balances[user] = 100; // starting balance
 
   const ledger = async (entry: any) => {
@@ -124,7 +177,11 @@ async function run() {
   // give withdrawal a tiny headstart
   await new Promise((r) => setTimeout(r, 20));
   // first attempt — expected to be skipped because lock held
-  await handleStripeEvent(refundEvent, mockSupabase, ledger);
+  try {
+    await handleStripeEvent(refundEvent, mockSupabase, ledger);
+  } catch {
+    // expected while withdrawal lock is held; Stripe retry should later succeed
+  }
 
   // Wait for withdrawal to finish
   await w;

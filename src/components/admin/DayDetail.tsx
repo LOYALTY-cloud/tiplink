@@ -64,14 +64,14 @@ export default function DayDetail({
 
   if (loading) {
     return (
-      <div className="mt-4 border border-white/10 p-3 rounded">
+      <div className="mt-4 border border-white/[0.12] p-3 rounded">
         <p className="text-xs text-white/50">Loading…</p>
       </div>
     )
   }
 
   return (
-    <div className="mt-4 border border-white/10 p-3 rounded">
+    <div className="mt-4 border border-white/[0.12] p-3 rounded">
       <div className="flex items-center justify-between mb-2">
         <p className="text-sm text-white font-semibold">{date}</p>
         <div className="flex items-center gap-2">
@@ -85,7 +85,7 @@ export default function DayDetail({
             </span>
           )}
           <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-            source === "snapshot" ? "bg-blue-500/15 text-blue-400" : "bg-white/10 text-white/40"
+            source === "snapshot" ? "bg-blue-500/15 text-blue-400" : "bg-white/10 text-white/55"
           }`}>
             {source === "snapshot" ? "📦 Archived" : "⚡ Live"}
           </span>
@@ -94,20 +94,20 @@ export default function DayDetail({
 
       {snapshot?.summary && (
         <div className="flex gap-3 mb-2">
-          <span className="text-[10px] text-white/40">{snapshot.summary.total ?? 0} events</span>
-          <span className="text-[10px] text-white/40">{snapshot.summary.refunds ?? 0} refunds</span>
+          <span className="text-[10px] text-white/55">{snapshot.summary.total ?? 0} events</span>
+          <span className="text-[10px] text-white/55">{snapshot.summary.refunds ?? 0} refunds</span>
         </div>
       )}
 
       {events.length === 0 ? (
-        <p className="text-xs text-white/40">No activity on this day.</p>
+        <p className="text-xs text-white/55">No activity on this day.</p>
       ) : (
         <div className="space-y-1">
           {events.map((e, i) => (
             <div key={e.id ?? i} className="text-xs text-white/70 flex items-start gap-1.5">
-              <span className="text-white/40">•</span>
+              <span className="text-white/55">•</span>
               <span>{e.action}</span>
-              <span className="text-white/30 ml-auto shrink-0">
+              <span className="text-white/45 ml-auto shrink-0">
                 {new Date(e.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>
             </div>

@@ -11,7 +11,10 @@ export async function POST(req: Request) {
 
     // Sign out all sessions by revoking refresh tokens via admin API
     const { error } = await supabaseAdmin.auth.admin.signOut(user.id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("sign-out-all", error);
+      return NextResponse.json({ error: "Failed to sign out" }, { status: 500 });
+    }
 
     // Security notification
     try {
@@ -48,6 +51,6 @@ function unauthorized() {
 }
 
 function serverError(e: unknown) {
-  const msg = e instanceof Error ? e.message : String(e ?? "Server error");
-  return NextResponse.json({ error: msg }, { status: 500 });
+  console.error("sign-out-all", e);
+  return NextResponse.json({ error: "Server error" }, { status: 500 });
 }

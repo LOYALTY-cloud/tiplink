@@ -8,6 +8,7 @@ export type LedgerEntryType =
   | "payout_reversal"
   | "adjustment"
   | "withdrawal"
+  | "withdrawal_reversal"
   | "deposit"
   | "fee"
   | "system"
@@ -28,7 +29,32 @@ export interface LedgerEntry {
 }
 
 export async function addLedgerEntry(entry: LedgerEntry) {
-  // Insert a canonical ledger row
+  // Atomic: insert ledger row + recalculate wallet balance in a single DB call.
+  // Falls back to two-step if the atomic RPC doesn't exist yet.
+  const payload = {
+    p_user_id: entry.user_id,
+    p_type: entry.type,
+    p_amount: entry.amount,
+    p_reference_id: entry.reference_id ?? null,
+    p_meta: entry.meta ?? entry.metadata ?? {},
+    p_status: entry.status ?? "completed",
+  };
+
+  const { data, error } = await supabaseAdmin.rpc("add_ledger_entry_atomic", payload);
+
+  if (error) {
+    // If RPC doesn't exist yet (e.g. migration not applied), fall back to legacy two-step
+    if (error.message.includes("function") && error.message.includes("does not exist")) {
+      return addLedgerEntryLegacy(entry);
+    }
+    throw new Error(`Ledger insert failed: ${error.message}`);
+  }
+
+  return data ?? null;
+}
+
+/** Legacy two-step fallback (non-atomic). Remove after migration is applied. */
+async function addLedgerEntryLegacy(entry: LedgerEntry) {
   const insertPayload = {
     user_id: entry.user_id,
     type: entry.type,
@@ -45,7 +71,6 @@ export async function addLedgerEntry(entry: LedgerEntry) {
     throw new Error(`Ledger insert failed: ${error.message}`);
   }
 
-  // Recalculate wallet balance for the user (DB-side logic)
   const { error: recalcError } = await supabaseAdmin.rpc("recalculate_wallet_balance", { p_user_id: entry.user_id });
   if (recalcError) {
     throw new Error(`Wallet recalculation failed: ${recalcError.message}`);

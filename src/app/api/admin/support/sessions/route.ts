@@ -31,7 +31,7 @@ export async function GET(req: Request) {
     // Resolve user handles from profiles
     const sessions = result.data || [];
     const userIds = [...new Set(sessions.map((s: any) => s.user_id).filter(Boolean))];
-    let handleMap: Record<string, string> = {};
+    const handleMap: Record<string, string> = {};
     if (userIds.length > 0) {
       const { data: profiles } = await supabaseAdmin
         .from("profiles")
@@ -51,7 +51,7 @@ export async function GET(req: Request) {
     // Fetch admin presence
     const { data: admins } = await supabaseAdmin
       .from("profiles")
-      .select("user_id, display_name, availability, role")
+      .select("user_id, display_name, availability, role, last_active_at")
       .in("role", ["owner", "super_admin", "finance_admin", "support_admin"]);
 
     return NextResponse.json({

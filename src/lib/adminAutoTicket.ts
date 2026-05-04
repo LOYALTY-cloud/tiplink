@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { notifyDisciplinaryReportIssued } from "@/lib/adminNotifications";
 
 type AutoTicketParams = {
   targetUserId: string;
@@ -71,6 +72,12 @@ export async function createAutoAdminTicket({
         auto_generated: true,
         message: message.slice(0, 200),
       },
+    }).then(() => {}, () => {});
+
+    await notifyDisciplinaryReportIssued({
+      adminId: targetAdmin.id,
+      ticketId: ticket.id,
+      reason: message,
     }).then(() => {}, () => {});
 
     return { ok: true, ticketId: ticket.id };

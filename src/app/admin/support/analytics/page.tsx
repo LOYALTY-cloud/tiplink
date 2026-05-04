@@ -39,7 +39,10 @@ export default function SupportAnalyticsPage() {
 
   useEffect(() => {
     fetch("/api/admin/support/analytics", { headers: getAdminHeaders() })
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then((d) => {
         setData(d);
         setLoading(false);

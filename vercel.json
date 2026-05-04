@@ -23,6 +23,38 @@
     {
       "path": "/api/cron/recover-stuck-payouts?key=${CRON_SECRET}",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-stripe?key=${CRON_SECRET}",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/ledger-audit?key=${CRON_SECRET}",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/release-payouts?key=${CRON_SECRET}",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/snapshot-daily?key=${CRON_SECRET}",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/ai-alerts?key=${CRON_SECRET}",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/approve-theme-sales?key=${CRON_SECRET}",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/themes/payout/process?key=${CRON_SECRET}",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/store-grace-expiry?key=${CRON_SECRET}",
+      "schedule": "0 2 * * *"
     }
   ]
 }

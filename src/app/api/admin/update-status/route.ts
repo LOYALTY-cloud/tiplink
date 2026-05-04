@@ -69,9 +69,7 @@ export async function POST(req: Request) {
       .update(update)
       .eq("user_id", user_id);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    // Log admin action
+    if (error) return NextResponse.json({ error: "Failed to update account status." }, { status: 500 });
     await supabaseAdmin.from("admin_actions").insert({
       admin_id: adminId,
       action: "update_status",

@@ -58,19 +58,19 @@ export default function ThemePreviewModal({
         </div>
 
         {/* Actions */}
-        <div className="bg-[#0A1128] border-t border-white/10 p-4 space-y-3">
+        <div className="bg-[#0A1128] border-t border-white/[0.12] p-4 space-y-3">
           <p className="text-sm text-white/70 text-center">
             {isBundle ? (
-              <>Unlock <span className="font-semibold text-yellow-300">All Themes</span> for {priceLabel} <span className="text-[10px] text-white/40">(Save 40%)</span></>
+              <>Unlock <span className="font-semibold text-yellow-300">All Themes</span> for {priceLabel} <span className="text-[10px] text-white/55">(Save 40%)</span></>
             ) : (
               <>Unlock <span className="capitalize font-semibold text-white">{themeKey}</span> theme for {priceLabel}</>
             )}
           </p>
 
           {/* Balance bar */}
-          <div className={`rounded-lg px-3 py-2 ${canAfford ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-white/5 border border-white/10"}`}>
+          <div className={`rounded-lg px-3 py-2 ${canAfford ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-white/5 border border-white/[0.12]"}`}>
             <div className="flex items-center justify-between text-xs">
-              <span className={canAfford ? "text-emerald-300" : "text-white/40"}>
+              <span className={canAfford ? "text-emerald-300" : "text-white/55"}>
                 {canAfford ? "✓ Recommended — use your balance" : "Your Balance"}
               </span>
               <span className={`font-bold ${canAfford ? "text-emerald-400" : "text-white/60"}`}>
@@ -93,7 +93,7 @@ export default function ThemePreviewModal({
             className={`w-full text-sm font-semibold py-2.5 rounded-xl transition ${
               canAfford && !purchasing
                 ? "bg-emerald-600 hover:bg-emerald-500 text-white ring-1 ring-emerald-400/30"
-                : "bg-white/10 text-white/30 cursor-not-allowed"
+                : "bg-white/10 text-white/45 cursor-not-allowed"
             }`}
           >
             {purchasing
@@ -105,9 +105,9 @@ export default function ThemePreviewModal({
 
           {/* Divider */}
           <div className="flex items-center gap-3">
-            <div className="flex-1 border-t border-white/10" />
-            <span className="text-[10px] text-white/30 uppercase tracking-wider">or</span>
-            <div className="flex-1 border-t border-white/10" />
+            <div className="flex-1 border-t border-white/[0.12]" />
+            <span className="text-[10px] text-white/45 uppercase tracking-wider">or</span>
+            <div className="flex-1 border-t border-white/[0.12]" />
           </div>
 
           {/* Pay with Card — secondary */}
@@ -126,7 +126,7 @@ export default function ThemePreviewModal({
           <button
             onClick={onClose}
             disabled={purchasing}
-            className="w-full text-sm text-white/40 hover:text-white/60 transition"
+            className="w-full text-sm text-white/55 hover:text-white/60 transition"
           >
             Cancel
           </button>

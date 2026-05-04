@@ -1,10 +1,9 @@
-import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { sendEmail } from "@/lib/emailService";
+import { emailFooter } from "@/lib/email/footer";
 
 export async function POST(req) {
   try {
@@ -76,8 +75,8 @@ export async function POST(req) {
     const origin = process.env.NEXT_PUBLIC_SITE_URL || req.headers.get("origin") || "https://1nelink.com";
     const confirmUrl = `${origin}/verify/callback?token=${token}`;
 
-    await resend.emails.send({
-      from: process.env.EMAIL_FROM || "1neLink <receipts@1nelink.com>",
+    const emailResult = await sendEmail({
+      type: "EMAIL_VERIFICATION",
       to: normalizedEmail,
       subject: "Confirm your 1neLink account",
       html: `
@@ -115,14 +114,24 @@ export async function POST(req) {
       If this wasn't you, you can safely ignore this email.
     </p>
 
+    ${emailFooter()}
+
   </div>
 </div>
       `,
     });
 
+    if (!emailResult?.success) {
+      console.error("[send-confirmation] Email send failed:", emailResult?.error);
+      return NextResponse.json(
+        { success: false, error: "Failed to send email" },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error(error);
+    console.error("[send-confirmation] Error:", error);
     return NextResponse.json(
       { success: false, error: "Server error" },
       { status: 500 }

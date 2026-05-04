@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ui } from "@/lib/ui";
 import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
+import { supabaseAdmin } from "@/lib/supabase/adminBrowserClient";
+import { isAdminOnline, lastSeenText } from "@/lib/isAdminOnline";
+import AdminHoursDropdown from "@/components/admin/AdminHoursDropdown";
+import AdminPayrollPanel from "@/components/admin/AdminPayrollPanel";
 
 type AdminEntry = {
   id: string;
@@ -67,7 +71,35 @@ export default function AdminStaffPage() {
   const isOwner = session?.role === "owner";
 
   useEffect(() => {
+    const s = getAdminSession();
+    if (!s) { router.replace("/admin/login"); return; }
+    const allowed = ["owner", "super_admin", "finance_admin", "support_admin"];
+    if (!allowed.includes(s.role)) { router.replace("/admin"); return; }
     loadAdmins();
+  }, []);
+
+  // Realtime: update availability when admins go online/offline
+  useEffect(() => {
+    const channel = supabaseAdmin
+      .channel("staff-presence-rt")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles" },
+        (payload) => {
+          const updated = payload.new as { user_id: string; availability?: string; last_active_at?: string };
+          if (!updated.availability && !updated.last_active_at) return;
+          setAdmins((prev) =>
+            prev.map((a) =>
+              a.user_id === updated.user_id
+                ? { ...a, availability: updated.availability ?? a.availability, last_active_at: updated.last_active_at ?? a.last_active_at }
+                : a
+            )
+          );
+        }
+      )
+      .subscribe();
+
+    return () => { supabaseAdmin.removeChannel(channel); };
   }, []);
 
   async function loadAdmins() {
@@ -135,9 +167,19 @@ export default function AdminStaffPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className={ui.h1}>Staff</h1>
-        <span className={`${ui.chip}`}>{admins.length} admin{admins.length !== 1 ? "s" : ""}</span>
+        <div className="w-full sm:w-auto flex flex-wrap items-center gap-2">
+          <span className={`${ui.chip} shrink-0`}>{admins.filter(a => a.role !== "owner").length} admin{admins.filter(a => a.role !== "owner").length !== 1 ? "s" : ""} · {admins.filter(a => a.role === "owner").length} owner</span>
+          <AdminHoursDropdown />
+          <AdminPayrollPanel />
+          <button
+            onClick={() => router.push("/admin/payroll")}
+            className="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition shrink-0"
+          >
+            Payroll 💰
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -195,11 +237,23 @@ export default function AdminStaffPage() {
             {/* Risk Score + Availability */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <span className={`h-1.5 w-1.5 rounded-full ${
-                  admin.availability === "online" ? "bg-green-400" :
-                  admin.availability === "busy" ? "bg-yellow-400" : "bg-white/20"
-                }`} />
-                <span className={`text-xs ${ui.muted2} capitalize`}>{admin.availability}</span>
+                {(() => {
+                  const online = isAdminOnline(admin.last_active_at);
+                  return (
+                    <>
+                      <span className={`h-1.5 w-1.5 rounded-full ${
+                        !online ? "bg-white/20" :
+                        admin.availability === "busy" ? "bg-yellow-400" : "bg-green-400"
+                      }`} />
+                      <span className={`text-xs ${online ? "text-white/70" : "text-white/40"}`}>
+                        {online
+                          ? (admin.availability === "busy" ? "Busy" : "Online")
+                          : lastSeenText(admin.last_active_at)
+                        }
+                      </span>
+                    </>
+                  );
+                })()}
               </div>
               {admin.role !== "owner" && (
                 <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${RISK_BG[admin.risk_level] ?? RISK_BG.low} ${RISK_COLORS[admin.risk_level] ?? RISK_COLORS.low}`}>

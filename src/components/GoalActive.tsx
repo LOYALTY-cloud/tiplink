@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CircleProgress from "./CircleProgress";
 import { formatMoney } from "@/lib/walletFees";
 import { supabase } from "@/lib/supabase/client";
@@ -33,6 +33,19 @@ export default function GoalActive({ goal, goalEarnings, onDelete, onComplete }:
   const [completed, setCompleted] = useState(false);
   const hasMarkedComplete = useRef(false);
 
+  const markGoalComplete = useCallback(async () => {
+    const { data: session } = await supabase.auth.getSession();
+    const token = session.session?.access_token;
+
+    await fetch("/api/goals/complete", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // Clear from UI after 3s celebration
+    setTimeout(() => onComplete(), 3000);
+  }, [onComplete]);
+
   useEffect(() => {
     if (hasMarkedComplete.current) return;
     if (goalEarnings >= goal.amount) {
@@ -49,20 +62,7 @@ export default function GoalActive({ goal, goalEarnings, onDelete, onComplete }:
       // Mark complete in DB + notify parent
       markGoalComplete();
     }
-  }, [goalEarnings, goal.amount]);
-
-  async function markGoalComplete() {
-    const { data: session } = await supabase.auth.getSession();
-    const token = session.session?.access_token;
-
-    await fetch("/api/goals/complete", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    // Clear from UI after 3s celebration
-    setTimeout(() => onComplete(), 3000);
-  }
+  }, [goalEarnings, goal.amount, markGoalComplete]);
 
   // Days remaining until goal end
   const start = new Date(goal.startDate);
@@ -106,7 +106,7 @@ export default function GoalActive({ goal, goalEarnings, onDelete, onComplete }:
 
   return (
     <div
-      className={`bg-white/5 border border-white/10 rounded-2xl p-5 text-center relative transition-all duration-500 ${
+      className={`bg-white/5 border border-white/[0.12] rounded-2xl p-5 text-center relative transition-all duration-500 ${
         completed ? "shadow-[0_0_30px_rgba(34,197,94,0.4)]" : ""
       }`}
     >
@@ -114,12 +114,12 @@ export default function GoalActive({ goal, goalEarnings, onDelete, onComplete }:
       <div className="absolute top-4 right-4" ref={menuRef}>
         <button
           onClick={() => setMenuOpen((v) => !v)}
-          className="text-white/40 hover:text-white/70 transition text-lg leading-none px-1"
+          className="text-white/55 hover:text-white/70 transition text-lg leading-none px-1"
         >
           ⋮
         </button>
         {menuOpen && (
-          <div className="absolute right-0 mt-1 w-36 bg-zinc-900 border border-white/10 rounded-lg shadow-lg z-30 overflow-hidden">
+          <div className="absolute right-0 mt-1 w-36 bg-zinc-900 border border-white/[0.12] rounded-lg shadow-lg z-30 overflow-hidden">
             <button
               onClick={handleDelete}
               disabled={deleting}
@@ -154,7 +154,7 @@ export default function GoalActive({ goal, goalEarnings, onDelete, onComplete }:
       )}
 
       {/* Time remaining */}
-      <p className="text-white/40 text-xs mt-2">
+      <p className="text-white/55 text-xs mt-2">
         {daysLeft > 0 ? `Ends in ${daysLeft} day${daysLeft === 1 ? "" : "s"}` : "Goal period ended"}
       </p>
     </div>

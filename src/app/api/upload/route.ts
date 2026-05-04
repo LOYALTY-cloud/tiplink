@@ -10,8 +10,18 @@ type Body = {
   oldPublicUrl?: string;
 };
 
+const ALLOWED_BUCKETS = ["avatars", "banners", "theme-backgrounds"];
+
 export async function POST(req: Request) {
   try {
+    // Authenticate the caller
+    const supabaseAuth = await createSupabaseRouteClient();
+    const { data: authData, error: authErr } = await supabaseAuth.auth.getUser();
+    if (authErr || !authData?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const userId = authData.user.id;
+
     const body: Body = await req.json();
     const { bucket, fileName, fileBase64, oldPublicUrl } = body;
 
@@ -19,6 +29,16 @@ export async function POST(req: Request) {
 
     if (!bucket || !fileName || !fileBase64) {
       return NextResponse.json({ error: "Missing params" }, { status: 400 });
+    }
+
+    // Validate bucket is in the allow-list
+    if (!ALLOWED_BUCKETS.includes(bucket)) {
+      return NextResponse.json({ error: "Invalid bucket" }, { status: 400 });
+    }
+
+    // Ensure file path is scoped to the authenticated user
+    if (!fileName.startsWith(`${userId}/`) && !fileName.startsWith(`${userId}_`)) {
+      return NextResponse.json({ error: "File path not authorized" }, { status: 403 });
     }
 
     // Rate limit: 10 uploads per hour per IP
@@ -42,19 +62,39 @@ export async function POST(req: Request) {
       supabase = await createSupabaseRouteClient();
     }
 
-    // decode base64
+    // Decode base64
     const buffer = Buffer.from(fileBase64, 'base64');
 
-    // server-side max size 6MB
+    // Server-side max size 6MB
     if (buffer.length > 6 * 1024 * 1024) {
       return NextResponse.json({ error: 'File too large' }, { status: 400 });
     }
 
-    const { error: upErr } = await (supabase as any).storage.from(bucket).upload(fileName, buffer, { upsert: true });
+    // Magic bytes validation — verify actual file content matches declared image type.
+    // Prevents extension spoofing (e.g. script.js renamed to script.js.jpg).
+    const isValidImageMagicBytes =
+      (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) || // JPEG
+      (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) || // PNG
+      (buffer.slice(0, 4).toString('ascii') === 'RIFF' && buffer.slice(8, 12).toString('ascii') === 'WEBP') || // WebP
+      (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) || // GIF
+      (buffer.slice(4, 8).toString('ascii') === 'ftyp') || // MP4/AVIF ftyp box
+      (buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0x00 && buffer.slice(4, 8).toString('ascii') === 'ftyp'); // AVIF
+    if (!isValidImageMagicBytes) {
+      return NextResponse.json({ error: 'Invalid file content' }, { status: 400 });
+    }
+
+    const mimeMap: Record<string, string> = {
+      jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+      webp: "image/webp", gif: "image/gif", avif: "image/avif",
+    };
+    const contentType = mimeMap[ext] ?? "image/jpeg";
+    // theme-backgrounds use unique timestamped paths → immutable long cache
+    // avatars/banners use fixed per-user paths (upsert) → 1h cache so re-uploads propagate
+    const cacheControl = bucket === "theme-backgrounds" ? "31536000" : "3600";
+    const { error: upErr } = await (supabase as any).storage.from(bucket).upload(fileName, buffer, { upsert: true, contentType, cacheControl });
     if (upErr) {
       console.error("upload error", upErr);
-      const msg = upErr instanceof Error ? upErr.message : String(upErr ?? "Upload error");
-      return NextResponse.json({ error: msg }, { status: 500 });
+      return NextResponse.json({ error: "Upload failed. Please try again." }, { status: 500 });
     }
 
     // delete old file if provided
@@ -74,8 +114,8 @@ export async function POST(req: Request) {
     console.log("/api/upload success", { publicUrl: data.publicUrl });
     return NextResponse.json({ publicUrl: data.publicUrl });
   } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    console.error("upload", err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
 

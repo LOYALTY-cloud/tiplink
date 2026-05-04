@@ -10,7 +10,11 @@ import { checkSoftRestrictions } from "@/lib/softRestrictions";
 import { calculateTrustScore, type TrustInput } from "@/lib/trustScore";
 import { shouldAutoFreeze, executeAutoFreeze, type FreezeContext } from "@/lib/autoFreeze";
 import { hasSuspiciousLogins } from "@/lib/loginTracker";
+import { logFraudSignal, createFraudCase } from "@/lib/fraudSignals";
 import { logCaughtError } from "@/lib/errorLogger";
+import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { sendAdminAlert } from "@/lib/adminAlerts";
+import { triggerAIAlerts } from "@/lib/ai/alerts";
 import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
@@ -24,13 +28,19 @@ const toCents = (n: number) => Math.round(n * 100);
 const fromCents = (n: number) => Number((n / 100).toFixed(2));
 
 export async function POST(req: Request) {
+  let lockUserId: string | null = null;
   try {
-    const { amount } = await req.json();
+    const { amount, destination } = await req.json();
     const amt = Number(amount);
 
     if (!Number.isFinite(amt) || amt <= 0) {
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
     }
+
+    // Validate destination if provided (must be a Stripe external account ID)
+    const payoutDestination = (typeof destination === "string" && (destination.startsWith("ba_") || destination.startsWith("card_")))
+      ? destination
+      : undefined;
 
     // Use the caller's Supabase JWT
     const authHeader = req.headers.get("authorization") || "";
@@ -48,6 +58,7 @@ export async function POST(req: Request) {
     if (userErr || !userRes.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const userId = userRes.user.id;
+    lockUserId = userId;
 
     // Require verified email for withdrawals
     try {
@@ -56,35 +67,88 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Please verify your email before withdrawing" }, { status: 403 });
     }
 
+    // Rate limit: 3 withdrawals per 5 minutes per user
+    const { allowed: rateLimitOk } = await rateLimit(`withdraw:${userId}`, 3, 300);
+    if (!rateLimitOk) {
+      return NextResponse.json({ error: "Too many withdrawal attempts. Please wait." }, { status: 429 });
+    }
+
+    // Enforce wallet 2FA server-side — wallet must be unlocked within the last 30 minutes
+    const WALLET_UNLOCK_WINDOW_MS = 30 * 60 * 1000;
+    const { data: twoFaCheck } = await supabaseAdmin
+      .from("profiles")
+      .select("wallet_2fa_enabled, wallet_unlocked_at")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (twoFaCheck?.wallet_2fa_enabled) {
+      const unlockedAt = twoFaCheck.wallet_unlocked_at
+        ? new Date(twoFaCheck.wallet_unlocked_at).getTime()
+        : 0;
+      if (Date.now() - unlockedAt > WALLET_UNLOCK_WINDOW_MS) {
+        return NextResponse.json(
+          { error: "Wallet locked. Please unlock your wallet first." },
+          { status: 403 }
+        );
+      }
+    }
+
     // Check fraud-based soft restrictions
     const restriction = await checkSoftRestrictions(userId);
     if (restriction.blocked) {
       return NextResponse.json({ error: restriction.reason }, { status: 403 });
     }
 
-    // Block withdrawal if user has suspicious login patterns (3+ IPs in 1 hour)
-    const suspicious = await hasSuspiciousLogins(userId);
-    if (suspicious) {
-      return NextResponse.json(
-        { error: "Unusual login activity detected. Withdrawal blocked for security. Contact support." },
-        { status: 403 }
-      );
-    }
+    // Flag (not block) suspicious login patterns — feeds into trust score instead
+    const suspiciousLogins = await hasSuspiciousLogins(userId);
 
     // Load profile (Stripe status + account state)
     const { data: prof, error: profErr } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_account_id, stripe_payouts_enabled, is_flagged, created_at, account_status, payout_hold_until, daily_withdrawn, restricted_until")
+      .select("stripe_account_id, stripe_payouts_enabled, is_flagged, created_at, account_status, payout_hold_until, daily_withdrawn, restricted_until, total_volume")
       .eq("user_id", userId)
       .maybeSingle()
       .returns<ProfileRow | null>();
 
-    if (profErr) return NextResponse.json({ error: profErr.message }, { status: 500 });
+    if (profErr) return NextResponse.json({ error: "Withdrawal failed. Please try again." }, { status: 500 });
+
+    // Acquire wallet lock EARLY to prevent concurrent withdrawal races
+    const lock = await acquireWalletLock(supabaseAdmin, userId, "withdrawal", 300);
+    if (!lock.ok) {
+      return NextResponse.json({ error: "Withdrawal already in progress" }, { status: 409 });
+    }
+
+    // Fetch wallet balance under lock (prevents double-spend)
+    const { data: walletRow, error: walletErr } = await supabaseAdmin
+      .from("wallets")
+      .select("balance")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (walletErr) {
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
+      return NextResponse.json({ error: "Withdrawal failed. Please try again." }, { status: 500 });
+    }
+
+    const balance = Number((walletRow?.balance ?? 0) || 0);
+
+    // Re-fetch daily_withdrawn under lock to prevent stale-read bypass of daily limit
+    {
+      const { data: freshProfile } = await supabaseAdmin
+        .from("profiles")
+        .select("daily_withdrawn")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (prof && freshProfile) {
+        prof.daily_withdrawn = freshProfile.daily_withdrawn;
+      }
+    }
 
     // Run state-driven withdrawal safety rules
     if (prof) {
-      const check = validateWithdrawal(prof, amt) as { ok: boolean; reason?: string; expired_restriction?: boolean };
+      const check = validateWithdrawal(prof, amt, balance) as { ok: boolean; reason?: string; expired_restriction?: boolean };
       if (!check.ok) {
+        try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
         return NextResponse.json({ error: check.reason }, { status: 400 });
       }
       // Auto-unlock expired restriction
@@ -96,29 +160,27 @@ export async function POST(req: Request) {
       }
     }
 
-    if (!prof?.stripe_account_id) return NextResponse.json({ error: "Stripe not connected" }, { status: 400 });
-    if (!prof.stripe_payouts_enabled) return NextResponse.json({ error: "Payouts not enabled" }, { status: 400 });
+    if (!prof?.stripe_account_id) {
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
+      return NextResponse.json({ error: "Stripe not connected" }, { status: 400 });
+    }
+    if (!prof.stripe_payouts_enabled) {
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
+      return NextResponse.json({ error: "Payouts not enabled" }, { status: 400 });
+    }
 
     // Block withdrawals for accounts younger than 24 hours
     const accountAgeMs = Date.now() - new Date(prof.created_at ?? 0).getTime();
     if (accountAgeMs < 24 * 60 * 60 * 1000) {
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
       return NextResponse.json({ error: "Withdrawals are available 24 hours after account creation" }, { status: 403 });
     }
 
     const stripeAccount = prof.stripe_account_id;
 
-    // Enforce platform-side balance check
-    const { data: walletRow, error: walletErr } = await supabaseAdmin
-      .from("wallets")
-      .select("balance")
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (walletErr) return NextResponse.json({ error: walletErr.message }, { status: 500 });
-
-    const balance = Number((walletRow?.balance ?? 0) || 0);
     // Closed accounts can only withdraw — but must have a balance to do so
     if (prof?.account_status === "closed" && balance <= 0) {
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
       return NextResponse.json({ error: "No balance remaining" }, { status: 400 });
     }
 
@@ -129,7 +191,7 @@ export async function POST(req: Request) {
       .select("tip_amount, refunded_amount")
       .eq("creator_user_id", userId)
       .eq("refund_status", "initiated")
-      .gte("refund_initiated_at", initiatedCutoff);
+      .or(`refund_initiated_at.gte.${initiatedCutoff},refund_initiated_at.is.null`);
 
     const pendingRefundTotal = (pendingRefunds ?? []).reduce((sum, t) => {
       const owed = Number(t.tip_amount ?? 0) - Number(t.refunded_amount ?? 0);
@@ -137,6 +199,7 @@ export async function POST(req: Request) {
     }, 0);
 
     if (balance - amt < pendingRefundTotal) {
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
       return NextResponse.json(
         { error: `Withdrawal blocked: $${pendingRefundTotal.toFixed(2)} in pending refunds must be covered by remaining balance` },
         { status: 409 }
@@ -144,7 +207,8 @@ export async function POST(req: Request) {
     }
 
     if (amt > balance) {
-      return NextResponse.json({ error: "Insufficient balance", balance }, { status: 400 });
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
+      return NextResponse.json({ error: "Insufficient balance" }, { status: 400 });
     }
 
     // Also check connected Stripe account balance as a secondary guard
@@ -157,8 +221,9 @@ export async function POST(req: Request) {
     const reqCents = toCents(amt);
 
     if (reqCents > availableUsdCents) {
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
       return NextResponse.json(
-        { error: "Insufficient connected Stripe balance", available: fromCents(availableUsdCents) },
+        { error: "Payout temporarily unavailable. Our payment processor is settling funds. Please try again in a few minutes." },
         { status: 400 }
       );
     }
@@ -167,7 +232,7 @@ export async function POST(req: Request) {
     const accountAgeDays = Math.floor(accountAgeMs / (1000 * 60 * 60 * 24));
 
     // Gather trust signals from DB (parallel queries)
-    const [payoutsRes, chargebackRes, avgRes] = await Promise.all([
+    const [payoutsRes, chargebackRes, avgRes, baselineRes, anomalyRes] = await Promise.all([
       supabaseAdmin
         .from("withdrawals")
         .select("id", { count: "exact", head: true })
@@ -177,7 +242,8 @@ export async function POST(req: Request) {
         .from("fraud_anomalies")
         .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
-        .in("type", ["chargeback", "dispute"]),
+        .in("type", ["chargeback", "dispute"])
+        .gte("created_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
       supabaseAdmin
         .from("withdrawals")
         .select("amount")
@@ -185,58 +251,92 @@ export async function POST(req: Request) {
         .eq("status", "paid")
         .order("created_at", { ascending: false })
         .limit(10),
+      supabaseAdmin
+        .from("user_baselines")
+        .select("avg_withdrawal, avg_daily_volume, last_7d_volume, updated_at")
+        .eq("user_id", userId)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("ledger_anomalies")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .gte("detected_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
     ]);
 
     const successfulPayouts = payoutsRes.count ?? 0;
-    const hasChargebacks = (chargebackRes.count ?? 0) > 0;
-    const recentChargeback30d = hasChargebacks; // conservative: any chargeback counts
+    const chargebackCount30d = chargebackRes.count ?? 0;
+    const recentChargeback7d = chargebackCount30d > 0; // Used for auto-freeze (7-day signal)
+    const baseline = baselineRes.data;
+    const ledgerAnomalyCount = anomalyRes.count ?? 0;
 
     const pastAmounts = (avgRes.data ?? []).map((r) => Number(r.amount || 0));
     const avgPayout = pastAmounts.length > 0
       ? pastAmounts.reduce((s, a) => s + a, 0) / pastAmounts.length
       : 0;
-    const largeWithdrawal = avgPayout > 0 && amt > avgPayout * 2;
+    // Use baseline avg if available (90-day window), else fall back to last-10 average
+    const baselineAvg = Number(baseline?.avg_withdrawal ?? 0);
+    const effectiveAvg = baselineAvg > 0 ? baselineAvg : avgPayout;
+    const largeWithdrawal = effectiveAvg > 0 && amt > effectiveAvg * 2;
+
+    // Detect activity spike: current 7d volume is 5× the daily average (tuned to avoid flagging viral creators)
+    const activitySpike = baseline
+      ? Number(baseline.last_7d_volume ?? 0) > Number(baseline.avg_daily_volume ?? 0) * 7 * 5
+      : false;
+
+    // ── Rapid-fire detection (before trust score) ─────────────
+    // Uses behavior-based detection: count + tip→withdraw loops, not amounts
+    const { data: rapidFireData } = await supabaseAdmin
+      .rpc("detect_rapid_fire", { p_user_id: userId });
+
+    const rapidFire = rapidFireData as {
+      wd_count_30m: number;
+      wd_count_10m: number;
+      loop_count: number;
+      is_rapid: boolean;
+      is_loop: boolean;
+    } | null;
+
+    const isRapidPattern = rapidFire?.is_rapid ?? false;
+    const isLoopPattern = rapidFire?.is_loop ?? false;
 
     const trustInput: TrustInput = {
       account_age_days: accountAgeDays,
       successful_payouts: successfulPayouts,
-      has_chargebacks: hasChargebacks,
+      chargeback_count_30d: chargebackCount30d,
       consistent_activity: accountAgeDays >= 7, // simplified: active 7+ days
       same_device: true,  // TODO: wire device fingerprint when available
       stripe_verified: !!prof.stripe_payouts_enabled,
       new_device: false,  // TODO: wire device fingerprint comparison
-      new_ip: false,      // TODO: wire IP comparison
+      new_ip: suspiciousLogins, // 3+ IPs in 1h → trust penalty instead of hard block
       large_withdrawal: largeWithdrawal,
-      activity_spike: false, // covered by behavior tracker in fraud orchestrator
-      recent_chargeback: recentChargeback30d,
+      activity_spike: activitySpike,
+      recent_chargeback: recentChargeback7d,
       multi_account_flag: false, // TODO: wire multi-account detection
       is_flagged: !!prof.is_flagged,
+      total_volume: Number(prof.total_volume ?? 0),
+      ledger_anomaly_count: ledgerAnomalyCount,
+      rapid_fire: isRapidPattern || isLoopPattern,
     };
 
     const trust = calculateTrustScore(trustInput);
 
     // ── Auto-freeze check ─────────────────────────────────────
-    // Count rapid withdrawals (3+ in last hour = suspicious)
-    const { count: recentWithdrawals } = await supabaseAdmin
-      .from("withdrawals")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .gte("created_at", new Date(Date.now() - 60 * 60 * 1000).toISOString());
-
     const freezeCtx: FreezeContext = {
       userId,
       trust_score: trust.score,
-      recent_chargeback: recentChargeback30d,
+      recent_chargeback: recentChargeback7d,
       multi_account_flag: false, // TODO: wire multi-account detection
-      rapid_withdrawals: (recentWithdrawals ?? 0) >= 3,
+      rapid_withdrawals: isRapidPattern || isLoopPattern,
       activity_spike: false,
+      tip_withdraw_loop: isLoopPattern,
     };
 
-    const freezeReason = shouldAutoFreeze(freezeCtx);
-    if (freezeReason) {
-      await executeAutoFreeze(userId, freezeReason);
+    const freezeResult = shouldAutoFreeze(freezeCtx);
+    if (freezeResult) {
+      await executeAutoFreeze(userId, freezeResult.reason, freezeResult.level, freezeResult.signals);
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
       return NextResponse.json(
-        { error: "Account frozen due to suspicious activity", reason: freezeReason },
+        { error: "Account frozen due to suspicious activity", reason: freezeResult.reason },
         { status: 403 }
       );
     }
@@ -260,23 +360,49 @@ export async function POST(req: Request) {
         .update({ trust_score: trust.score, risk_level: trust.risk, last_risk_check: new Date().toISOString() })
         .eq("user_id", userId);
 
+      // Create fraud case and log signals for admin pipeline
+      await createFraudCase(userId, trust.score, trust.risk, trust.reasons, "withdrawal");
+      await logFraudSignal(userId, "high_risk_withdrawal", trust.score, {
+        amount: amt,
+        reasons: trust.reasons,
+        ledger_anomalies: ledgerAnomalyCount,
+      });
+
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
       return NextResponse.json(
         { error: "Withdrawal under review", risk_level: trust.risk, reasons: trust.reasons },
         { status: 403 }
       );
     }
 
-    // Determine release delay for MEDIUM risk
+    // ── Smart delay model ─────────────────────────────────────
+    // Combines payout history + trust score + risk level + behavior signals into one decision.
+    let withdrawalStatus: string;
     let releaseAt: string | null = null;
-    if (trust.risk === "medium") {
-      const delayMinutes = 30 + Math.floor(Math.random() * 31); // 30–60 min
-      releaseAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
-    }
 
-    // Acquire a per-user wallet lock to prevent concurrent withdrawals/refund races
-    const lock = await acquireWalletLock(supabaseAdmin, userId, "withdrawal", 300);
-    if (!lock.ok) {
-      return NextResponse.json({ error: "Withdrawal already in progress" }, { status: 409 });
+    // Rapid-fire detected → always delay regardless of trust
+    if (isRapidPattern || isLoopPattern) {
+      const delayMinutes = 30 + Math.floor(Math.random() * 31);
+      releaseAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
+      withdrawalStatus = "pending";
+    } else if (successfulPayouts >= 10 || trust.score >= 80) {
+      // Trusted creators → instant
+      withdrawalStatus = "approved";
+    } else if (successfulPayouts <= 2) {
+      // New users → 60–120 min delay
+      const delayMinutes = 60 + Math.floor(Math.random() * 61);
+      releaseAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
+      withdrawalStatus = "pending";
+    } else if (trust.risk === "low") {
+      // Established + low risk → 10–20 min delay
+      const delayMinutes = 10 + Math.floor(Math.random() * 11);
+      releaseAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
+      withdrawalStatus = "pending";
+    } else {
+      // Medium risk → 30–60 min delay
+      const delayMinutes = 30 + Math.floor(Math.random() * 31);
+      releaseAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
+      withdrawalStatus = "pending";
     }
 
     // Compute fee + net
@@ -291,10 +417,11 @@ export async function POST(req: Request) {
         amount: amt,
         fee: withdrawalFee,
         net: netAmount,
-        status: trust.risk === "low" ? "approved" : "pending",
+        status: withdrawalStatus,
         risk_score: trust.score,
         risk_level: trust.risk,
         release_at: releaseAt,
+        ...(payoutDestination ? { payout_destination: payoutDestination } : {}),
       })
       .select("id")
       .single();
@@ -308,7 +435,7 @@ export async function POST(req: Request) {
     if (wErr) {
       // release lock on failure to create row
       try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
-      return NextResponse.json({ error: wErr.message }, { status: 500 });
+      return NextResponse.json({ error: "Withdrawal failed. Please try again." }, { status: 500 });
     }
 
     // Log withdrawal to ledger (debit)
@@ -328,43 +455,102 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Failed to log ledger entry" }, { status: 500 });
     }
 
-    // Only attempt instant payouts
-    const payoutMethod = "instant" as const;
-    let payout;
+    // ── Payout execution ──────────────────────────────────────
+    // Only trigger the Stripe payout immediately for "approved" withdrawals.
+    // "pending" withdrawals are held until release_at — the release-payouts cron handles them.
+    if (withdrawalStatus === "approved") {
+      const payoutMethod = "instant" as const;
+      let payout;
 
-    try {
-      payout = await stripe.payouts.create(
-        {
-          amount: reqCents,
-          currency: "usd",
-          method: "instant",
-          statement_descriptor: "1NELINK PAYOUT",
-          metadata: { withdrawal_id: w.id, user_id: userId },
-        },
-        { stripeAccount }
-      );
-    } catch (err: unknown) {
-      // If instant payout fails, surface the error to the client
-      const payoutErr = err instanceof Error ? err.message : String(err ?? "Instant payout failed");
-      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
-      return NextResponse.json({ error: payoutErr }, { status: 400 });
+      try {
+        payout = await stripe.payouts.create(
+          {
+            amount: reqCents,
+            currency: "usd",
+            method: "instant",
+            statement_descriptor: "1NELINK PAYOUT",
+            metadata: { withdrawal_id: w.id, user_id: userId },
+            ...(payoutDestination ? { destination: payoutDestination } : {}),
+          },
+          { stripeAccount }
+        );
+      } catch (err: unknown) {
+        // If instant payout fails, REVERSE the ledger debit and mark withdrawal failed
+        const payoutErr = err instanceof Error ? err.message : String(err ?? "Instant payout failed");
+        console.error("Stripe payout failed:", payoutErr);
+
+        sendAdminAlert({
+          subject: "Stripe payout failed",
+          body: `Instant payout failed for user ${userId}. Amount: $${amt.toFixed(2)}. The ledger debit has been reversed.`,
+          severity: "critical",
+          meta: { user_id: userId, amount: amt.toFixed(2), error: payoutErr, withdrawal_id: w.id },
+        });
+
+        // Reverse ledger debit (credit back the amount)
+        try {
+          await addLedgerEntry({
+            user_id: userId,
+            type: "withdrawal_reversal",
+            amount: Number(amt.toFixed(2)),
+            reference_id: w.id,
+            meta: { action: "withdrawal_reversal", reason: "payout_failed", error: payoutErr },
+          });
+        } catch (reverseErr) {
+          console.error("CRITICAL: Failed to reverse ledger debit after payout failure:", reverseErr);
+          sendAdminAlert({
+            subject: "CRITICAL: Ledger reversal failed",
+            body: `Failed to reverse ledger debit after payout failure. User may have incorrect balance. MANUAL INTERVENTION REQUIRED.`,
+            severity: "critical",
+            meta: { user_id: userId, amount: amt.toFixed(2), withdrawal_id: w.id, error: String(reverseErr) },
+          });
+        }
+
+        // Mark withdrawal as failed
+        try {
+          await supabaseAdmin
+            .from("withdrawals")
+            .update({ status: "failed", failure_reason: payoutErr })
+            .eq("id", w.id);
+        } catch (_) {}
+
+        void triggerAIAlerts("withdrawals.create:payout_failed");
+
+        try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
+        return NextResponse.json({ error: "Payout failed. Please try again or contact support." }, { status: 400 });
+      }
+
+      await supabaseAdmin
+        .from("withdrawals")
+        .update({
+          stripe_payout_id: payout.id,
+          payout_method: payoutMethod,
+          status: payout.status, // usually 'pending' then webhook updates to 'paid'
+        })
+        .eq("id", w.id);
     }
 
-    await supabaseAdmin
-      .from("withdrawals")
-      .update({
-        stripe_payout_id: payout.id,
-        payout_method: payoutMethod,
-        status: payout.status, // usually 'pending' then webhook updates to 'paid'
-      })
-      .eq("id", w.id);
-    // Release the wallet lock now that withdrawal + ledger + payout initiated
-    try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
-
-    // Track daily withdrawal total
+    // Track daily withdrawal total (inside lock to prevent race condition)
     try {
       await supabaseAdmin.rpc("increment_daily_withdrawn", { uid: userId, amt });
     } catch (_) {}
+
+    // Increment lifetime fees-paid counter on wallets row.
+    // Safe to read-then-update here because wallet lock is still held.
+    try {
+      const { data: wRow } = await supabaseAdmin
+        .from("wallets")
+        .select("withdraw_fee")
+        .eq("user_id", userId)
+        .single();
+      const prevFee = Number(wRow?.withdraw_fee ?? 0);
+      await supabaseAdmin
+        .from("wallets")
+        .update({ withdraw_fee: Math.round((prevFee + withdrawalFee) * 100) / 100 })
+        .eq("user_id", userId);
+    } catch (_) {}
+
+    // Release the wallet lock now that withdrawal + ledger + daily counter are finalized
+    try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
 
     // Auto-finalize closed accounts once balance reaches zero
     if (prof?.account_status === "closed") {
@@ -405,22 +591,42 @@ export async function POST(req: Request) {
       }
     }
 
+    // Log withdrawal signal and refresh baseline (throttled: only if stale or high tx count)
+    try {
+      await logFraudSignal(userId, "withdrawal_completed", 0, {
+        amount: amt,
+        risk_score: trust.score,
+        risk_level: trust.risk,
+      });
+
+      // Only refresh baseline if it's been >15min since last update
+      const lastBaselineUpdate = baseline?.updated_at
+        ? new Date(String(baseline.updated_at)).getTime()
+        : 0;
+      if (Date.now() - lastBaselineUpdate > 15 * 60 * 1000) {
+        await supabaseAdmin.rpc("refresh_user_baseline", { p_user_id: userId });
+      }
+    } catch (_) {}
+
     return NextResponse.json({
       ok: true,
       withdrawal_id: w.id,
-      payout_id: payout.id,
-      payout_status: payout.status,
-      payout_method: payoutMethod,
       amount: amt,
       fee: withdrawalFee,
       net: netAmount,
-      risk_score: trust.score,
-      risk_level: trust.risk,
+      status: withdrawalStatus,
+      payout_method: withdrawalStatus === "approved" ? "instant" : "standard",
+      message: withdrawalStatus === "approved"
+        ? "Payout initiated"
+        : "Processing your payout — funds will be released shortly",
       release_at: releaseAt,
     });
   } catch (e: unknown) {
     logCaughtError("api/withdrawals/create", e);
-    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    // Best-effort lock release on unexpected errors
+    try {
+      if (lockUserId) await releaseWalletLock(supabaseAdmin, lockUserId, "withdrawal");
+    } catch (_) {}
+    return NextResponse.json({ error: "Withdrawal failed. Please try again." }, { status: 500 });
   }
 }

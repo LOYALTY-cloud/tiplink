@@ -12,6 +12,7 @@ const mainTabs = [
 ];
 
 const accountTabs = [
+  { href: "/store", label: "Theme Store" },
   { href: "/dashboard/settings", label: "Settings" },
   { href: "/dashboard/support", label: "Support" },
 ];
@@ -24,10 +25,13 @@ export default function DashboardHeader() {
   const isActive = (href: string) => pathname === href;
 
   return (
-    <header className="flex items-center justify-between px-6 py-4 border-b border-white/10 relative">
-      <div className="flex items-center gap-2">
-        <img src="/1nelink-logo.png" alt="1neLink" className="h-10 w-10 rounded-xl object-contain drop-shadow-[0_0_10px_rgba(0,224,255,0.4)]" />
-        <span className="text-lg font-semibold tracking-wide">1NELINK</span>
+    <header className="flex items-center justify-between px-6 py-4 border-b border-white/[0.12] relative">
+      <div className="flex items-center gap-3">
+        <img
+          src="/1nelink-logo.png"
+          alt="1neLink"
+          className="h-9 md:h-11 w-auto object-contain drop-shadow-[0_0_10px_rgba(0,224,255,0.4)] transition-opacity hover:opacity-90"
+        />
       </div>
 
       {/* Desktop Tabs */}
@@ -65,14 +69,18 @@ export default function DashboardHeader() {
 
       {/* Desktop Hamburger Menu (Account Only) */}
       {menuOpen && (
-        <div className="absolute right-4 top-16 w-48 bg-black border border-white/10 rounded-xl p-3 md:block hidden z-50">
-          {accountTabs.map(tab => (
-            <a key={tab.href} href={tab.href} className="block py-2 text-white/80 hover:text-blue-300 transition">
-              {tab.label}
-            </a>
-          ))}
-          <button className="block py-2 text-red-400 w-full text-left">Log out</button>
-        </div>
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+          <div className="absolute right-4 top-16 w-52 bg-black border border-white/[0.12] rounded-xl p-3 z-50">
+            {accountTabs.map(tab => (
+              <a key={tab.href} href={tab.href} onClick={() => setMenuOpen(false)} className="block py-2 px-2 text-white/80 hover:text-blue-300 transition">
+                {tab.label}
+              </a>
+            ))}
+            <div className="border-t border-white/[0.12] my-2" />
+            <button className="block py-2 px-2 text-red-400 w-full text-left">Log out</button>
+          </div>
+        </>
       )}
 
       {/* Mobile Menu */}
@@ -95,13 +103,13 @@ export default function DashboardHeader() {
                 {tab.label}
               </a>
             ))}
-            <div className="border-t border-white/10 my-4"></div>
+            <div className="border-t border-white/[0.12] my-4"></div>
             {accountTabs.map(tab => (
               <a key={tab.href} href={tab.href} className="block py-2 text-white/80 hover:text-blue-300 transition">
                 {tab.label}
               </a>
             ))}
-            <div className="border-t border-white/10 my-4"></div>
+            <div className="border-t border-white/[0.12] my-4"></div>
             <button className="text-red-400 text-left">Log out</button>
           </nav>
         </div>

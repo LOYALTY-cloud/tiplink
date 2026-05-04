@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     }
 
     const buffer = await renderToBuffer(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       React.createElement(CaseReport, { caseData }) as any
     )
 

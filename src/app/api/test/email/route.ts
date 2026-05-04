@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resend } from "@/lib/email";
+import { emailFooter } from "@/lib/email/footer";
 
 export const runtime = "nodejs";
 
@@ -20,7 +21,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Pass ?to=your@email.com" }, { status: 400 });
   }
 
-  const from = process.env.EMAIL_FROM!;
+  const from = process.env.EMAIL_FROM || "1neLink <noreply@1nelink.com>";
   const ticketId = "test1234-5678-abcd-efgh";
   const dashboardUrl = "https://1nelink.com/dashboard";
   const ticketUrl = `${dashboardUrl}/support/tickets/${ticketId}`;
@@ -119,6 +120,7 @@ function buildSupportEmail({ title, body, ticketUrl }: { title: string; body: st
         You can manage notification preferences in your
         <a href="https://1nelink.com/dashboard" style="color:#6b7280;">Settings</a>.
       </p>
+      ${emailFooter()}
     </div>
   </div>`;
 }

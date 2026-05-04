@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { calculateAdminRisk } from "@/lib/adminRiskEngine";
+import { requireRole } from "@/lib/auth/requireRole";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,7 @@ export async function GET(
   try {
     const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    try { requireRole(session.role, "staff"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
     const { id } = await params;
 

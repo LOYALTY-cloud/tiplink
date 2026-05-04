@@ -17,6 +17,16 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
   const [err, setErr] = useState<string | null>(null);
   const [details, setDetails] = useState<any>(null);
 
+  // Reset state when modal is closed
+  const handleClose = () => {
+    if (loading) return;
+    setPassword("");
+    setConfirmText("");
+    setErr(null);
+    setDetails(null);
+    onClose();
+  };
+
   const canSubmit = useMemo(() => {
     return !!email && password.length >= 6 && confirmText.trim().toUpperCase() === "DELETE";
   }, [email, password, confirmText]);
@@ -33,19 +43,7 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
 
     setLoading(true);
     try {
-      // 1) Re-authenticate (password gate)
-      const { error: signInErr } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (signInErr) {
-        setErr("Incorrect password. Please try again.");
-        setLoading(false);
-        return;
-      }
-
-      // 2) Get fresh session token
+      // 1) Get fresh session token
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       if (!token) {
@@ -54,10 +52,14 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
         return;
       }
 
-      // 3) Call hard-delete API
+      // 2) Call hard-delete API with password for server-side re-verification
       const r = await fetch("/api/account/delete", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ password }),
       });
       const j = await r.json();
 
@@ -72,7 +74,8 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
         return;
       }
 
-      // 4) Signed out already? Just redirect to login
+      // 3) Clear sensitive state, sign out, redirect
+      setPassword("");
       await supabase.auth.signOut();
       onDeleted?.();
       window.location.href = "/login";
@@ -90,11 +93,11 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={loading ? undefined : onClose}
+        onClick={handleClose}
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-md rounded-2xl border border-white/10 bg-[#0b1220]/90 p-5 shadow-2xl">
+      <div className="relative w-full max-w-md rounded-2xl border border-white/[0.12] bg-[#0b1220]/90 p-5 shadow-2xl">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-lg font-semibold text-white">Delete account</div>
@@ -104,7 +107,7 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
           </div>
           <button
             className="rounded-lg px-2 py-1 text-white/70 hover:text-white"
-            onClick={loading ? undefined : onClose}
+            onClick={handleClose}
             aria-label="Close"
           >
             ✕
@@ -126,7 +129,7 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-red-500/30"
+            className="mt-2 w-full rounded-xl border border-white/[0.12] bg-white/5 px-3 py-3 text-white placeholder:text-white/45 focus:outline-none focus:ring-2 focus:ring-red-500/30"
             placeholder="Enter password"
             autoComplete="current-password"
           />
@@ -140,14 +143,14 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
           <input
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
-            className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-red-500/30"
+            className="mt-2 w-full rounded-xl border border-white/[0.12] bg-white/5 px-3 py-3 text-white placeholder:text-white/45 focus:outline-none focus:ring-2 focus:ring-red-500/30"
             placeholder="DELETE"
           />
         </div>
 
         {/* Errors */}
         {err && (
-          <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/85">
+          <div className="mt-4 rounded-xl border border-white/[0.12] bg-white/5 p-3 text-sm text-white/85">
             <div className="font-semibold text-white">Can’t delete yet</div>
             <div className="mt-1 text-white/70">{err}</div>
 
@@ -162,8 +165,8 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
         {/* Actions */}
         <div className="mt-5 flex gap-3">
           <button
-            onClick={loading ? undefined : onClose}
-            className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white/80 hover:bg-white/10"
+            onClick={handleClose}
+            className="flex-1 rounded-xl border border-white/[0.12] bg-white/5 px-4 py-3 text-sm font-semibold text-white/80 hover:bg-white/10"
           >
             Cancel
           </button>
@@ -177,7 +180,7 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
           </button>
         </div>
 
-        <div className="mt-3 text-xs text-white/40">
+        <div className="mt-3 text-xs text-white/55">
           1NELINK uses Stripe Connect for payouts. If Stripe has pending funds, deletion may be blocked until settlement.
         </div>
       </div>

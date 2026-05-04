@@ -26,5 +26,6 @@ CREATE POLICY "service_role_all" ON error_logs
 -- Auto-cleanup: keep 30 days of logs
 CREATE OR REPLACE FUNCTION cleanup_old_error_logs()
 RETURNS void AS $$
-  DELETE FROM error_logs WHERE created_at < now() - interval '30 days';
-$$ LANGUAGE sql;
+  DELETE FROM public.error_logs WHERE created_at < now() - interval '30 days';
+$$ LANGUAGE sql
+SET search_path = '';

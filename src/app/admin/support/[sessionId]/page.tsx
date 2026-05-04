@@ -5,6 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/adminBrowserClient";
 import { getAdminHeaders } from "@/lib/auth/adminSession";
 import { getInitials } from "@/lib/getInitials";
+import { isAdminOnline } from "@/lib/isAdminOnline";
+import { encodeSupportFileRef } from "@/lib/supportFiles";
+import { getResolvedSupportFileUrl, useResolvedSupportFiles } from "@/hooks/useResolvedSupportFiles";
 
 /** Turn plain-text URLs into clickable links */
 function Linkify({ text, className }: { text: string; className?: string }) {
@@ -67,6 +70,7 @@ type AdminOption = {
 
 function MessageBubble({ msg, isGrouped, isLastAdmin }: { msg: ChatMessage; isGrouped: boolean; isLastAdmin?: boolean }) {
   const [hovered, setHovered] = useState(false);
+  const resolvedFiles = useResolvedSupportFiles([msg.file_url], "admin");
 
   if (msg.sender_type === "system") {
     return (
@@ -80,6 +84,7 @@ function MessageBubble({ msg, isGrouped, isLastAdmin }: { msg: ChatMessage; isGr
   const displayName = isAgent ? (msg.sender_name || "Admin") : (msg.sender_name || "User");
   const initials = getInitials(displayName);
   const avatarColor = isAgent ? "bg-blue-500" : "bg-gray-500";
+  const attachmentUrl = getResolvedSupportFileUrl(msg.file_url, resolvedFiles);
 
   return (
     <div
@@ -126,16 +131,18 @@ function MessageBubble({ msg, isGrouped, isLastAdmin }: { msg: ChatMessage; isGr
           >
           <Linkify text={msg.message} className={isAgent ? "underline text-black/80 break-all" : "underline text-blue-400 break-all"} />
           {msg.file_url && (
-            msg.file_type?.startsWith("image") ? (
+            !attachmentUrl ? (
+              <p className={`mt-2 text-xs ${isAgent ? "text-black/60" : "text-white/60"}`}>Loading attachment…</p>
+            ) : msg.file_type?.startsWith("image") ? (
               <img
-                src={msg.file_url}
+                src={attachmentUrl}
                 alt="Attachment"
                 className="rounded-xl mt-2 max-w-[200px] cursor-pointer hover:opacity-80 transition"
-                onClick={() => window.open(msg.file_url!, "_blank")}
+                onClick={() => window.open(attachmentUrl, "_blank")}
               />
             ) : (
               <a
-                href={msg.file_url}
+                href={attachmentUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={`inline-flex items-center gap-1 mt-2 text-xs font-medium ${isAgent ? "text-black/70 underline" : "text-blue-400 underline"}`}
@@ -246,6 +253,8 @@ export default function AdminChatPage() {
   const [declineReasonText, setDeclineReasonText] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [assignedAdminAvailability, setAssignedAdminAvailability] = useState<string | null>(null);
+  const [assignedAdminLastActive, setAssignedAdminLastActive] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputTypingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -297,6 +306,41 @@ export default function AdminChatPage() {
       supabaseAdmin.removeChannel(channel);
     };
   }, [sessionId]);
+
+  // Track assigned admin's availability in realtime
+  useEffect(() => {
+    const adminId = session?.assigned_admin_id;
+    if (!adminId) { setAssignedAdminAvailability(null); return; }
+
+    // Initial fetch
+    supabaseAdmin
+      .from("profiles")
+      .select("availability, last_active_at")
+      .eq("user_id", adminId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setAssignedAdminAvailability(data.availability ?? "offline");
+          setAssignedAdminLastActive(data.last_active_at ?? null);
+        }
+      });
+
+    // Realtime subscription
+    const channel = supabaseAdmin
+      .channel(`admin-avail-${adminId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `user_id=eq.${adminId}` },
+        (payload) => {
+          const updated = payload.new as { availability?: string; last_active_at?: string };
+          if (updated.availability) setAssignedAdminAvailability(updated.availability);
+          if (updated.last_active_at) setAssignedAdminLastActive(updated.last_active_at);
+        }
+      )
+      .subscribe();
+
+    return () => { supabaseAdmin.removeChannel(channel); };
+  }, [session?.assigned_admin_id]);
 
   // Realtime messages subscription
   useEffect(() => {
@@ -521,9 +565,7 @@ export default function AdminChatPage() {
       return;
     }
 
-    const { data: urlData } = supabaseAdmin.storage
-      .from("support-files")
-      .getPublicUrl(filePath);
+    const fileRef = encodeSupportFileRef(filePath);
 
     // Optimistic local update for file message
     const optimisticFileMsg: ChatMessage = {
@@ -535,7 +577,7 @@ export default function AdminChatPage() {
       message: file.name,
       created_at: new Date().toISOString(),
       seen_at: null,
-      file_url: urlData.publicUrl,
+      file_url: fileRef,
       file_type: file.type,
     };
     setMessages((prev) => [...prev, optimisticFileMsg]);
@@ -545,7 +587,7 @@ export default function AdminChatPage() {
       headers: { "Content-Type": "application/json", ...getAdminHeaders() },
       body: JSON.stringify({
         fileName: file.name,
-        fileUrl: urlData.publicUrl,
+        fileRef,
         fileType: file.type,
         senderName: admin.name,
       }),
@@ -665,7 +707,7 @@ export default function AdminChatPage() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-admin-id": admin.admin_id || "",
+        ...getAdminHeaders(),
       },
       body: JSON.stringify({
         sessionId,
@@ -705,22 +747,21 @@ export default function AdminChatPage() {
 
   function adminPresence() {
     if (!session || !session.assigned_admin_id) return null;
-    const diff = Date.now() - new Date(session.updated_at || session.created_at).getTime();
-    const mins = diff / 60000;
-    if (mins < 5) return { label: "Active now", dot: "🟢" };
-    if (mins < 15) return { label: "Idle", dot: "🟡" };
-    return { label: "Offline", dot: "⚪" };
+    const online = isAdminOnline(assignedAdminLastActive);
+    if (!online) return { label: "Offline", dot: "⚪" };
+    if (assignedAdminAvailability === "busy") return { label: "Busy", dot: "🟡" };
+    return { label: "Online", dot: "🟢" };
   }
 
   async function handleReopen() {
     const raw = localStorage.getItem("admin_session");
-    const admin = raw ? JSON.parse(raw) : null;
+    const admin = raw ? JSON.parse(raw) : { id: null, name: "Admin" };
 
     const res = await fetch("/api/support/session/reopen", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-admin-id": admin?.admin_id || "",
+        ...getAdminHeaders(),
       },
       body: JSON.stringify({ sessionId, adminId: admin?.admin_id || admin?.id }),
     });
@@ -749,7 +790,7 @@ export default function AdminChatPage() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-admin-id": admin?.admin_id || "",
+        ...getAdminHeaders(),
       },
       body: JSON.stringify({
         sessionId,
@@ -799,7 +840,7 @@ export default function AdminChatPage() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-admin-id": admin.admin_id || "",
+        ...getAdminHeaders(),
       },
       body: JSON.stringify({
         sessionId,

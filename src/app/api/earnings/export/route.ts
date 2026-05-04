@@ -58,8 +58,23 @@ export async function GET(req: Request) {
   const { data: transactions, error: txErr } = await query;
 
   if (txErr) {
-    return NextResponse.json({ error: txErr.message }, { status: 500 });
+    console.error("earnings/export query", txErr);
+    return NextResponse.json({ error: "Failed to export earnings" }, { status: 500 });
   }
+
+  // Fetch theme sales (creator's earned rows, not the buyer)
+  let themeSalesQuery = supabaseAdmin
+    .from("theme_sales")
+    .select("id, amount, platform_fee, creator_earnings, created_at, theme_id")
+    .eq("seller_id", userId)
+    .order("created_at", { ascending: true });
+
+  if (startDate) {
+    themeSalesQuery = themeSalesQuery.gte("created_at", startDate.toISOString());
+  }
+
+  const { data: themeSales } = await themeSalesQuery;
+  const themeSalesRows = themeSales ?? [];
 
   const rows = transactions ?? [];
 
@@ -68,7 +83,7 @@ export async function GET(req: Request) {
     .filter((r) => r.type === "tip_received" && r.reference_id)
     .map((r) => r.reference_id!);
 
-  let feeMap = new Map<string, { platform_fee: number; gross: number; net: number }>();
+  const feeMap = new Map<string, { platform_fee: number; gross: number; net: number }>();
   if (tipRefIds.length > 0) {
     // Supabase .in() has a 100-item soft limit; batch if needed
     const batches: string[][] = [];
@@ -128,7 +143,21 @@ export async function GET(req: Request) {
     );
   }
 
-  const csv = csvRows.join("\n");
+  // Append theme sales rows
+  for (const sale of themeSalesRows) {
+    const date = new Date(sale.created_at).toISOString().slice(0, 19).replace("T", " ");
+    const gross = Number(sale.amount);
+    const platformFee = Number(sale.platform_fee);
+    const net = Number(sale.creator_earnings);
+    csvRows.push(
+      `${date},"Theme Sale",${gross.toFixed(2)},${platformFee.toFixed(2)},${net.toFixed(2)},completed,${sale.id},""`
+    );
+  }
+
+  // Sort all rows chronologically (skip header)
+  const header = csvRows[0];
+  const dataRows = csvRows.slice(1).sort((a, b) => a.localeCompare(b));
+  const csv = [header, ...dataRows].join("\n");
   const filename = `1nelink-earnings-${new Date().toISOString().slice(0, 10)}.csv`;
 
   return new Response(csv, {

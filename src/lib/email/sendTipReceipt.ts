@@ -1,6 +1,5 @@
-import { Resend } from "resend";
-
-const resend = new Resend(process.env.RESEND_API_KEY!);
+import { emailFooter } from "@/lib/email/footer";
+import { sendEmail } from "@/lib/emailService";
 
 type SendTipReceiptArgs = {
   to: string;
@@ -11,7 +10,6 @@ type SendTipReceiptArgs = {
 };
 
 export async function sendTipReceipt(args: SendTipReceiptArgs) {
-  const from = process.env.RECEIPTS_FROM_EMAIL!;
   const subject = `1NELINK receipt -- ${args.amountUsd}`;
 
   const html = `
@@ -36,8 +34,9 @@ export async function sendTipReceipt(args: SendTipReceiptArgs) {
       <p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">
         Need help? Reply to this email.
       </p>
+      ${emailFooter()}
     </div>
   </div>`;
 
-  return resend.emails.send({ from, to: args.to, subject, html });
+  return sendEmail({ type: "TIP_RECEIPT", to: args.to, subject, html });
 }

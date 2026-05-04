@@ -39,9 +39,8 @@ export default function AdminGuidePage() {
                 <div className="space-y-2">
                   <div className="bg-white/5 rounded-lg p-3">
                     <p className="text-xs font-medium text-blue-400 mb-1">Layer 1 — Rules (50% of score)</p>
-                    <p className="text-xs text-white/60">
-                      Checks hard signals: unusually large tip amounts, repeat use of the same card, 
-                      refund history, and brand-new accounts. Each red flag adds points.
+                    <p className="text-xs text-white/70">
+                      Each anomaly row has two buttons:
                     </p>
                   </div>
                   <div className="bg-white/5 rounded-lg p-3">
@@ -169,7 +168,7 @@ export default function AdminGuidePage() {
                 <ul className="text-xs text-white/60 space-y-1">
                   <li><strong className="text-red-400">Fraud</strong> — Confirm this was real fraud. Keeps the restriction in place.</li>
                   <li><strong className="text-emerald-400">FP (False Positive)</strong> — This was a legitimate transaction flagged by mistake. 
-                  If this was the user's last unresolved anomaly, their account is <strong className="text-white">automatically unrestricted</strong>.</li>
+                  If this was the user&apos;s last unresolved anomaly, their account is <strong className="text-white">automatically unrestricted</strong>.</li>
                 </ul>
               </div>
 
@@ -184,7 +183,7 @@ export default function AdminGuidePage() {
 
               <div className="border-t border-white/10 pt-3">
                 <p className="text-xs text-amber-400">
-                  ⚠️ Unresolved is the most important number. If it's growing, the team is falling behind on triage. 
+                  ⚠️ Unresolved is the most important number. If it&apos;s growing, the team is falling behind on triage. 
                   Every anomaly should be reviewed and marked as either Fraud or False Positive.
                 </p>
               </div>
@@ -1441,7 +1440,7 @@ export default function AdminGuidePage() {
             <p className="text-sm font-semibold text-white mb-1">Support Responses</p>
             <ul className="text-xs text-white/70 space-y-1">
               <li>✔ Be clear, professional, and helpful</li>
-              <li>✔ Answer the user's question directly</li>
+                  <li>✔ Answer the user&apos;s question directly</li>
               <li>✔ Review replies before sending</li>
               <li>❌ Do not guess or provide false information</li>
               <li>❌ Do not promise payouts or refunds</li>
@@ -1609,7 +1608,7 @@ export default function AdminGuidePage() {
         </div>
 
         <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
-          <p className="text-sm text-red-400 font-medium mb-2">❌ Don't</p>
+          <p className="text-sm text-red-400 font-medium mb-2">❌ Don&apos;t</p>
           <ul className="text-xs text-red-300 space-y-1">
             <li>• Guess answers</li>
             <li>• Ignore fraud alerts</li>

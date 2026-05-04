@@ -68,10 +68,10 @@ export function ReceiptStatusPoller({ receiptId }: { receiptId: string }) {
   }
 
   if (settled) {
-    // Timed out or unknown — show confirmed as fallback (webhook may still process)
+    // Timed out or unknown — don't falsely claim confirmed
     return (
-      <span className="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-        Confirmed
+      <span className="text-xs font-medium px-2 py-1 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200">
+        Pending — check back shortly
       </span>
     );
   }

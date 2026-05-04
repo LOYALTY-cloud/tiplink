@@ -13,7 +13,7 @@ type Props = {
 
 export default function RevenueBreakdown({ data }: Props) {
   return (
-    <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mt-5">
+    <div className="bg-white/5 border border-white/[0.12] rounded-2xl p-5 mt-5">
       <h2 className="text-sm font-semibold text-white/80 mb-4">
         Money Flow
       </h2>
@@ -47,7 +47,7 @@ export default function RevenueBreakdown({ data }: Props) {
           </span>
         </div>
 
-        <div className="flex justify-between border-t border-white/10 pt-3 mt-3">
+        <div className="flex justify-between border-t border-white/[0.12] pt-3 mt-3">
           <span className="text-white/80 font-semibold">Net Profit</span>
           <span className="text-emerald-400 font-semibold">
             {formatMoney(data.totalRevenue - data.totalRefunds)}

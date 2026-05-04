@@ -18,17 +18,23 @@ export async function POST(req: Request) {
   }
 
   const userId = authData.user.id;
-  const { methodId } = await req.json();
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+  const methodId = body.payout_method_id || body.methodId;
 
-  if (!methodId) {
-    return NextResponse.json({ error: "methodId required" }, { status: 400 });
+  if (!methodId || typeof methodId !== "string") {
+    return NextResponse.json({ error: "payout_method_id required" }, { status: 400 });
   }
 
   // Look up the method to verify ownership
   const { data: method } = await supabaseAdmin
     .from("payout_methods")
     .select("id, user_id, stripe_external_account_id, provider")
-    .eq("stripe_external_account_id", methodId)
+    .eq("id", methodId)
     .eq("user_id", userId)
     .eq("status", "active")
     .maybeSingle();

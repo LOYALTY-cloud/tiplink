@@ -1,7 +1,32 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { resend } from "@/lib/email";
+import { emailFooter } from "@/lib/email/footer";
+import { notificationTypeToCategory } from "@/lib/emailConfig";
+import { sendEmailAsync } from "@/lib/emailService";
 
-type NotificationType = "tip" | "payout" | "payout_failed" | "security" | "support";
+type NotificationType =
+  | "tip"
+  | "payout"
+  | "payout_requested"
+  | "payout_processing"
+  | "payout_paid"
+  | "payout_failed"
+  | "theme_sold"
+  | "theme_unlocked"
+  | "creator_approved"
+  | "security"
+  | "support";
+
+type NotificationCategory = "payouts" | "sales" | "tips" | "security" | "support" | "system";
+
+function deriveCategory(type: NotificationType): NotificationCategory {
+  if (type === "tip") return "tips";
+  if (type === "payout" || type.startsWith("payout_")) return "payouts";
+  if (type === "theme_sold" || type === "theme_unlocked") return "sales";
+  if (type === "creator_approved") return "system";
+  if (type === "security") return "security";
+  if (type === "support") return "support";
+  return "system";
+}
 
 type SecurityAction =
   | "restricted_temp"
@@ -10,7 +35,8 @@ type SecurityAction =
   | "closed"
   | "reactivated"
   | "password_changed"
-  | "bulk_restricted";
+  | "bulk_restricted"
+  | "new_device_login";
 
 const DASHBOARD_URL = "https://1nelink.com/dashboard";
 const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://1nelink.com";
@@ -26,12 +52,18 @@ export async function createNotification({
   type,
   title,
   body,
+  category,
+  actorId,
+  entityId,
   meta,
 }: {
   userId: string;
   type: NotificationType;
   title: string;
   body: string;
+  category?: NotificationCategory;
+  actorId?: string;
+  entityId?: string;
   meta?: {
     amount?: number;
     fee?: number;
@@ -42,6 +74,9 @@ export async function createNotification({
     restrictedUntil?: string;
     payout_id?: string;
     failure_message?: string | null;
+    freeze_level?: string;
+    device?: string;
+    ip?: string;
   };
 }) {
   try {
@@ -76,10 +111,20 @@ export async function createNotification({
     }
 
     // 2. Check preferences
+    const isPayoutType =
+      type === "payout" ||
+      type === "payout_requested" ||
+      type === "payout_processing" ||
+      type === "payout_paid" ||
+      type === "payout_failed";
+
+    const isThemeSalesType = type === "theme_sold" || type === "theme_unlocked";
+
     const allowed =
       (type === "tip" && prefs.notify_tips !== false) ||
-      (type === "payout" && prefs.notify_payouts !== false) ||
+      (isPayoutType && prefs.notify_payouts !== false) ||
       (type === "security" && prefs.notify_security !== false) ||
+      isThemeSalesType || // theme purchase notifications always sent
       type === "support"; // support notifications are always sent
 
     if (!allowed) return;
@@ -88,6 +133,9 @@ export async function createNotification({
     await supabaseAdmin.from("notifications").insert({
       user_id: userId,
       type,
+      category: category ?? deriveCategory(type),
+      actor_id: actorId ?? null,
+      entity_id: entityId ?? null,
       title,
       body,
     });
@@ -95,16 +143,13 @@ export async function createNotification({
     // 4. Send branded email (non-blocking — won't break webhook)
     if (email) {
       const html = buildEmailHtml({ type, title, body, meta });
-      resend.emails
-        .send({
-          from: process.env.EMAIL_FROM!,
-          to: email,
-          subject: title,
-          html,
-        })
-        .catch((err) => {
-          console.error("Email send failed:", err);
-        });
+      sendEmailAsync({
+        type: "NOTIFICATION",
+        to: email,
+        subject: title,
+        html,
+        categoryOverride: notificationTypeToCategory(type),
+      });
     }
   } catch (err) {
     console.error("Notification error:", err);
@@ -132,17 +177,24 @@ function buildEmailHtml({
     restrictedUntil?: string;
     payout_id?: string;
     failure_message?: string | null;
+    freeze_level?: string;
   };
 }): string {
   const inner = type === "tip"
     ? buildTipBlock(meta)
-    : type === "payout"
+    : type === "payout" || type === "payout_paid" || type === "payout_requested" || type === "payout_processing"
       ? buildPayoutBlock(meta)
-      : type === "security"
-        ? buildSecurityBlock(body, meta)
-        : type === "support"
-          ? buildSupportBlock(body, meta)
-          : `<p style="margin:12px 0 0;color:#4b5563;">${body}</p>`;
+      : type === "payout_failed"
+        ? buildPayoutFailedBlock(meta)
+        : type === "security"
+          ? buildSecurityBlock(body, meta)
+          : type === "support"
+            ? buildSupportBlock(body, meta)
+            : type === "theme_sold"
+              ? buildThemeSoldBlock(body, meta)
+              : type === "theme_unlocked"
+                ? buildThemeUnlockedBlock(body)
+                : `<p style="margin:12px 0 0;color:#4b5563;">${body}</p>`;
 
   // Dynamic CTA per security action
   const securityCta = getSecurityCta(meta?.action);
@@ -173,6 +225,7 @@ function buildEmailHtml({
         You can manage notification preferences in your
         <a href="${DASHBOARD_URL}" style="color:#6b7280;">Settings</a>.
       </p>
+      ${emailFooter()}
     </div>
   </div>`;
 }
@@ -202,6 +255,17 @@ function buildPayoutBlock(meta?: { amount?: number; fee?: number; net?: number }
     <span>Withdrawal: $${amount}</span> · <span>Fee: $${fee.toFixed(2)}</span>
   </div>` : ""}
   <p style="margin:8px 0 0;color:#9ca3af;font-size:12px;text-align:center;">Instant payouts typically arrive within minutes.</p>`;
+}
+
+function buildPayoutFailedBlock(meta?: { failure_message?: string | null }): string {
+  return `
+  <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin:12px 0;text-align:center;">
+    <p style="margin:0;color:#991b1b;font-size:16px;font-weight:700;">Payout failed</p>
+    <p style="margin:8px 0 0;color:#7f1d1d;font-size:14px;">
+      ${meta?.failure_message ? meta.failure_message : "Something went wrong processing your withdrawal."}
+    </p>
+  </div>
+  <p style="margin:8px 0 0;color:#9ca3af;font-size:12px;text-align:center;">Please try again or contact support if the issue persists.</p>`;
 }
 
 /* ── Sanitize internal reason codes to user-friendly text ─ */
@@ -377,6 +441,24 @@ function buildSupportBlock(message: string, meta?: { ticketId?: string }): strin
   <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:16px;margin:12px 0;">
     <p style="margin:0;color:#1e40af;">${message}</p>
     ${meta?.ticketId ? `<p style="margin:8px 0 0;color:#6b7280;font-size:12px;">Ticket #${meta.ticketId.slice(0, 8)}</p>` : ""}
+  </div>`;
+}
+
+function buildThemeSoldBlock(body: string, meta?: { amount?: number }): string {
+  return `
+  <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:12px 0;text-align:center;">
+    <p style="margin:0;font-size:32px;">🎨</p>
+    <p style="margin:8px 0 0;color:#166534;font-size:14px;font-weight:600;">${body}</p>
+    ${meta?.amount ? `<p style="margin:8px 0 0;color:#166534;font-size:22px;font-weight:700;">+$${meta.amount.toFixed(2)}</p><p style="margin:4px 0 0;color:#6b7280;font-size:12px;">added to your earnings</p>` : ""}
+  </div>`;
+}
+
+function buildThemeUnlockedBlock(body: string): string {
+  return `
+  <div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:8px;padding:16px;margin:12px 0;text-align:center;">
+    <p style="margin:0;font-size:32px;">🎉</p>
+    <p style="margin:8px 0 0;color:#6b21a8;font-size:14px;font-weight:600;">${body}</p>
+    <p style="margin:8px 0 0;color:#6b7280;font-size:12px;">Head to My Themes to apply it to your page.</p>
   </div>`;
 }
 

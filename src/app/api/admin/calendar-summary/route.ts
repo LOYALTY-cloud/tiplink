@@ -13,23 +13,40 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url)
     const userId = searchParams.get("user_id")
+    const month = searchParams.get("month")
 
     if (!userId) {
       return NextResponse.json({ error: "Missing user_id" }, { status: 400 })
     }
 
-    // Primary: permanent snapshots
-    const { data: snapshots, error: snapErr } = await supabaseAdmin
+    if (month && !/^\d{4}-\d{2}$/.test(month)) {
+      return NextResponse.json({ error: "Invalid month format. Use YYYY-MM" }, { status: 400 })
+    }
+
+    const monthStart = month ? `${month}-01` : null
+    let monthEnd: string | null = null
+    if (month) {
+      const [y, m] = month.split("-").map(Number)
+      const next = new Date(Date.UTC(y, m, 1))
+      monthEnd = next.toISOString().slice(0, 10)
+    }
+
+    let query = supabaseAdmin
       .from("daily_event_snapshots")
       .select("date, summary, fraud_score, risk_level")
       .eq("user_id", userId)
       .order("date", { ascending: false })
 
+    if (monthStart && monthEnd) {
+      query = query.gte("date", monthStart).lt("date", monthEnd)
+    }
+
+    const { data: snapshots, error: snapErr } = await query
+
     if (snapErr) {
       return NextResponse.json({ error: "Failed to fetch calendar data" }, { status: 500 })
     }
 
-    // Build response from snapshots
     const days = (snapshots ?? []).map((s) => ({
       date: s.date,
       total: (s.summary as { total?: number })?.total ?? 0,
@@ -38,11 +55,11 @@ export async function GET(req: Request) {
       level: s.risk_level ?? "low",
     }))
 
-    // Fallback: also include today's live data (not yet snapshotted)
     const todayStr = new Date().toISOString().split("T")[0]
     const alreadyHasToday = days.some((d) => d.date === todayStr)
+    const monthIncludesToday = !month || todayStr.startsWith(month)
 
-    if (!alreadyHasToday) {
+    if (monthIncludesToday && !alreadyHasToday) {
       const { data: liveEvents } = await supabaseAdmin
         .from("admin_actions")
         .select("created_at, action")
@@ -65,7 +82,7 @@ export async function GET(req: Request) {
       }
     }
 
-    return NextResponse.json({ days })
+    return NextResponse.json({ days, month: month ?? null })
   } catch (e: unknown) {
     if (e instanceof Error && e.message === "FORBIDDEN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })

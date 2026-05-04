@@ -46,11 +46,14 @@ export async function POST(req: Request) {
     }
 
     // Check if this session already exists (e.g. page reload)
-    const { data: existing } = await supabaseAdmin
+    // Always include user_id in query so a different user can never reclaim
+    // a session UUID that belongs to someone else (IDOR guard).
+    const sessionQuery = supabaseAdmin
       .from("support_sessions")
-      .select("id, status, assigned_admin_id, assigned_admin_name, mode")
-      .eq("id", sessionId)
-      .maybeSingle();
+      .select("id, status, assigned_admin_id, assigned_admin_name, mode, user_id")
+      .eq("id", sessionId);
+    if (userId) sessionQuery.eq("user_id", userId);
+    const { data: existing } = await sessionQuery.maybeSingle();
 
     if (existing && existing.status !== "closed") {
       // Session already exists and is still open — return its current state

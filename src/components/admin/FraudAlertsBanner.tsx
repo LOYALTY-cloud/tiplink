@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
+import { getAdminHeaders } from "@/lib/auth/adminSession"
 
 type FraudAlert = {
   id: string
@@ -31,12 +32,11 @@ export default function FraudAlertsBanner() {
   const [expanded, setExpanded] = useState(false)
 
   const fetchAlerts = useCallback(() => {
-    const adminSession = localStorage.getItem("admin_session")
-    const adminId = adminSession ? JSON.parse(adminSession)?.admin_id : null
-    if (!adminId) return
+    const headers = getAdminHeaders()
+    if (!Object.keys(headers).length) return
 
     fetch("/api/admin/fraud-alerts?limit=10", {
-      headers: { "X-Admin-Id": adminId },
+      headers,
     })
       .then((r) => r.json())
       .then((data) => setAlerts(data.alerts ?? []))
@@ -50,13 +50,12 @@ export default function FraudAlertsBanner() {
   }, [fetchAlerts])
 
   const acknowledge = async (alertId: string) => {
-    const adminSession = localStorage.getItem("admin_session")
-    const adminId = adminSession ? JSON.parse(adminSession)?.admin_id : null
-    if (!adminId) return
+    const headers = getAdminHeaders()
+    if (!Object.keys(headers).length) return
 
     await fetch("/api/admin/fraud-alerts", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Admin-Id": adminId },
+      headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify({ alertId }),
     })
 
@@ -87,14 +86,14 @@ export default function FraudAlertsBanner() {
         }`}>
           {alerts.length} fraud alert{alerts.length !== 1 ? "s" : ""} — {topAlert.message}
         </span>
-        <span className="text-[10px] text-white/30">
+        <span className="text-[10px] text-white/45">
           {expanded ? "▲" : "▼"}
         </span>
       </button>
 
       {/* Expanded list */}
       {expanded && (
-        <div className="absolute top-full left-0 right-0 z-50 bg-[#0d0d1a] border-b border-white/10 shadow-2xl max-h-72 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 z-50 bg-[#0d0d1a] border-b border-white/[0.12] shadow-2xl max-h-72 overflow-y-auto">
           {alerts.map((alert) => (
             <div
               key={alert.id}
@@ -109,7 +108,7 @@ export default function FraudAlertsBanner() {
                 <p className="text-xs font-medium truncate">
                   {alert.message}
                 </p>
-                <p className="text-[10px] text-white/30 mt-0.5">
+                <p className="text-[10px] text-white/45 mt-0.5">
                   {alert.alert_type.replace(/_/g, " ")} ·{" "}
                   {new Date(alert.created_at).toLocaleTimeString(undefined, {
                     hour: "2-digit",

@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { Resend } from "resend";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
-import { trackLogin } from "@/lib/loginTracker";
+import { trackLogin, generateDeviceHash } from "@/lib/loginTracker";
+import { trustSignupDevice } from "@/lib/deviceRecognition";
+import crypto from "crypto";
 
-const resend = new Resend(process.env.RESEND_API_KEY!);
+import { sendEmail } from "@/lib/emailService";
+import { validateHandle, generateHandleSuggestions } from "@/lib/handleValidation";
+import { validatePassword } from "@/lib/passwordPolicy";
 
-const HANDLE_RE = /^[a-z0-9_]{3,30}$/;
 const MAX_DISPLAY_NAME = 50;
 
 /**
@@ -31,11 +33,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Too many signup attempts. Try again later." }, { status: 429 });
     }
 
-    if (!password || typeof password !== "string" || password.length < 8) {
-      return NextResponse.json(
-        { error: "Password must be at least 8 characters" },
-        { status: 400 }
-      );
+    const pwError = validatePassword(password);
+    if (pwError) {
+      return NextResponse.json({ error: pwError }, { status: 400 });
     }
 
     // Validate display name
@@ -47,25 +47,39 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Display name must be ${MAX_DISPLAY_NAME} characters or less` }, { status: 400 });
     }
 
-    // Validate handle
-    const cleanHandle = (handle || "").trim().toLowerCase();
-    if (!HANDLE_RE.test(cleanHandle)) {
+    // Validate handle (format + reserved + offensive)
+    const validation = validateHandle(handle || "");
+    if (!validation.ok) {
       return NextResponse.json(
-        { error: "Handle must be 3-30 characters, letters/numbers/underscores only", field: "handle" },
+        { error: validation.error, field: "handle" },
         { status: 400 }
       );
     }
+    const cleanHandle = validation.handle;
 
-    // Check handle uniqueness BEFORE creating the user
+    // Check handle uniqueness BEFORE creating the user (case-insensitive)
     const { data: existing } = await supabaseAdmin
       .from("profiles")
       .select("user_id")
-      .eq("handle", cleanHandle)
+      .ilike("handle", cleanHandle)
       .maybeSingle();
 
     if (existing) {
+      // Generate suggestions for the taken handle
+      const suggestions = generateHandleSuggestions(cleanHandle);
+      const { data: takenRows } = await supabaseAdmin
+        .from("profiles")
+        .select("handle")
+        .in("handle", suggestions);
+      const takenSet = new Set(takenRows?.map((r) => r.handle) ?? []);
+      const available = suggestions.filter((s) => !takenSet.has(s));
+
       return NextResponse.json(
-        { error: "That handle is already taken. Try another one.", field: "handle" },
+        {
+          error: "That handle is already taken. Try another one.",
+          field: "handle",
+          suggestions: available.slice(0, 5),
+        },
         { status: 409 }
       );
     }
@@ -81,7 +95,7 @@ export async function POST(req: Request) {
       });
 
     if (authErr) {
-      return NextResponse.json({ error: authErr.message }, { status: 400 });
+      return NextResponse.json({ error: "Signup failed" }, { status: 400 });
     }
 
     // Update the profile with display_name, handle, and 2-week lock
@@ -95,23 +109,31 @@ export async function POST(req: Request) {
       })
       .eq("user_id", authData.user.id);
 
-    // Generate a verification link and send it via Resend
+    // Send confirmation email via custom token (reliable — doesn't depend on generateLink)
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
-    const { data: linkData, error: linkErr } =
-      await supabaseAdmin.auth.admin.generateLink({
-        type: "signup",
+    try {
+      const token = crypto.randomBytes(32).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+      // Clear any stale tokens for this email, then insert the new one
+      await supabaseAdmin.from("email_verifications").delete().eq("email", normalizedEmail);
+      const { error: tokenErr } = await supabaseAdmin.from("email_verifications").insert({
         email: normalizedEmail,
-        password,
-        options: { redirectTo: `${siteUrl}/verify/callback` },
+        user_id: authData.user.id,
+        token_hash: tokenHash,
+        expires_at: expiresAt,
       });
 
-    if (!linkErr && linkData?.properties?.action_link) {
-      const confirmUrl = linkData.properties.action_link;
-      await resend.emails.send({
-        from: process.env.EMAIL_FROM || "1neLink <receipts@1nelink.com>",
-        to: normalizedEmail,
-        subject: "Verify your 1NELINK account",
-        html: `
+      if (tokenErr) {
+        console.error("[signup] Failed to insert verification token:", tokenErr);
+      } else {
+        const confirmUrl = `${siteUrl}/verify/callback?token=${token}`;
+        await sendEmail({
+          type: "EMAIL_VERIFICATION",
+          to: normalizedEmail,
+          subject: "Verify your 1NELINK account",
+          html: `
 <div style="background:#f7f7f8;padding:40px 20px;font-family:Inter,Arial,sans-serif;">
   <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e5e7eb;">
 
@@ -148,16 +170,24 @@ export async function POST(req: Request) {
 
   </div>
 </div>
-        `,
-      });
+          `,
+        });
+      }
+    } catch (emailErr) {
+      console.error("[signup] Confirmation email failed:", emailErr);
     }
 
     // Track signup for fraud analytics
-    trackLogin({ userId: authData.user.id, eventType: "signup", ip, userAgent: req.headers.get("user-agent") || "", success: true });
+    const userAgent = req.headers.get("user-agent") || "";
+    const deviceHash = generateDeviceHash(ip, userAgent);
+    trackLogin({ userId: authData.user.id, eventType: "signup", ip, userAgent, deviceHash, success: true });
+
+    // Pre-trust the signup device so first login doesn't trigger "new device" alert
+    trustSignupDevice(authData.user.id, userAgent, ip).catch(() => {});
 
     return NextResponse.json({ ok: true, userId: authData.user.id });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Server error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("[signup]", e);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

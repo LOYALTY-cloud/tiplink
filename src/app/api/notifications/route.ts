@@ -12,14 +12,15 @@ export async function GET(req: Request) {
 
     const { data, error } = await supabaseAdmin
       .from("notifications")
-      .select("id, type, title, body, read, created_at")
+      .select("id, type, category, actor_id, entity_id, title, body, read, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(30);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    // Unread count
+    if (error) {
+      console.error("notifications GET", error);
+      return NextResponse.json({ error: "Failed to load notifications" }, { status: 500 });
+    }
     const { count } = await supabaseAdmin
       .from("notifications")
       .select("id", { count: "exact", head: true })
@@ -32,7 +33,7 @@ export async function GET(req: Request) {
   }
 }
 
-/** POST — dismiss (delete) notification(s) */
+/** POST — mark notification(s) as read */
 export async function POST(req: Request) {
   try {
     const token = extractToken(req);
@@ -43,18 +44,66 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    // Delete all read
+    // Mark all unread as read
+    if (body.all === true) {
+      const { error } = await supabaseAdmin
+        .from("notifications")
+        .update({ read: true })
+        .eq("user_id", user.id)
+        .eq("read", false);
+
+      if (error) {
+        console.error("notifications POST mark-all-read", error);
+        return NextResponse.json({ error: "Failed to mark notifications as read" }, { status: 500 });
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    // Mark single unread notification as read
+    const id = body.id as string;
+    if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+
+    const { error } = await supabaseAdmin
+      .from("notifications")
+      .update({ read: true })
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .eq("read", false);
+
+    if (error) {
+      console.error("notifications POST mark-read", error);
+      return NextResponse.json({ error: "Failed to mark notification as read" }, { status: 500 });
+    }
+    return NextResponse.json({ success: true });
+  } catch (e: unknown) {
+    return serverError(e);
+  }
+}
+
+/** DELETE — clear notification(s) */
+export async function DELETE(req: Request) {
+  try {
+    const token = extractToken(req);
+    if (!token) return unauthorized();
+
+    const user = await getUser(token);
+    if (!user) return unauthorized();
+
+    const body = await req.json().catch(() => ({}));
+
     if (body.all === true) {
       const { error } = await supabaseAdmin
         .from("notifications")
         .delete()
         .eq("user_id", user.id);
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (error) {
+        console.error("notifications DELETE clear-all", error);
+        return NextResponse.json({ error: "Failed to clear notifications" }, { status: 500 });
+      }
       return NextResponse.json({ success: true });
     }
 
-    // Delete single
     const id = body.id as string;
     if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
@@ -64,7 +113,11 @@ export async function POST(req: Request) {
       .eq("id", id)
       .eq("user_id", user.id);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("notifications DELETE single", error);
+      return NextResponse.json({ error: "Failed to delete notification" }, { status: 500 });
+    }
+
     return NextResponse.json({ success: true });
   } catch (e: unknown) {
     return serverError(e);
@@ -89,6 +142,6 @@ function unauthorized() {
 }
 
 function serverError(e: unknown) {
-  const msg = e instanceof Error ? e.message : String(e ?? "Server error");
-  return NextResponse.json({ error: msg }, { status: 500 });
+  console.error("notifications", e);
+  return NextResponse.json({ error: "Server error" }, { status: 500 });
 }

@@ -19,6 +19,7 @@ export async function GET(
 
   const { userId } = await params;
 
+  try {
   // Parallel fetches
   const [ticketsRes, historyRes, profileRes, disputeRes] = await Promise.all([
     supabaseAdmin
@@ -89,4 +90,8 @@ export async function GET(
       isFlagged: !!profile?.is_flagged,
     },
   });
+  } catch (err) {
+    console.error("[user-health]", err);
+    return NextResponse.json({ error: "Failed to load user health" }, { status: 500 });
+  }
 }

@@ -23,36 +23,93 @@ export async function POST(req: Request) {
 
   const userId = authRes.user.id;
 
-  const { paymentMethodId } = await req.json();
+  let token: string | undefined;
+  try {
+    const body = await req.json();
+    token = body.token; // tok_xxx from stripe.createToken()
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
 
-  if (!paymentMethodId) {
+  if (!token || !token.startsWith("tok_")) {
     return NextResponse.json(
-      { error: "Missing paymentMethodId" },
+      { error: "Invalid token format. Must be tok_xxx from Stripe.js." },
       { status: 400 }
     );
   }
 
-  const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+  // Enforce 2-card limit
+  const { count } = await supabaseAdmin
+    .from("payout_methods")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("status", "active");
 
-  const brand = (pm as any)?.card?.brand ?? null;
-  const last4 = (pm as any)?.card?.last4 ?? null;
+  if ((count ?? 0) >= 2) {
+    return NextResponse.json({ error: "Maximum of 2 payout methods allowed" }, { status: 400 });
+  }
 
+  // Fetch user's Stripe Connect account ID
+  const { data: profile } = await supabaseAdmin
+    .from("profiles")
+    .select("stripe_account_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!profile?.stripe_account_id) {
+    return NextResponse.json(
+      { error: "Stripe account not set up. Complete onboarding first." },
+      { status: 400 }
+    );
+  }
+
+  const stripeAccountId = profile.stripe_account_id;
+
+  // Attach the token to the connected account as an external account
+  // This converts tok_xxx into card_xxx bound to the connected account
+  let externalAccount: any;
+  try {
+    externalAccount = await stripe.accounts.createExternalAccount(
+      stripeAccountId,
+      {
+        external_account: token,
+      }
+    );
+  } catch (err) {
+    console.error("stripe/store-payout-method: createExternalAccount failed", err);
+    return NextResponse.json(
+      { error: "Could not link card to payout account. Please try again." },
+      { status: 400 }
+    );
+  }
+
+  const cardId = externalAccount.id; // card_xxx
+  const brand = externalAccount?.brand ?? null;
+  const last4 = externalAccount?.last4 ?? null;
+
+  // Mark other methods as not default
   await supabaseAdmin
     .from("payout_methods")
     .update({ is_default: false })
     .eq("user_id", userId);
 
+  // Store the external account reference in our database
   const { error } = await supabaseAdmin.from("payout_methods").insert({
     user_id: userId,
-    provider: "stripe",
-    provider_ref: paymentMethodId,
+    provider: "stripe_connect",
+    provider_ref: cardId, // card_xxx
+    stripe_external_account_id: cardId, // Redundant but helps with queries
     type: "debit",
     brand,
     last4,
     is_default: true,
+    status: "active",
   });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("stripe/store-payout-method: db insert failed", error);
+    return NextResponse.json({ error: "Failed to save payout method" }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true, brand, last4 });
 }

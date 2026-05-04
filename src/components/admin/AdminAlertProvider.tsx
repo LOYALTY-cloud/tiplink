@@ -3,25 +3,41 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import AlertModal from "./AlertModal";
+import DisputeAlertModal from "./DisputeAlertModal";
 
 const PRIVILEGED_ROLES = ["owner", "super_admin", "finance_admin"];
 
+type OverrideAlert = {
+  kind: "override";
+  admin: string;
+  targetUser: string;
+  overrideType: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  reason: string;
+  time: Date;
+};
+
+type DisputeAlert = {
+  kind: "dispute";
+  receipt_id: string;
+  amount: number;
+  creator_id: string;
+  severity: "low" | "medium" | "high";
+  reason?: string;
+  event: "new_dispute" | "dispute_resolved" | "dispute_countered" | "approval_needed";
+};
+
+type ActiveAlert = OverrideAlert | DisputeAlert;
+
 export default function AdminAlertProvider() {
-  const [alert, setAlert] = useState<{
-    admin: string;
-    targetUser: string;
-    overrideType: string;
-    before: Record<string, unknown>;
-    after: Record<string, unknown>;
-    reason: string;
-    time: Date;
-  } | null>(null);
+  const [alert, setAlert] = useState<ActiveAlert | null>(null);
 
   useEffect(() => {
     const raw = localStorage.getItem("admin_session");
     if (!raw) return;
 
-    let session: { role?: string; admin_id?: string };
+    let session: { role?: string; admin_id?: string; userId?: string };
     try {
       session = JSON.parse(raw);
     } catch {
@@ -30,7 +46,25 @@ export default function AdminAlertProvider() {
 
     if (!session?.role || !PRIVILEGED_ROLES.includes(session.role)) return;
 
-    const channel = supabase
+    const adminId = session.userId || session.admin_id;
+    if (!adminId) return;
+
+    // ── Per-admin targeted channel for dispute alerts ──
+    const disputeChannel = supabase
+      .channel(`admin-alerts-${adminId}`)
+      .on("broadcast", { event: "dispute_alert" }, (payload) => {
+        const data = payload.payload as DisputeAlert["kind"] extends never ? never : Omit<DisputeAlert, "kind">;
+
+        try {
+          new Audio("/sounds/notify.wav").play();
+        } catch {}
+
+        setAlert({ kind: "dispute", ...data });
+      })
+      .subscribe();
+
+    // ── Global override channel (existing behavior) ──
+    const overrideChannel = supabase
       .channel("admin-override-alerts")
       .on(
         "postgres_changes",
@@ -55,6 +89,7 @@ export default function AdminAlertProvider() {
           } catch {}
 
           setAlert({
+            kind: "override",
             admin: (meta.admin_name as string) ?? (data.admin_id as string) ?? "Unknown",
             targetUser: (meta.target_handle as string) ?? (data.target_user as string) ?? "Unknown",
             overrideType: (meta.override_type as string) ?? "unknown",
@@ -68,11 +103,16 @@ export default function AdminAlertProvider() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(disputeChannel);
+      supabase.removeChannel(overrideChannel);
     };
   }, []);
 
   if (!alert) return null;
 
-  return <AlertModal data={alert} onClose={() => setAlert(null)} />;
+  if (alert.kind === "override") {
+    return <AlertModal data={alert} onClose={() => setAlert(null)} />;
+  }
+
+  return <DisputeAlertModal data={alert} onClose={() => setAlert(null)} />;
 }

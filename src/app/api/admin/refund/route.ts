@@ -7,6 +7,41 @@ import { createRiskAlert } from "@/lib/riskAlerts";
 
 export const runtime = "nodejs";
 
+/** GET /api/admin/refund — List tip_intents with non-none refund_status */
+export async function GET(req: Request) {
+  try {
+    const session = await getAdminFromRequest(req);
+    if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    requireRole(session.role, "refund");
+
+    const url = new URL(req.url);
+    const filter = url.searchParams.get("status") ?? "all";
+
+    let query = supabaseAdmin
+      .from("tip_intents")
+      .select(
+        "receipt_id, creator_user_id, tip_amount, refunded_amount, refund_status, refund_initiated_at, stripe_payment_intent_id, status, created_at"
+      )
+      .neq("refund_status", "none")
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (filter !== "all") {
+      query = query.eq("refund_status", filter);
+    }
+
+    const { data, error } = await query;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return NextResponse.json({ tips: data ?? [] });
+  } catch {
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+}
+
+/** GET /api/admin/refund/balance?user_id=... — Fetch creator wallet balance */
+// (Handled inline via query param on the main GET — see below)
+
 export async function POST(req: Request) {
   try {
     // 1. Authenticate admin
@@ -85,7 +120,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "A refund request is already pending for this tip" }, { status: 409 });
       }
 
-      await supabaseAdmin.from("refund_requests").insert({
+      const { error: insertReqErr } = await supabaseAdmin.from("refund_requests").insert({
         tip_intent_id: tip.receipt_id,
         requested_by: adminId,
         amount: refundAmt,
@@ -94,6 +129,13 @@ export async function POST(req: Request) {
         reason,
         note: note || null,
       });
+
+      if (insertReqErr) {
+        if (insertReqErr.code === "23505") {
+          return NextResponse.json({ error: "A refund request is already pending for this tip" }, { status: 409 });
+        }
+        return NextResponse.json({ error: insertReqErr.message }, { status: 500 });
+      }
 
       // Log to admin_actions
       await supabaseAdmin.from("admin_actions").insert({
@@ -256,7 +298,7 @@ export async function POST(req: Request) {
       action: "refund",
       target_user: tip.creator_user_id,
       metadata: { tip_intent_id: tip.receipt_id, amount: refundAmt, refund_id: stripeRefund.id, reason, note: note || null },
-      severity: "danger",
+      severity: "critical",
     });
 
     // Risk alert: high refund amount

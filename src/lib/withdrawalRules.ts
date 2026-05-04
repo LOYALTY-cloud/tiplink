@@ -9,10 +9,12 @@
  *   closed_finalized→ blocked (no funds remain)
  */
 
+const DAILY_WITHDRAWAL_LIMIT = 10_000; // $10,000/day
+
 type WithdrawalUser = {
   account_status?: string | null;
   payout_hold_until?: string | null;
-  daily_withdrawn?: number;
+  daily_withdrawn?: number | null;
   restricted_until?: string | null;
 };
 
@@ -22,7 +24,8 @@ type ValidationResult =
 
 export function validateWithdrawal(
   user: WithdrawalUser,
-  amount: number
+  amount: number,
+  walletBalance?: number
 ): ValidationResult {
   const status = user.account_status ?? "active";
 
@@ -54,9 +57,24 @@ export function validateWithdrawal(
     return { ok: false, reason: "Funds still pending clearance" };
   }
 
-  // Minimum payout
+  // Daily withdrawal limit enforcement
+  const alreadyWithdrawn = Number(user.daily_withdrawn ?? 0);
+  if (alreadyWithdrawn + amount > DAILY_WITHDRAWAL_LIMIT) {
+    const remaining = Math.max(0, DAILY_WITHDRAWAL_LIMIT - alreadyWithdrawn);
+    return {
+      ok: false,
+      reason: remaining > 0
+        ? `Daily withdrawal limit reached. You can withdraw up to $${remaining.toFixed(2)} more today.`
+        : "Daily withdrawal limit reached. Try again tomorrow.",
+    };
+  }
+
+  // Minimum payout — but allow "withdraw all" for balances under $5
   if (amount < 5) {
-    return { ok: false, reason: "Minimum withdrawal is $5" };
+    const isWithdrawAll = walletBalance !== undefined && Math.abs(amount - walletBalance) < 0.01;
+    if (!isWithdrawAll) {
+      return { ok: false, reason: "Minimum withdrawal is $5 (or withdraw your full balance)" };
+    }
   }
 
   return { ok: true };

@@ -73,7 +73,7 @@ const CATEGORIES: Category[] = [
       },
       {
         title: "Minimum withdrawal amount",
-        body: "The minimum withdrawal amount is $1.00. A small platform fee (1.1%) applies to each withdrawal. There is no maximum withdrawal limit as long as you have sufficient balance.",
+        body: "The minimum withdrawal amount is $5.00 (or you can withdraw your full balance if it's under $5). A small platform fee (1.1%) applies to each withdrawal. There is no maximum withdrawal limit as long as you have sufficient balance.",
       },
     ],
   },
@@ -240,12 +240,12 @@ export default function HelpPage() {
                     <p className="font-medium text-sm">{a.title}</p>
                     <p className={`text-xs ${ui.muted2}`}>{a.category}</p>
                   </div>
-                  <span className="text-white/30">
+                  <span className="text-white/45">
                     {openArt === a.title ? "▾" : "›"}
                   </span>
                 </div>
                 {openArt === a.title && (
-                  <div className="mt-3 pt-3 border-t border-white/10">
+                  <div className="mt-3 pt-3 border-t border-white/[0.12]">
                     <p className={`text-sm ${ui.muted} leading-relaxed whitespace-pre-line`}>
                       {a.body}
                     </p>
@@ -274,7 +274,7 @@ export default function HelpPage() {
                     <span className="text-xl">{cat.icon}</span>
                     <span className="font-medium">{cat.label}</span>
                   </div>
-                  <span className="text-white/30">
+                  <span className="text-white/45">
                     {openCat === ci ? "▾" : "›"}
                   </span>
                 </div>
@@ -304,12 +304,12 @@ export default function HelpPage() {
                         <span className="text-sm font-medium">
                           {art.title}
                         </span>
-                        <span className="text-white/30 text-xs">
+                        <span className="text-white/45 text-xs">
                           {openArt === art.title ? "▾" : "›"}
                         </span>
                       </div>
                       {openArt === art.title && (
-                        <div className="mt-3 pt-3 border-t border-white/10">
+                        <div className="mt-3 pt-3 border-t border-white/[0.12]">
                           <p
                             className={`text-sm ${ui.muted} leading-relaxed whitespace-pre-line`}
                           >

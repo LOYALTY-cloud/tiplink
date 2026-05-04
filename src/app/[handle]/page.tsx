@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { ProfileRow } from "@/types/db";
 import type { Metadata } from "next";
 import TipPublicClient from "./tip-public-client";
@@ -14,17 +15,37 @@ function getSupabase() {
 }
 
 async function getProfile(rawHandle: string) {
-  const handle = decodeURIComponent(rawHandle).replace(/^@/, "");
+  const handle = decodeURIComponent(rawHandle).replace(/^@/, "").trim().toLowerCase();
   const supabase = getSupabase();
   const { data } = await supabase
     .from("profiles")
     .select(
-      "user_id, handle, display_name, bio, location, avatar_url, links, stripe_account_id, stripe_charges_enabled, account_status, theme"
+      "id, user_id, handle, display_name, bio, location, avatar_url, links, stripe_account_id, stripe_charges_enabled, account_status, theme"
     )
     .ilike("handle", handle.replace(/%/g, "\\%").replace(/_/g, "\\_"))
     .maybeSingle()
     .returns<ProfileRow | null>();
-  return data;
+
+  if (!data) return null;
+
+  // Fetch social links for this profile
+  const { data: socialLinks } = await supabase
+    .from("social_links")
+    .select("type, url, sort_order")
+    .eq("profile_id", data.id)
+    .order("sort_order", { ascending: true });
+
+  return { ...data, social_links: socialLinks ?? [] };
+}
+
+async function getActiveCustomTheme(userId: string) {
+  const { data } = await supabaseAdmin
+    .from("themes")
+    .select("config")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .maybeSingle();
+  return data?.config ?? null;
 }
 
 export async function generateMetadata({
@@ -120,6 +141,8 @@ export default async function PublicTipPage({
 
   const canAcceptTips = !!(profile.stripe_account_id && profile.stripe_charges_enabled);
 
+  const customTheme = await getActiveCustomTheme(profile.user_id);
+
   const safeProfile = {
     user_id: profile.user_id,
     handle: profile.handle ?? "",
@@ -128,9 +151,10 @@ export default async function PublicTipPage({
     location: profile.location ?? null,
     avatar_url: profile.avatar_url ?? null,
     links: (profile as any).links ?? null,
-    stripe_account_id: profile.stripe_account_id ?? null,
+    social_links: profile.social_links ?? [],
     canAcceptTips,
     theme: (profile as any).theme ?? null,
+    customTheme: customTheme ?? null,
   };
 
   return <TipPublicClient profile={safeProfile} />;

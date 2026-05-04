@@ -14,9 +14,9 @@ export type SoftRestriction = {
 export async function checkSoftRestrictions(userId: string): Promise<SoftRestriction> {
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("is_flagged, risk_score, risk_level, verification_required, verification_reason, withdrawal_locked, account_status, is_frozen, freeze_reason")
-    .eq("id", userId)
-    .single()
+    .select("is_flagged, risk_score, risk_level, verification_required, verification_reason, withdrawal_locked, account_status, is_frozen, freeze_reason, freeze_level")
+    .eq("user_id", userId)
+    .maybeSingle()
 
   if (!profile) {
     return { blocked: false, reason: null, verification_required: false, verification_reason: null }
@@ -24,9 +24,13 @@ export async function checkSoftRestrictions(userId: string): Promise<SoftRestric
 
   // Hard block: account frozen by auto-freeze system
   if (profile.is_frozen) {
+    const canSelfServe = profile.freeze_level !== "hard";
+
     return {
       blocked: true,
-      reason: `Account frozen: ${profile.freeze_reason ?? "Suspicious activity detected"}. Contact support.`,
+      reason: canSelfServe
+        ? `Account restricted: ${profile.freeze_reason ?? "Suspicious activity detected"}. Verify your identity from your dashboard to restore access.`
+        : `Account restricted: ${profile.freeze_reason ?? "Suspicious activity detected"}. Contact support for assistance.`,
       verification_required: false,
       verification_reason: null,
     }

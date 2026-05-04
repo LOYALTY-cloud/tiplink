@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { ShareButton } from "./ShareButton";
 import { ReceiptStatusPoller } from "./ReceiptStatusPoller";
+import { DownloadReceiptButton } from "./DownloadReceiptButton";
 import { getTheme } from "@/lib/getTheme";
 
 function formatMoney(n: number) {
@@ -62,10 +63,20 @@ export default async function ReceiptPage({
           <div>
             <div className={`text-xs font-medium ${theme.muted2}`}>1NELINK</div>
 
-            {/* Success state */}
-            <div className="text-emerald-400 text-sm font-medium">
-              ✔ Payment Successful
-            </div>
+            {/* Status driven by real data */}
+            {row.status === "succeeded" ? (
+              <div className="text-emerald-400 text-sm font-medium">
+                ✔ Payment Successful
+              </div>
+            ) : row.status === "failed" ? (
+              <div className="text-red-400 text-sm font-medium">
+                ✖ Payment Failed
+              </div>
+            ) : (
+              <div className="text-yellow-400 text-sm font-medium">
+                ⏳ Payment Processing
+              </div>
+            )}
 
             <div className="text-2xl font-semibold">Receipt</div>
 
@@ -128,6 +139,9 @@ export default async function ReceiptPage({
 
         {/* Share */}
         <ShareButton receiptId={row.receipt_id} />
+
+        {/* Download / Print */}
+        <DownloadReceiptButton />
 
         {/* Tip again */}
         {row.creator_handle && (

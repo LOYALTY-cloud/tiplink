@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { getAdminHeaders } from "@/lib/auth/adminSession"
 
 type HistoryPoint = {
   id: string
@@ -16,12 +17,11 @@ export default function FraudScoreChart({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (!userId) return
-    const adminSession = localStorage.getItem("admin_session")
-    const adminId = adminSession ? JSON.parse(adminSession)?.admin_id : null
-    if (!adminId) return
+    const headers = getAdminHeaders()
+    if (!Object.keys(headers).length) return
 
     fetch(`/api/admin/fraud-score-history?user_id=${encodeURIComponent(userId)}`, {
-      headers: { "X-Admin-Id": adminId },
+      headers,
     })
       .then((r) => r.json())
       .then((data) => setHistory(data.history ?? []))
@@ -59,10 +59,10 @@ export default function FraudScoreChart({ userId }: { userId: string }) {
 
   return (
     <div className="mt-3">
-      <p className="text-white/40 text-[11px] font-semibold uppercase tracking-wider mb-2">
+      <p className="text-white/55 text-[11px] font-semibold uppercase tracking-wider mb-2">
         Score History
       </p>
-      <div className="relative bg-white/[.03] border border-white/10 rounded-lg p-3">
+      <div className="relative bg-white/[.03] border border-white/[0.12] rounded-lg p-3">
         <svg
           width={chartWidth}
           height={chartHeight + 4}
@@ -114,7 +114,7 @@ export default function FraudScoreChart({ userId }: { userId: string }) {
             }}
           >
             <span className="font-medium">{history[hoveredIdx].score}/100</span>
-            <span className="text-white/40 ml-1.5">
+            <span className="text-white/55 ml-1.5">
               {new Date(history[hoveredIdx].created_at).toLocaleDateString(undefined, {
                 month: "short",
                 day: "numeric",

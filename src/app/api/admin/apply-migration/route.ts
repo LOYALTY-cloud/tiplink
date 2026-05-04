@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
+import { requireRole } from "@/lib/auth/requireRole";
 
 /**
  * POST /api/admin/apply-migration
@@ -6,22 +8,15 @@ import { NextResponse } from "next/server";
  * Creates the notifications table if it doesn't already exist.
  * Must be called once to bootstrap the notification system.
  *
- * Protected: requires Authorization header with a valid admin user token.
+ * Protected: requires admin JWT with owner or super_admin role.
  */
 export async function POST(req: Request) {
   try {
-    const token = req.headers.get("authorization")?.replace("Bearer ", "");
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const admin = await getAdminFromRequest(req);
+    if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    requireRole(admin.role, "panic");
 
     const { supabaseAdmin } = await import("@/lib/supabase/admin");
-
-    // Verify the caller is a real user
-    const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(token);
-    if (authErr || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     // Run each statement individually via rpc or direct SQL
     // Since we can't run raw SQL via PostgREST, we'll create the table

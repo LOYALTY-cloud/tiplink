@@ -58,7 +58,7 @@ export default function ReplySuggestions({ ticketCategory, ticketStatus, onSelec
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
-        <span className="text-[11px] text-white/30 font-medium uppercase tracking-wider">
+        <span className="text-[11px] text-white/45 font-medium uppercase tracking-wider">
           Quick replies
         </span>
         <button
@@ -77,7 +77,7 @@ export default function ReplySuggestions({ ticketCategory, ticketStatus, onSelec
             className="text-[11px] px-3 py-1.5 rounded-lg bg-white/5 text-white/60 hover:bg-white/10 hover:text-white/80 border border-white/5 transition text-left max-w-[280px]"
             title={item.content}
           >
-            <span className="font-medium text-white/40 mr-1">{item.label}:</span>
+            <span className="font-medium text-white/55 mr-1">{item.label}:</span>
             <span className="truncate">{item.content.slice(0, 60)}…</span>
           </button>
         ))}

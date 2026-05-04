@@ -1,25 +1,41 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { getAdminSession } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
 import FraudLiveFeed, { type EscalationAlert } from "@/components/fraud/FraudLiveFeed";
 import FraudCases from "@/components/fraud/FraudCases";
 import FraudAIAssistant from "@/components/fraud/FraudAIAssistant";
+import FreezeAuditLog from "@/components/fraud/FreezeAuditLog";
 
-type Tab = "cases" | "live";
+type Tab = "cases" | "live" | "audit";
 
 const tabs: { key: Tab; label: string; description: string }[] = [
   { key: "cases", label: "Cases", description: "Review & unfreeze frozen accounts" },
   { key: "live", label: "Live Feed", description: "Real-time anomaly detection" },
+  { key: "audit", label: "Audit Log", description: "Freeze/unfreeze audit trail" },
 ];
 
 export default function AdminFraudPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("cases");
+  const [authorized, setAuthorized] = useState(false);
+
+  useEffect(() => {
+    const session = getAdminSession();
+    if (!session) { router.replace("/admin/login"); return; }
+    const allowed = ["owner", "super_admin", "finance_admin"];
+    if (!allowed.includes(session.role)) { router.replace("/admin"); return; }
+    setAuthorized(true);
+  }, [router]);
   const [escalationAlert, setEscalationAlert] = useState<EscalationAlert | null>(null);
 
   const handleEscalation = useCallback((alert: EscalationAlert) => {
     setEscalationAlert(alert);
   }, []);
+
+  if (!authorized) return null;
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-8 py-8 space-y-6">
@@ -55,7 +71,7 @@ export default function AdminFraudPage() {
             }`}
             title={tab.description}
           >
-            {tab.key === "cases" ? "📋 " : "📡 "}
+            {tab.key === "cases" ? "📋 " : tab.key === "live" ? "📡 " : "📜 "}
             {tab.label}
           </button>
         ))}
@@ -67,6 +83,7 @@ export default function AdminFraudPage() {
       {/* Tab Content */}
       {activeTab === "cases" && <FraudCases />}
       {activeTab === "live" && <FraudLiveFeed onEscalation={handleEscalation} />}
+      {activeTab === "audit" && <FreezeAuditLog />}
     </div>
   );
 }

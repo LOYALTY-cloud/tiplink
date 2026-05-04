@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 export const ROLE_PREFIXES: Record<string, string> = {
   owner: "OWN",
   super_admin: "ADM",
@@ -5,18 +7,25 @@ export const ROLE_PREFIXES: Record<string, string> = {
   support_admin: "SUP",
 };
 
+/** Cryptographically secure random string from a character set */
+function secureRandom(length: number, chars: string): string {
+  const bytes = crypto.getRandomValues(new Uint32Array(length));
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += chars[bytes[i] % chars.length];
+  }
+  return result;
+}
+
+const CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/1/I
+
 /**
  * Generate an official-looking admin ID.
  * Format: PREFIX-6CHAR (e.g. ADM-9X4K2P, SUP-7H2L9A)
  */
 export function generateAdminId(role: string): string {
   const prefix = ROLE_PREFIXES[role] ?? "ADM";
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/1/I
-  let random = "";
-  for (let i = 0; i < 6; i++) {
-    random += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return `${prefix}-${random}`;
+  return `${prefix}-${secureRandom(6, CHARS)}`;
 }
 
 /**
@@ -24,12 +33,7 @@ export function generateAdminId(role: string): string {
  * Format: ADMIN_ID-4CHAR (e.g. OWN-Y3R86L-KP4W)
  */
 export function generateAdminPasscode(adminId: string): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let suffix = "";
-  for (let i = 0; i < 4; i++) {
-    suffix += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return `${adminId}-${suffix}`;
+  return `${adminId}-${secureRandom(4, CHARS)}`;
 }
 
 /** Check that an admin_id prefix matches the expected role. */

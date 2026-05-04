@@ -69,9 +69,15 @@ export async function POST(
       updated_at: new Date().toISOString(),
     };
 
-    if (ticket.status === "open") {
+    const shouldReopenOnReply =
+      !isInternal && (ticket.status === "resolved" || ticket.status === "closed");
+
+    if (ticket.status === "open" || shouldReopenOnReply) {
       updates.status = "in_progress";
       updates.assigned_admin_id = admin.userId;
+      if (shouldReopenOnReply) {
+        updates.resolved_at = null;
+      }
     }
 
     // Track first response time for SLA

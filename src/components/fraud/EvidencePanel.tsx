@@ -80,7 +80,7 @@ export default function EvidencePanel({ profile }: Props) {
           }`}>
             {profile.trust_score ?? "–"}
           </p>
-          <p className="text-white/40 text-[10px] uppercase tracking-wide">Trust</p>
+          <p className="text-white/55 text-[10px] uppercase tracking-wide">Trust</p>
         </div>
         <div className="bg-white/5 rounded-lg p-2 text-center">
           <p className={`text-lg font-bold ${
@@ -89,13 +89,13 @@ export default function EvidencePanel({ profile }: Props) {
           }`}>
             {highestScore || "–"}
           </p>
-          <p className="text-white/40 text-[10px] uppercase tracking-wide">Peak Score</p>
+          <p className="text-white/55 text-[10px] uppercase tracking-wide">Peak Score</p>
         </div>
         <div className="bg-white/5 rounded-lg p-2 text-center">
           <p className={`text-lg font-bold ${restrictCount > 0 ? "text-red-400" : "text-green-400"}`}>
             {restrictCount}
           </p>
-          <p className="text-white/40 text-[10px] uppercase tracking-wide">Restricts</p>
+          <p className="text-white/55 text-[10px] uppercase tracking-wide">Restricts</p>
         </div>
       </div>
 

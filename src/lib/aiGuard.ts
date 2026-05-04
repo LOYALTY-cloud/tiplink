@@ -34,6 +34,20 @@ const BLOCKED_INPUT_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /pretend\s+(you\s+are|to\s+be)\s+/i, label: "role_hijack" },
   { pattern: /execute\s+(this\s+)?(command|code|script)/i, label: "code_exec" },
   { pattern: /run\s+(this\s+)?(command|code|query)/i, label: "code_exec" },
+  // System prompt extraction attempts
+  { pattern: /what\s+(is|are)\s+(your|the)\s+system\s+(prompt|instructions|directives)/i, label: "prompt_extraction" },
+  { pattern: /repeat\s+(your|the|all)\s+(system\s+)?(instructions|prompt|rules|directives)/i, label: "prompt_extraction" },
+  { pattern: /show\s+(me\s+)?(your|the)\s+(full\s+)?system\s+(prompt|instructions|rules)/i, label: "prompt_extraction" },
+  { pattern: /output\s+(your|the)\s+system\s+(prompt|instructions|rules|context)/i, label: "prompt_extraction" },
+  { pattern: /print\s+(your|the)\s+system\s+(prompt|instructions|rules)/i, label: "prompt_extraction" },
+  { pattern: /what\s+were\s+you\s+(programmed|configured|instructed)\s+to/i, label: "prompt_extraction" },
+  { pattern: /what\s+context\s+were\s+you\s+given/i, label: "context_extraction" },
+  { pattern: /list\s+(all\s+)?(your)\s+(rules|instructions)/i, label: "context_extraction" },
+  // Data exfiltration — only block clearly malicious patterns
+  { pattern: /dump\s+(all\s+)?(user|admin|account)\s+(data|records|table)/i, label: "data_dump" },
+  { pattern: /export\s+(all\s+)?(user|admin|account)\s+(data|records)/i, label: "data_dump" },
+  { pattern: /what\s+(is|are)\s+(the|our)\s+(fraud|risk)\s+(threshold|limit|algorithm)\s+(number|value|setting)/i, label: "algorithm_extraction" },
+  { pattern: /what\s+exact\s+score\s+(triggers|causes|leads\s+to)/i, label: "algorithm_extraction" },
 ]
 
 export type InputGuardResult =
@@ -166,6 +180,27 @@ const ACTION_CLAIM_PATTERNS: RegExp[] = [
   /successfully\s+(suspended|restricted|deleted|banned|removed|modified)/i,
 ]
 
+/** Phrases that indicate the AI is leaking system prompt or internal architecture */
+const LEAK_PATTERNS: RegExp[] = [
+  /my\s+(system\s+)?prompt\s+(is|says|tells|instructs)/i,
+  /I\s+was\s+(told|instructed|given|configured)\s+to/i,
+  /my\s+instructions\s+(are|say|tell)/i,
+  /here\s+(is|are)\s+my\s+(system\s+)?(prompt|instructions|rules)/i,
+  /the\s+system\s+prompt\s+(is|says|contains)/i,
+  /supabaseAdmin/i,
+  /service.role.key/i,
+  /SUPABASE_SERVICE_ROLE/i,
+  /NEXT_PUBLIC_SUPABASE/i,
+  /OPENAI_API_KEY/i,
+  /STRIPE_SECRET_KEY/i,
+  /fraudOrchestrator/i,
+  /behaviorTracker/i,
+  /autoFreeze\(\)/i,
+  /guardInput\(\)|guardOutput\(\)/i,
+  /risk.score\s+(threshold|is\s+set\s+to\s+\d|cutoff\s+is\s+\d)/i,
+  /row.level.security\s+polic/i,
+]
+
 export type OutputGuardResult =
   | { safe: true; text: string }
   | { safe: false; text: string; redactions: string[] }
@@ -189,6 +224,15 @@ export function guardOutput(text: string): OutputGuardResult {
     if (pattern.test(cleaned)) {
       redactions.push("action_claim")
       cleaned = "I can only provide guidance — I cannot take actions. Please use the admin panel to make changes."
+      break
+    }
+  }
+
+  // Check for system prompt / architecture leaks and block entirely
+  for (const pattern of LEAK_PATTERNS) {
+    if (pattern.test(cleaned)) {
+      redactions.push("system_leak")
+      cleaned = "I can help you with platform features and account questions. What would you like to know?"
       break
     }
   }

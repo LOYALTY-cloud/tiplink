@@ -31,8 +31,8 @@ export async function GET(
     const [profileRes, walletRes, txRes, tipRes, supportRes] = await Promise.all([
       supabaseAdmin.from("profiles").select("handle, display_name, email, account_status, role, created_at, is_flagged").eq("user_id", uid).maybeSingle(),
       supabaseAdmin.from("wallets").select("balance").eq("user_id", uid).maybeSingle(),
-      supabaseAdmin.from("transactions").select("id, type, amount, status, created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(5),
-      supabaseAdmin.from("tip_intents").select("receipt_id").eq("recipient_user_id", uid),
+      supabaseAdmin.from("transactions_ledger").select("id, type, amount, created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(5),
+      supabaseAdmin.from("tip_intents").select("receipt_id").eq("creator_user_id", uid),
       supabaseAdmin.from("support_sessions").select("id, status, last_message, assigned_admin_name, closed_by, closed_at, created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(10),
     ]);
 

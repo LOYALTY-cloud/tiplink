@@ -32,7 +32,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, resendResponse });
   } catch (e: unknown) {
-    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    console.error("tips/test-receipt", e);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

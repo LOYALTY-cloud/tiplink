@@ -21,23 +21,33 @@ export default function TipBox({ creatorId }: { creatorId: string }) {
   async function handleCheckout() {
     setLoading(true);
 
-    const res = await fetch("/api/payments/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tipAmount: amount,
-        creatorUserId: creatorId,
-      }),
-    });
+    try {
+      const res = await fetch("/api/payments/create-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipAmount: amount,
+          creatorUserId: creatorId,
+        }),
+      });
 
-    const data = await res.json();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("Payment failed:", err.error ?? res.status);
+        return;
+      }
 
-    if (data.clientSecret) {
-      // Pass clientSecret to Stripe Elements confirmPayment()
-      console.log("Ready to confirm:", data.clientSecret);
+      const data = await res.json();
+
+      if (data.clientSecret) {
+        // Pass clientSecret to Stripe Elements confirmPayment()
+        console.log("Ready to confirm:", data.clientSecret);
+      }
+    } catch (err) {
+      console.error("Payment request failed:", err);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   return (

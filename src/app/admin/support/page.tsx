@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/adminBrowserClient";
-import { getAdminHeaders } from "@/lib/auth/adminSession";
+import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
+import { isAdminOnline, lastSeenText } from "@/lib/isAdminOnline";
 
 type SupportSession = {
   id: string;
@@ -26,6 +27,7 @@ type AdminPresence = {
   display_name: string | null;
   availability: string;
   role: string;
+  last_active_at: string | null;
 };
 
 export default function AdminSupportPage() {
@@ -37,6 +39,8 @@ export default function AdminSupportPage() {
   // Fetch initial sessions via API (service-role bypasses RLS)
   useEffect(() => {
     async function load() {
+      const session = getAdminSession();
+      if (!session) { router.replace("/admin/login"); return; }
       try {
         const res = await fetch("/api/admin/support/sessions", {
           headers: getAdminHeaders(),
@@ -91,8 +95,37 @@ export default function AdminSupportPage() {
       )
       .subscribe();
 
+    // Realtime admin presence: listen for availability changes on profiles
+    const presenceChannel = supabaseAdmin
+      .channel("admin-presence-rt")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles" },
+        (payload) => {
+          const updated = payload.new as { user_id: string; availability?: string; display_name?: string; role?: string; last_active_at?: string };
+          if (!updated.availability && !updated.last_active_at) return;
+          setAdmins((prev) => {
+            const exists = prev.find((a) => a.user_id === updated.user_id);
+            if (exists) {
+              return prev.map((a) =>
+                a.user_id === updated.user_id
+                  ? { ...a, availability: updated.availability ?? a.availability, display_name: updated.display_name ?? a.display_name, last_active_at: updated.last_active_at ?? a.last_active_at }
+                  : a
+              );
+            }
+            // New admin came online
+            if (updated.role && ["owner", "super_admin", "finance_admin", "support_admin"].includes(updated.role)) {
+              return [...prev, { user_id: updated.user_id, display_name: updated.display_name ?? null, availability: updated.availability ?? "offline", role: updated.role, last_active_at: updated.last_active_at ?? null }];
+            }
+            return prev;
+          });
+        }
+      )
+      .subscribe();
+
     return () => {
       supabaseAdmin.removeChannel(channel);
+      supabaseAdmin.removeChannel(presenceChannel);
     };
   }, []);
 
@@ -106,16 +139,20 @@ export default function AdminSupportPage() {
 
   function adminStatus(session: SupportSession) {
     if (!session.assigned_admin_id) return null;
-    // Use real availability from profiles
     const admin = admins.find((a) => a.user_id === session.assigned_admin_id);
     if (!admin) return null;
-    if (admin.availability === "online") return { label: "Online", color: "text-emerald-400", dot: "🟢" };
+    const online = isAdminOnline(admin.last_active_at);
+    if (!online) return { label: "Offline", color: "text-white/40", dot: "⚪" };
     if (admin.availability === "busy") return { label: "Busy", color: "text-yellow-400", dot: "🟡" };
-    return { label: "Offline", color: "text-white/40", dot: "⚪" };
+    return { label: "Online", color: "text-emerald-400", dot: "🟢" };
   }
 
-  const onlineAdmins = admins.filter((a) => a.availability === "online");
-  const busyAdmins = admins.filter((a) => a.availability === "busy");
+  const sortedSessions = [...sessions].sort(
+    (left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
+  );
+
+  const onlineAdmins = admins.filter((a) => isAdminOnline(a.last_active_at));
+  const busyAdmins = admins.filter((a) => isAdminOnline(a.last_active_at) && a.availability === "busy");
 
   return (
     <div className="p-4 text-white">
@@ -123,20 +160,26 @@ export default function AdminSupportPage() {
       <div className="mb-6 p-4 rounded-xl bg-white/5 border border-white/10">
         <h2 className="text-sm font-semibold mb-2">Team Status</h2>
         <div className="flex flex-wrap gap-3 text-xs">
-          {admins.map((a) => (
-            <span key={a.user_id} className="flex items-center gap-1.5">
-              <span>
-                {a.availability === "online" ? "🟢" : a.availability === "busy" ? "🟡" : "⚪"}
+          {admins.map((a) => {
+            const online = isAdminOnline(a.last_active_at);
+            return (
+              <span key={a.user_id} className="flex items-center gap-1.5">
+                <span>
+                  {!online ? "⚪" : a.availability === "busy" ? "🟡" : "🟢"}
+                </span>
+                <span className={online ? "text-white/80" : "text-white/40"}>
+                  {a.display_name || "Admin"}
+                </span>
+                <span className="text-[10px] text-white/30">
+                  {lastSeenText(a.last_active_at)}
+                </span>
               </span>
-              <span className={a.availability === "offline" ? "text-white/40" : "text-white/80"}>
-                {a.display_name || "Admin"}
-              </span>
-            </span>
-          ))}
+            );
+          })}
           {admins.length === 0 && <span className="text-white/40">No admins found</span>}
         </div>
         <div className="mt-2 text-[10px] text-white/30">
-          {onlineAdmins.length} online · {busyAdmins.length} busy · {admins.length - onlineAdmins.length - busyAdmins.length} offline
+          {onlineAdmins.length} online · {busyAdmins.length} busy · {admins.length - onlineAdmins.length} offline
         </div>
       </div>
 
@@ -152,11 +195,11 @@ export default function AdminSupportPage() {
 
       {loading ? (
         <p className="text-white/40 text-sm">Loading sessions…</p>
-      ) : sessions.length === 0 ? (
+      ) : sortedSessions.length === 0 ? (
         <p className="text-white/40 text-sm">No active support sessions</p>
       ) : (
         <div className="space-y-3">
-          {sessions.map((s) => (
+          {sortedSessions.map((s) => (
             <div
               key={s.id}
               className="p-4 rounded-xl bg-white/5 border border-white/10"
@@ -181,6 +224,11 @@ export default function AdminSupportPage() {
                     )}
                     {s.escalation && (
                       <span className="text-[10px] font-bold text-orange-300 bg-orange-500/15 px-1.5 py-0.5 rounded" title={s.escalation_reason || undefined}>🔥 ESCALATED</span>
+                    )}
+                    {s.escalation && s.status === "waiting" && !s.assigned_admin_id && (
+                      <span className="text-[10px] font-bold text-fuchsia-300 bg-fuchsia-500/15 border border-fuchsia-400/20 px-1.5 py-0.5 rounded">
+                        PRIORITY (awaiting admin)
+                      </span>
                     )}
                   </div>
                   <p className="text-xs text-white/60">

@@ -27,13 +27,13 @@ export default function TopEarnersWidget() {
   }, []);
 
   return (
-    <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+    <div className="bg-white/5 border border-white/[0.12] rounded-2xl p-4">
       <h2 className="text-sm text-white/60 mb-3">🏆 Top Earners Today</h2>
 
       {loading ? (
-        <p className="text-xs text-white/30">Loading…</p>
+        <p className="text-xs text-white/45">Loading…</p>
       ) : users.length === 0 ? (
-        <p className="text-xs text-white/40">No earnings yet today</p>
+        <p className="text-xs text-white/55">No earnings yet today</p>
       ) : (
         <div className="space-y-3">
           {users.map((u, i) => (
@@ -42,11 +42,11 @@ export default function TopEarnersWidget() {
               className="flex items-center justify-between"
             >
               <div className="flex items-center gap-3">
-                <span className="text-xs text-white/40 w-4">
+                <span className="text-xs text-white/55 w-4">
                   {i === 0 ? "👑" : `#${i + 1}`}
                 </span>
 
-                <div className="w-8 h-8 rounded-full bg-white/10 overflow-hidden flex items-center justify-center text-white/30 text-xs">
+                <div className="w-8 h-8 rounded-full bg-white/10 overflow-hidden flex items-center justify-center text-white/45 text-xs">
                   {u.avatar ? (
                     <img
                       src={u.avatar}
@@ -58,7 +58,7 @@ export default function TopEarnersWidget() {
                   )}
                 </div>
 
-                <span className="text-sm text-white">@{u.name}</span>
+                <span className="text-sm text-white truncate max-w-[120px] sm:max-w-none">@{u.name}</span>
               </div>
 
               <span className="text-emerald-400 font-semibold">

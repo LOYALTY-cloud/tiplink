@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { appMap } from "@/lib/appMap";
 import { getAIReply } from "@/lib/aiSupport";
 import { analyzeEscalation, triggerEscalation } from "@/lib/support/escalation";
+import { rateLimit } from "@/lib/rateLimit";
 
 type Action = { label: string; href: string };
 
@@ -13,7 +14,25 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabaseAdmin.auth.getUser(token);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { message, sessionId, failCount = 0, messageCount = 0 } = await req.json();
+  // Rate limit: 20 requests per 60 seconds per user
+  const { allowed } = await rateLimit(`support-ai:${user.id}`, 20, 60);
+  if (!allowed) {
+    return NextResponse.json(
+      { reply: "You're sending messages too quickly. Please wait a moment.", rateLimited: true },
+      { status: 429 }
+    );
+  }
+
+  let message: string, sessionId: string | undefined, failCount = 0, messageCount = 0;
+  try {
+    const body = await req.json();
+    message = body.message;
+    sessionId = body.sessionId;
+    failCount = body.failCount ?? 0;
+    messageCount = body.messageCount ?? 0;
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
   if (!message || typeof message !== "string") {
     return NextResponse.json({ error: "message required" }, { status: 400 });
   }
@@ -98,7 +117,7 @@ export async function POST(req: Request) {
 
   // --- Refund ---
   if (lower.includes("refund") || lower.includes("money back")) {
-    if (lastTx?.type === "refund") {
+    if (lastTx?.type === "refund" || lastTx?.type === "tip_refunded") {
       return replyWithEscalation(
         `Your most recent transaction is a refund for $${Number(lastTx.amount).toFixed(2)}. It may take a few business days to fully process.`,
         { label: "View Transactions", href: appMap.transactions.path },

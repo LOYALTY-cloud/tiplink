@@ -20,6 +20,8 @@ const ALLOWED_TYPES = [
   "tip_credit",
   "payout_debit",
   "refund",
+  // theme marketplace
+  "theme_purchase",
 ];
 
 export const runtime = "nodejs";
@@ -58,7 +60,7 @@ export async function GET(req: Request) {
   /* ---------- QUERY ---------- */
   let query: any = supabase
     .from("transactions_ledger")
-    .select("*")
+    .select("id, type, amount, created_at, reference_id, meta")
     .eq("user_id", user_id)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -68,7 +70,8 @@ export async function GET(req: Request) {
 
   const { data, error } = await query;
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("transactions query", error);
+    return NextResponse.json({ error: "Failed to load transactions" }, { status: 500 });
   }
 
   const transactions = data ?? [];

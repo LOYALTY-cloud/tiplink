@@ -26,11 +26,21 @@ export default function DashboardPage() {
   const [showBanner, setShowBanner] = useState(false);
   const [emailVerified, setEmailVerified] = useState(true);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [showWelcome, setShowWelcome] = useState(false);
   const [wallet, setWallet] = useState<{
     balance: number;
     withdraw_fee: number;
   } | null>(null);
   const [loadingWallet, setLoadingWallet] = useState(true);
+  const [tipFloat, setTipFloat] = useState<number | null>(null);
+
+  // Creator application
+  const [isCreator, setIsCreator] = useState<boolean | null>(null);
+  const [creatorApp, setCreatorApp] = useState<{ status: string; review_notes: string | null } | null>(null);
+  const [showCreatorModal, setShowCreatorModal] = useState(false);
+  const [applyForm, setApplyForm] = useState({ social_links: "", description: "", audience_size: "" });
+  const [applyState, setApplyState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [applyMsg, setApplyMsg] = useState<string | null>(null);
 
   const reloadWallet = async (uid?: string) => {
     const targetId = uid || userId;
@@ -66,7 +76,7 @@ export default function DashboardPage() {
 
       const { data: prof } = await supabase
         .from("profiles")
-        .select("handle, account_status, status_reason, stripe_account_id, stripe_charges_enabled, email_verified")
+        .select("handle, account_status, status_reason, stripe_account_id, stripe_charges_enabled, email_verified, is_creator")
         .eq("user_id", user.id)
         .maybeSingle()
         .returns<ProfileRow | null>();
@@ -77,6 +87,24 @@ export default function DashboardPage() {
       setAccountStatus(prof?.account_status ?? null);
       setStatusReason(prof?.status_reason ?? null);
       setChargesEnabled(Boolean(prof?.stripe_charges_enabled));
+      setIsCreator(Boolean((prof as (typeof prof & { is_creator?: boolean }) | null)?.is_creator));
+
+      // Fetch creator application status
+      const { data: sessForApply } = await supabase.auth.getSession();
+      const applyToken = sessForApply.session?.access_token;
+      if (applyToken) {
+        fetch("/api/creator/apply", { headers: { Authorization: `Bearer ${applyToken}` } })
+          .then((r) => r.json())
+          .then((j) => {
+            setIsCreator(j.is_creator ?? false);
+            setCreatorApp(j.application ?? null);
+            // If gate redirected here, auto-open modal
+            if (!j.is_creator && !j.application && Boolean(prof?.stripe_charges_enabled) && window.location.search.includes("creator_gate")) {
+              setShowCreatorModal(true);
+            }
+          })
+          .catch(() => {});
+      }
 
       // Only show "Payments active" banner for accounts < 7 days old
       const createdAt = new Date(user.created_at ?? 0);
@@ -84,6 +112,12 @@ export default function DashboardPage() {
       const dismissed = localStorage.getItem("1nelink_payments_banner_dismissed");
       if (Boolean(prof?.stripe_charges_enabled) && daysSinceCreation < 7 && dismissed !== "true") {
         setShowBanner(true);
+      }
+
+      // Show welcome card for new users (< 1 day old, not dismissed)
+      const welcomeDismissed = localStorage.getItem("1nelink_welcome_dismissed");
+      if (daysSinceCreation < 1 && welcomeDismissed !== "true") {
+        setShowWelcome(true);
       }
 
       // Auto-sync Stripe status if account exists but charges not enabled in DB
@@ -121,11 +155,16 @@ export default function DashboardPage() {
           // Optimistic balance merge
           const tx = payload.new as { type?: string; amount?: number };
           if (tx.amount != null) {
+            const delta = Number(tx.amount);
             setWallet((prev) => {
               if (!prev) return prev;
-              const delta = Number(tx.amount);
               return { ...prev, balance: prev.balance + delta };
             });
+            // Trigger floating +$X animation for incoming tips
+            if (delta > 0) {
+              setTipFloat(delta);
+              setTimeout(() => setTipFloat(null), 1500);
+            }
           }
           // Source-of-truth refresh
           reloadWallet();
@@ -169,13 +208,43 @@ export default function DashboardPage() {
     return () => { supabase.removeChannel(channel); };
   }, [userId]);
 
-  const base = "";
-
   const onelinkPath = handle ? `/${handle}` : "/(set-handle)";
   const fullUrl = useMemo(() => {
-    const base = "https://1nelink.app";
+    const base = (
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      (typeof window !== "undefined" ? window.location.origin : "https://1nelink.app")
+    ).replace(/\/$/, "");
     return handle ? `${base}${onelinkPath}` : "";
   }, [handle, onelinkPath]);
+
+  async function submitApplication() {
+    if (!applyForm.description.trim()) {
+      setApplyMsg("Please describe what you plan to sell.");
+      setApplyState("error");
+      return;
+    }
+    setApplyState("loading");
+    setApplyMsg(null);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      const res = await fetch("/api/creator/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(applyForm),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? "Failed to submit");
+      setApplyState("success");
+      setApplyMsg("Application submitted! We'll review it soon.");
+      setCreatorApp({ status: "pending", review_notes: null });
+      setTimeout(() => setShowCreatorModal(false), 2000);
+    } catch (e) {
+      setApplyState("error");
+      setApplyMsg(e instanceof Error ? e.message : "Unknown error");
+    }
+  }
 
   const copy = async () => {
     if (!handle) {
@@ -197,7 +266,7 @@ export default function DashboardPage() {
     return (
       <div className="flex flex-col items-center justify-center p-12 text-center">
         <h1 className="text-xl font-semibold text-white">Account Closed</h1>
-        <p className="mt-2 text-white/60">Your account has been fully closed and all funds have been withdrawn. Contact support if you have questions.</p>
+        <p className="mt-2 text-white/70">Your account has been fully closed and all funds have been withdrawn. Contact support if you have questions.</p>
       </div>
     );
   }
@@ -205,11 +274,53 @@ export default function DashboardPage() {
   const isClosed = accountStatus === "closed";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <StripeReturnSync />
 
       {!emailVerified && userEmail && userId && (
         <VerifyEmailBanner email={userEmail} userId={userId} />
+      )}
+
+      {/* Welcome card — first-time users */}
+      {showWelcome && (
+        <div className="rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-blue-500/5 p-6 animate-[fadeInUp_0.5s_ease]">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                🎉 Your link is ready!
+              </h2>
+              <p className="text-sm text-white/70 mt-1">
+                Share your 1neLink to start earning tips. It only takes a second.
+              </p>
+            </div>
+            <button
+              onClick={() => { setShowWelcome(false); localStorage.setItem("1nelink_welcome_dismissed", "true"); }}
+              className="text-white/45 hover:text-white/60 transition text-lg leading-none ml-3 shrink-0"
+              aria-label="Dismiss"
+            >
+              &times;
+            </button>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={copy}
+              disabled={!handle}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-500 text-black font-semibold text-sm hover:bg-emerald-400 transition active:scale-[0.97] disabled:opacity-40"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              Copy Link
+            </button>
+            <button
+              onClick={openPreview}
+              disabled={!handle}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white/10 border border-white/[0.12] text-white font-semibold text-sm hover:bg-white/15 transition active:scale-[0.97] disabled:opacity-40"
+            >
+              Open Tip Page →
+            </button>
+          </div>
+        </div>
       )}
 
       {chargesEnabled && !isClosed && showBanner && (
@@ -226,14 +337,14 @@ export default function DashboardPage() {
       )}
 
       {isClosed && (
-        <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
-          <p className="text-yellow-800 text-sm font-medium">Your account is closed.</p>
-          <p className="text-yellow-700 text-sm mt-1">You can still withdraw your remaining balance. All other features are disabled.</p>
+        <div className="bg-yellow-500/10 border border-yellow-400/20 p-4 rounded-xl">
+          <p className="text-yellow-300 text-sm font-medium">Your account is closed.</p>
+          <p className="text-yellow-300/60 text-sm mt-1">You can still withdraw your remaining balance. All other features are disabled.</p>
         </div>
       )}
 
       {accountStatus === "restricted" && (
-        <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-lg">
+        <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-xl">
           <p className="text-red-400 text-sm font-semibold">🔒 Your account is restricted</p>
           <p className="text-red-400/70 text-sm mt-1">
             {statusReason
@@ -246,19 +357,29 @@ export default function DashboardPage() {
                 if (!userId || reviewRequested) return;
                 setReviewRequested(true);
                 const { data: { session } } = await supabase.auth.getSession();
-                await fetch("/api/account/request-review", {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${session?.access_token ?? ""}`,
-                  },
-                }).catch(() => {});
-                show("Review request submitted. We'll follow up shortly.");
+                try {
+                  const res = await fetch("/api/account/request-review", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${session?.access_token ?? ""}`,
+                    },
+                  });
+                  if (res.ok) {
+                    show("Review request submitted. We'll follow up shortly.");
+                  } else {
+                    setReviewRequested(false);
+                    show("Failed to submit review request. Please try again.");
+                  }
+                } catch {
+                  setReviewRequested(false);
+                  show("Failed to submit review request. Please try again.");
+                }
               }}
               disabled={reviewRequested}
-              className={`text-sm font-medium px-4 py-2 rounded-lg transition ${
+              className={`text-sm font-medium px-4 py-2 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed ${
                 reviewRequested
-                  ? "bg-gray-700 text-gray-400 cursor-not-allowed"
+                  ? "bg-white/[0.06] text-white/55"
                   : "bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30"
               }`}
             >
@@ -282,17 +403,53 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* HERO WALLET — dominant balance + primary actions */}
+      <div className={`${ui.card} p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-5`}>
+        <div className="relative">
+          <p className="text-sm text-white/50 uppercase tracking-wider font-medium">Available Balance</p>
+          <h1 className={`text-3xl md:text-4xl font-bold mt-1 ${loadingWallet ? "text-white/20 animate-pulse" : "text-emerald-400"}`}>
+            {loadingWallet ? "$—.——" : formatMoney(wallet?.balance ?? 0)}
+          </h1>
+          {/* Floating +$X tip animation */}
+          {tipFloat !== null && (
+            <span
+              key={Date.now()}
+              className="absolute -right-2 top-0 text-lg font-bold text-emerald-400 pointer-events-none"
+              style={{ animation: "floatTip 1.5s ease forwards" }}
+            >
+              +{formatMoney(tipFloat)}
+            </span>
+          )}
+        </div>
+        <div className="flex gap-3 w-full md:w-auto">
+          <button
+            onClick={() => router.push("/dashboard/wallet")}
+            disabled={isClosed}
+            className={`${ui.btnPrimary} w-full md:w-auto disabled:opacity-40 disabled:cursor-not-allowed`}
+          >
+            Withdraw
+          </button>
+          <button
+            onClick={copy}
+            disabled={!handle || isClosed}
+            className={`${ui.btnGhost} w-full md:w-auto disabled:opacity-40 disabled:cursor-not-allowed`}
+          >
+            Copy Link
+          </button>
+        </div>
+      </div>
+
       {/* Activate Payouts CTA — shown when Stripe is not connected */}
       {!chargesEnabled && !isClosed && accountStatus !== "restricted" && (
         <div className={`${ui.card} p-5`}>
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="text-base font-semibold text-white">Activate Payouts</h3>
-              <p className={`mt-1 text-sm ${ui.muted}`}>
+              <p className="mt-1 text-sm text-white/70">
                 Connect your account to start receiving tips and withdrawals.
               </p>
             </div>
-            <span className={`${ui.chip} bg-amber-500/10 border-amber-400/20 text-amber-200`}>Required</span>
+            <span className="text-xs bg-amber-500/10 border border-amber-400/20 text-amber-200 px-2.5 py-1 rounded-full">Required</span>
           </div>
           <button
             onClick={() => router.push("/dashboard/onboarding")}
@@ -300,89 +457,204 @@ export default function DashboardPage() {
           >
             Activate Payouts
           </button>
-          <p className={`mt-2 text-xs ${ui.muted2}`}>
-            You&apos;ll be guided through Stripe&apos;s secure onboarding to verify your identity and link a bank account.
-          </p>
         </div>
       )}
 
-      {userId && (
-        <div className="mb-4">
-          <EarningsCard userId={userId} />
-        </div>
-      )}
+      {/* Earnings + Wallet — grouped side by side */}
+      <div className="grid md:grid-cols-2 gap-4">
+        {userId && <EarningsCard userId={userId} />}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* 1neLink card */}
-        <div className={`${ui.card} p-6`}>
-          <div className="flex items-start justify-between gap-3">
+        <div className={`${ui.card} p-5`}>
+          <h3 className="text-sm text-white/50 uppercase tracking-wider font-medium">Wallet</h3>
+          <div className="mt-3 space-y-2.5">
+            <div className="flex justify-between text-sm">
+              <span className="text-white/70">Balance</span>
+              <span className={`font-semibold ${loadingWallet ? "text-white/20 animate-pulse" : "text-emerald-400"}`}>
+                {loadingWallet ? "…" : formatMoney(wallet?.balance ?? 0)}
+              </span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-white/70">Fees Paid</span>
+              <span className={`text-white font-medium ${loadingWallet ? "animate-pulse" : ""}`}>
+                {loadingWallet ? "…" : formatMoney(wallet?.withdraw_fee ?? 0)}
+              </span>
+            </div>
+
+          </div>
+          <button
+            onClick={() => router.push("/dashboard/wallet")}
+            disabled={isClosed}
+            className={`${ui.btnGhost} w-full mt-4 disabled:opacity-40 disabled:cursor-not-allowed`}
+          >
+            Manage Wallet →
+          </button>
+        </div>
+      </div>
+
+      {/* Your Link — clean + premium */}
+      <div className={`${ui.card} p-6`}>
+        <div className="flex items-center justify-between">
+          <h2 className={ui.h2}>Your Link</h2>
+          {handle ? (
+            <span className="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-400/20 px-2.5 py-1 rounded-full">Active</span>
+          ) : (
+            <span className="text-xs bg-amber-500/10 text-amber-200 border border-amber-400/20 px-2.5 py-1 rounded-full">Set handle</span>
+          )}
+        </div>
+
+        <div className="mt-4 flex items-center justify-between bg-white/5 border border-white/[0.12] rounded-xl px-4 py-3 gap-3">
+          <span className="text-sm text-white/80 truncate min-w-0">
+            {handle ? fullUrl : "Go to Profile to set your handle"}
+          </span>
+          <div className="flex gap-2 shrink-0">
+            <button onClick={openPreview} disabled={!handle || isClosed} className={`${ui.btnGhost} ${ui.btnSmall} disabled:opacity-40 disabled:cursor-not-allowed`}>
+              Open
+            </button>
+            <button onClick={copy} disabled={!handle || isClosed} className={`${ui.btnPrimary} ${ui.btnSmall} disabled:opacity-40 disabled:cursor-not-allowed`}>
+              Copy
+            </button>
+          </div>
+        </div>
+
+        <p className="text-xs text-white/50 mt-2">
+          Use this link in your bio, flyers, or anywhere you receive payments.
+        </p>
+      </div>
+
+      {/* Creator Monetization Card */}
+      {isCreator === false && (
+        <div className={`${ui.card} p-5`}>
+          <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className={ui.h2}>Your 1NELINK</h2>
-              <p className={`mt-1 ${ui.muted}`}>This is the link you will share everywhere.</p>
+              <h3 className="font-semibold text-sm">Monetize with Themes</h3>
+              <p className="text-xs text-white/40 mt-0.5">
+                {chargesEnabled
+                  ? "Sell custom themes to your audience and earn real money."
+                  : "Activate payouts first so you can receive earnings from theme sales."}
+              </p>
             </div>
-
-            {handle ? (
-              <span className={`${ui.chip} bg-blue-500/10 border-blue-400/20 text-blue-200`}>Active</span>
-            ) : (
-              <span className={`${ui.chip} bg-amber-500/10 border-amber-400/20 text-amber-200`}>Set handle</span>
-            )}
+            {!chargesEnabled ? (
+              <span className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-blue-400/15 text-blue-300 font-medium">Payout setup required</span>
+            ) : creatorApp?.status === "pending" ? (
+              <span className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-amber-400/15 text-amber-400 font-medium">Under Review</span>
+            ) : creatorApp?.status === "rejected" ? (
+              <span className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-red-400/15 text-red-400 font-medium">Rejected</span>
+            ) : null}
           </div>
 
-          <div className={`${ui.cardInner} mt-4 p-3`}>
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className={`text-xs ${ui.muted2}`}>Public URL</div>
-                <div className={`text-sm font-medium ${ui.muted}`}>{handle ? fullUrl : "Go to Profile to set your handle"}</div>
-              </div>
-
-              <div className="flex gap-2">
-                <button onClick={openPreview} className={`${ui.btnGhost} ${ui.btnSmall}`} disabled={!handle || isClosed}>
-                  Open
-                </button>
-                <button onClick={copy} className={`${ui.btnPrimary} ${ui.btnSmall}`} disabled={!handle || isClosed}>
-                  Copy
-                </button>
-              </div>
+          {!chargesEnabled && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs text-white/50">Complete onboarding first, then you can apply to sell themes.</p>
+              <button
+                onClick={() => router.push("/dashboard/onboarding")}
+                className="px-4 py-2 bg-white text-black text-sm font-semibold rounded-xl hover:bg-white/90 transition"
+              >
+                Activate Payouts
+              </button>
             </div>
-
-            {!handle && (
-              <p className={`mt-3 text-xs ${ui.muted}`}>Go to <span className="font-medium">Profile</span> and save your handle to activate your public link.</p>
-            )}
-          </div>
-
-          <div className={`mt-3 text-xs ${ui.muted2}`}>Tip: Use this link on Instagram bio, flyers, business cards, and QR codes.</div>
+          )}
+          {chargesEnabled && creatorApp?.status === "pending" && (
+                <p className="mt-3 text-xs text-white/50">Your application is being reviewed. We&apos;ll notify you once a decision is made.</p>
+          )}
+          {chargesEnabled && creatorApp?.status === "rejected" && (
+            <div className="mt-3 space-y-2">
+              {creatorApp.review_notes && (
+                <p className="text-xs text-white/50 italic">&quot;{creatorApp.review_notes}&quot;</p>
+              )}
+              <button
+                onClick={() => { setApplyForm({ social_links: "", description: "", audience_size: "" }); setApplyState("idle"); setApplyMsg(null); setShowCreatorModal(true); }}
+                className="text-xs text-blue-400 hover:underline"
+              >
+                Reapply →
+              </button>
+            </div>
+          )}
+          {chargesEnabled && !creatorApp && (
+            <button
+              onClick={() => { setApplyForm({ social_links: "", description: "", audience_size: "" }); setApplyState("idle"); setApplyMsg(null); setShowCreatorModal(true); }}
+              className="mt-3 px-4 py-2 bg-white text-black text-sm font-semibold rounded-xl hover:bg-white/90 transition"
+            >
+              Apply to Become a Creator
+            </button>
+          )}
         </div>
+      )}
 
-        {/* Wallet summary */}
-        <div className={`${ui.card} p-6`}>
-          <h2 className={ui.h2}>Wallet</h2>
-          <p className={`mt-1 ${ui.muted}`}>Track your balance and payouts here.</p>
+      {/* Creator Application Modal */}
+      {showCreatorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#0f111a] border border-white/10 rounded-2xl p-6 w-full max-w-md space-y-5">
+            <div>
+              <h2 className="text-lg font-bold">Apply to Sell Themes</h2>
+              <p className="text-sm text-white/40 mt-1">Tell us about yourself and what you&apos;ll create. We review all applications manually.</p>
+            </div>
 
-          <div className="mt-4">
-            <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className={`${ui.cardInner} p-4`}>
-                <div className="text-xs text-white/50">Balance</div>
-                <div className="mt-1 text-2xl font-semibold text-emerald-400">{loadingWallet ? "…" : formatMoney(wallet?.balance ?? 0)}</div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-white/40 mb-1.5">Social Links (Instagram, TikTok, etc.)</label>
+                <input
+                  type="text"
+                  placeholder="https://instagram.com/yourhandle"
+                  value={applyForm.social_links}
+                  onChange={(e) => setApplyForm((f) => ({ ...f, social_links: e.target.value }))}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/20 outline-none"
+                />
               </div>
-              <div className={`${ui.cardInner} p-4`}>
-                <div className="text-xs text-white/50">Withdrawal fee</div>
-                <div className="mt-1 text-2xl font-semibold text-white/90">{loadingWallet ? "…" : formatMoney(wallet?.withdraw_fee ?? 0)}</div>
+
+              <div>
+                <label className="block text-xs text-white/40 mb-1.5">About your work & what you plan to sell <span className="text-red-400">*</span></label>
+                <textarea
+                  rows={4}
+                  placeholder="Describe your creative work, who your audience is, and what kinds of themes you'd like to offer..."
+                  value={applyForm.description}
+                  onChange={(e) => setApplyForm((f) => ({ ...f, description: e.target.value }))}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/20 outline-none resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-white/40 mb-1.5">Approximate Audience Size</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 5000"
+                  min="0"
+                  value={applyForm.audience_size}
+                  onChange={(e) => setApplyForm((f) => ({ ...f, audience_size: e.target.value }))}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/20 outline-none"
+                />
               </div>
             </div>
 
-            <button onClick={() => router.push('/dashboard/wallet')} className={`${ui.btnPrimary} w-full mt-4`}>Withdraw to bank</button>
+            {applyMsg && (
+              <p className={`text-sm ${applyState === "error" ? "text-red-400" : "text-emerald-400"}`}>{applyMsg}</p>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={submitApplication}
+                disabled={applyState === "loading" || applyState === "success"}
+                className="flex-1 py-2.5 bg-white text-black font-semibold text-sm rounded-xl hover:bg-white/90 transition disabled:opacity-40"
+              >
+                {applyState === "loading" ? "Submitting…" : applyState === "success" ? "Submitted!" : "Submit Application"}
+              </button>
+              <button
+                onClick={() => setShowCreatorModal(false)}
+                className="px-4 py-2.5 bg-white/10 text-white/60 text-sm rounded-xl hover:bg-white/15 transition"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Share card */}
-        <div className={`${ui.card} p-6 md:col-span-2`}>
-          <h2 className={ui.h2}>Share</h2>
-          <p className={`mt-1 ${ui.muted}`}>Download QR codes and share your link anywhere: flyers, bio links, booths, chairs, stages.</p>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-            <Link className={`${ui.btnGhost} ${ui.btnSmall}`} href="/dashboard/share">Go to Share</Link>
-            <Link className={`${ui.btnGhost} ${ui.btnSmall}`} href="/dashboard/profile">Edit Profile</Link>
-          </div>
+      {/* Share tools */}
+      <div className={`${ui.card} p-6`}>
+        <h2 className={ui.h2}>Share</h2>
+        <p className="mt-1 text-sm text-white/70">Download QR codes and share your link anywhere.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link className={`${ui.btnGhost} ${ui.btnSmall}`} href="/dashboard/share">Go to Share</Link>
+          <Link className={`${ui.btnGhost} ${ui.btnSmall}`} href="/dashboard/profile">Edit Profile</Link>
         </div>
       </div>
     </div>

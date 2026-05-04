@@ -134,6 +134,10 @@ export async function POST(req: Request) {
       .select("id")
       .maybeSingle();
 
+    if (lockErr) {
+      return NextResponse.json({ error: lockErr.message }, { status: 500 });
+    }
+
     if (!lockResult) {
       return NextResponse.json({ error: "Refund request is already being executed by another admin" }, { status: 409 });
     }
@@ -146,16 +150,17 @@ export async function POST(req: Request) {
       .single();
 
     if (!tip) {
-      await supabaseAdmin.from("refund_requests").update({ status: "rejected" }).eq("id", refund_id);
+      await supabaseAdmin.from("refund_requests").update({ status: "rejected", locked_at: null, locked_by: null }).eq("id", refund_id);
       return NextResponse.json({ error: "Tip not found — request rejected" }, { status: 404 });
     }
 
     if (tip.refund_status === "full") {
-      await supabaseAdmin.from("refund_requests").update({ status: "rejected" }).eq("id", refund_id);
+      await supabaseAdmin.from("refund_requests").update({ status: "rejected", locked_at: null, locked_by: null }).eq("id", refund_id);
       return NextResponse.json({ error: "Tip already fully refunded" }, { status: 400 });
     }
 
     if (tip.refund_status === "initiated") {
+      await supabaseAdmin.from("refund_requests").update({ locked_at: null, locked_by: null }).eq("id", refund_id);
       return NextResponse.json({ error: "Refund already in progress — wait for webhook" }, { status: 409 });
     }
 
@@ -166,7 +171,7 @@ export async function POST(req: Request) {
     const alreadyRefunded = Number(tip.refunded_amount ?? 0);
     const maxRefundable = Number((tipAmount - alreadyRefunded).toFixed(2));
     if (refundAmt > maxRefundable) {
-      await supabaseAdmin.from("refund_requests").update({ status: "rejected" }).eq("id", refund_id);
+      await supabaseAdmin.from("refund_requests").update({ status: "rejected", locked_at: null, locked_by: null }).eq("id", refund_id);
       return NextResponse.json(
         { error: `Refund amount $${refundAmt.toFixed(2)} exceeds current refundable balance of $${maxRefundable.toFixed(2)}` },
         { status: 400 }
@@ -182,7 +187,7 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (!creatorProfile?.stripe_account_id) {
-      await supabaseAdmin.from("refund_requests").update({ status: "rejected" }).eq("id", refund_id);
+      await supabaseAdmin.from("refund_requests").update({ status: "rejected", locked_at: null, locked_by: null }).eq("id", refund_id);
       return NextResponse.json({ error: "Creator has no connected Stripe account" }, { status: 400 });
     }
 
@@ -218,7 +223,7 @@ export async function POST(req: Request) {
         },
         severity: "critical",
       });
-      await supabaseAdmin.from("refund_requests").update({ status: "rejected" }).eq("id", refund_id);
+      await supabaseAdmin.from("refund_requests").update({ status: "rejected", locked_at: null, locked_by: null }).eq("id", refund_id);
       return NextResponse.json(
         { error: "Payment destination mismatch — refusing refund to prevent funds routing error" },
         { status: 409 }
@@ -263,6 +268,7 @@ export async function POST(req: Request) {
 
     const creatorBalance = Number(walletRow?.balance ?? 0);
     if (refundAmt > creatorBalance) {
+      await supabaseAdmin.from("refund_requests").update({ locked_at: null, locked_by: null }).eq("id", refund_id);
       return NextResponse.json({
         error: `Insufficient creator balance ($${creatorBalance.toFixed(2)}) to cover refund of $${refundAmt.toFixed(2)}`,
       }, { status: 409 });

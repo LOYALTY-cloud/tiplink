@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ui } from "@/lib/ui";
 import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
+import { supabaseAdmin } from "@/lib/supabase/adminBrowserClient";
+import { isAdminOnline, lastSeenText } from "@/lib/isAdminOnline";
 
 type AdminDetail = {
   id: string;
@@ -122,18 +124,46 @@ export default function AdminStaffDetailPage() {
 
   // Ticket modal state
   const [ticketOpen, setTicketOpen] = useState(false);
-  const [ticketType, setTicketType] = useState("note");
+  const [ticketType, setTicketType] = useState("performance_review");
   const [ticketMessage, setTicketMessage] = useState("");
   const [ticketLoading, setTicketLoading] = useState(false);
   const [confirmText, setConfirmText] = useState("");
 
   const session = getAdminSession();
   const isOwner = session?.role === "owner";
-  const isSuperAdmin = session?.role === "super_admin";
+  const [authorized, setAuthorized] = useState(false);
+  const canSendTicket = !!session && !!admin && session.id !== admin.user_id;
 
   useEffect(() => {
-    loadAdmin();
-  }, [id]);
+    if (!session || !["owner", "super_admin", "finance_admin", "support_admin"].includes(session.role)) { router.replace("/admin"); return; }
+    setAuthorized(true);
+  }, [router]);
+
+  useEffect(() => {
+    if (authorized) loadAdmin();
+  }, [id, authorized]);
+
+  // Realtime availability for this admin
+  useEffect(() => {
+    if (!admin?.user_id) return;
+    const channel = supabaseAdmin
+      .channel(`staff-avail-${admin.user_id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `user_id=eq.${admin.user_id}` },
+        (payload) => {
+          const updated = payload.new as { availability?: string; last_active_at?: string };
+          setAdmin((prev) => prev ? {
+            ...prev,
+            ...(updated.availability && { availability: updated.availability }),
+            ...(updated.last_active_at && { last_active_at: updated.last_active_at }),
+          } : prev);
+        }
+      )
+      .subscribe();
+
+    return () => { supabaseAdmin.removeChannel(channel); };
+  }, [admin?.user_id]);
 
   async function loadAdmin() {
     setLoading(true);
@@ -214,24 +244,36 @@ export default function AdminStaffDetailPage() {
 
   async function handleResolveTicket(ticketId: string) {
     try {
-      await fetch("/api/admin/staff/tickets", {
+      const res = await fetch("/api/admin/staff/tickets", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...getAdminHeaders() },
         body: JSON.stringify({ ticketId, action: "resolve" }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || "Failed to resolve ticket");
+      }
       loadAdmin();
-    } catch {}
+    } catch {
+      setError("Network error resolving ticket");
+    }
   }
 
   async function handleAcknowledgeTicket(ticketId: string) {
     try {
-      await fetch("/api/admin/staff/tickets", {
+      const res = await fetch("/api/admin/staff/tickets", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...getAdminHeaders() },
         body: JSON.stringify({ ticketId, action: "acknowledge" }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || "Failed to acknowledge ticket");
+      }
       loadAdmin();
-    } catch {}
+    } catch {
+      setError("Network error acknowledging ticket");
+    }
   }
 
   function formatTime(iso: string | null) {
@@ -246,7 +288,7 @@ export default function AdminStaffDetailPage() {
   }
 
   if (loading) {
-    return (
+    return !authorized ? null : (
       <div className="flex items-center justify-center py-20">
         <p className={ui.muted}>Loading…</p>
       </div>
@@ -306,7 +348,14 @@ export default function AdminStaffDetailPage() {
                 Until {new Date(admin.restricted_until).toLocaleString()}
               </p>
             )}
-            <p className={`text-xs ${ui.muted2} mt-1`}>
+            {/* Real-time presence */}
+            <p className={`text-xs mt-1 ${isAdminOnline(admin.last_active_at) ? "text-green-400" : "text-white/40"}`}>
+              {isAdminOnline(admin.last_active_at)
+                ? (admin.availability === "busy" ? "🟡 Busy" : "🟢 Online")
+                : `⚪ ${lastSeenText(admin.last_active_at)}`
+              }
+            </p>
+            <p className={`text-xs ${ui.muted2} mt-0.5`}>
               Last login: {formatTime(admin.last_login_at)}
             </p>
           </div>
@@ -335,18 +384,36 @@ export default function AdminStaffDetailPage() {
         </div>
       )}
 
-      {/* Last Action */}
-      {lastAction && (
-        <div className={`${ui.card} p-4`}>
+      {/* Recent Activity */}
+      {actions.length > 0 && (
+        <div className={`${ui.card} p-5 space-y-3`}>
           <div className="flex items-center justify-between">
-            <div>
-              <p className={`text-xs ${ui.muted2} uppercase tracking-wider mb-1`}>Last Action Taken</p>
-              <p className="text-sm font-medium">{lastAction.action.replace(/_/g, " ")}</p>
-              {lastAction.target_user && (
-                <p className={`text-xs ${ui.muted2} mt-0.5`}>Target: {lastAction.target_user}</p>
-              )}
-            </div>
-            <span className={`text-xs ${ui.muted2}`}>{formatTime(lastAction.created_at)}</span>
+            <p className={`text-xs ${ui.muted2} uppercase tracking-wider`}>Recent Activity</p>
+            <span className="text-[10px] text-white/30">{actions.length} total</span>
+          </div>
+          <div className="space-y-1">
+            {actions.slice(0, 4).map((a, i) => {
+              const icon =
+                a.action.includes("ticket") ? "🎫" :
+                a.action.includes("withdraw") || a.action.includes("payout") ? "💰" :
+                a.action.includes("user") || a.action.includes("account") ? "👤" : "⚙️";
+              return (
+                <div
+                  key={a.id}
+                  className={`flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5 transition border-l-2 ${SEVERITY_COLORS[a.severity] ?? "border-white/10"}`}
+                  style={{ animation: `fadeIn 0.3s ease-out ${i * 60}ms both` }}
+                >
+                  <span className="text-xs">{icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white truncate">{a.action.replace(/_/g, " ")}</p>
+                    {a.target_user && (
+                      <p className="text-[10px] text-white/30 truncate">Target: {a.target_user}</p>
+                    )}
+                  </div>
+                  <span className={`text-[10px] ${ui.muted2} shrink-0`}>{formatTime(a.created_at)}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -540,8 +607,8 @@ export default function AdminStaffDetailPage() {
               {tickets.filter((t) => t.status === "open").length} open
             </span>
             <span className={ui.chip}>{tickets.length} total</span>
-            {/* Show Send Ticket button if hierarchy allows (owner→anyone, super_admin→admin) */}
-            {((isOwner && admin.role !== "owner") || (isSuperAdmin && admin.role === "admin")) && (
+            {/* Any admin-level user can file a record against any other admin-level user except themselves. */}
+            {canSendTicket && (
               <button
                 onClick={() => setTicketOpen(true)}
                 className={`${ui.btnGhost} ${ui.btnSmall} text-xs text-blue-400`}
@@ -675,8 +742,13 @@ export default function AdminStaffDetailPage() {
                 placeholder="Describe the issue or observation…"
               />
             </div>
+            {error && (
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm">
+                {error}
+              </div>
+            )}
             <div className="flex gap-3">
-              <button onClick={() => { setTicketOpen(false); setTicketMessage(""); }} className={`${ui.btnGhost} flex-1`}>
+              <button onClick={() => { setTicketOpen(false); setTicketMessage(""); setError(""); }} className={`${ui.btnGhost} flex-1`}>
                 Cancel
               </button>
               <button

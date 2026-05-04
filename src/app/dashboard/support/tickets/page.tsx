@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { showGlobalToast } from "@/components/GlobalToast";
 import { ui } from "@/lib/ui";
+import { encodeSupportFileRef } from "@/lib/supportFiles";
 
 type Ticket = {
   id: string;
@@ -19,7 +21,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   open: { label: "Open", color: "text-blue-400" },
   in_progress: { label: "In Progress", color: "text-yellow-400" },
   resolved: { label: "Resolved", color: "text-green-400" },
-  closed: { label: "Closed", color: "text-white/40" },
+  closed: { label: "Closed", color: "text-white/55" },
 };
 
 export default function TicketsPage() {
@@ -41,10 +43,20 @@ export default function TicketsPage() {
 
   async function loadTickets() {
     setLoading(true);
-    const res = await fetch("/api/support/tickets");
-    if (res.ok) {
-      const data = await res.json();
-      setTickets(data.tickets ?? []);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess?.session?.access_token;
+      const res = await fetch("/api/support/tickets", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTickets(data.tickets ?? []);
+      } else {
+        showGlobalToast("Failed to load tickets");
+      }
+    } catch {
+      showGlobalToast("Failed to load tickets");
     }
     setLoading(false);
   }
@@ -65,17 +77,19 @@ export default function TicketsPage() {
         .from("support-files")
         .upload(path, file);
       if (!error) {
-        const { data: pub } = supabase.storage
-          .from("support-files")
-          .getPublicUrl(path);
-        fileUrl = pub.publicUrl;
+        fileUrl = encodeSupportFileRef(path);
         fileType = file.type;
       }
     }
 
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess?.session?.access_token;
     const res = await fetch("/api/support/tickets", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({
         subject: subject.trim(),
         category,
@@ -93,6 +107,8 @@ export default function TicketsPage() {
       setMessage("");
       setFile(null);
       loadTickets();
+    } else {
+      showGlobalToast("Failed to submit ticket. Please try again.");
     }
 
     setSubmitting(false);
@@ -226,8 +242,17 @@ export default function TicketsPage() {
 
       {/* Ticket List */}
       {loading ? (
-        <div className="text-center py-8">
-          <p className={ui.muted}>Loading tickets...</p>
+        <div className="space-y-2 py-4 animate-[fadeIn_0.3s_ease]">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="rounded-xl bg-white/5 border border-white/[0.12] px-4 py-3 flex items-center gap-3">
+              <div className="h-5 w-5 rounded-full bg-white/[0.06] animate-pulse shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-3.5 w-40 bg-white/[0.06] rounded-xl animate-pulse" />
+                <div className="h-3 w-24 bg-white/[0.06] rounded-xl animate-pulse" />
+              </div>
+              <div className="h-4 w-14 bg-white/[0.06] rounded-full animate-pulse" />
+            </div>
+          ))}
         </div>
       ) : tickets.length === 0 && !showForm ? (
         <div className={`${ui.card} px-5 py-8 text-center space-y-3`}>

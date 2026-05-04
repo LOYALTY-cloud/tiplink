@@ -18,7 +18,7 @@ export default function RecentActivity() {
   if (!transactions.length) {
     return (
       <div className="mt-10">
-        <p className="text-sm text-white/40">No activity yet</p>
+        <p className="text-sm text-white/55">No activity yet</p>
       </div>
     )
   }

@@ -6,7 +6,8 @@ export const runtime = "nodejs";
 
 /**
  * Upgrade a support session from AI mode to human mode.
- * Tries to auto-assign an available admin.
+ * Triggered when user explicitly asks for live support.
+ * Tries to assign an available admin; otherwise keeps session in priority waiting.
  */
 export async function POST(req: Request) {
   try {
@@ -44,11 +45,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, mode: "human", assigned: null });
     }
 
-    // Try to assign an admin
-    const assigned = await assignBestAdmin(sessionId, { priority: session.priority ?? 0 });
+    // User explicitly requested live support: escalate priority first.
+    const nextPriority = Math.max(session.priority ?? 0, 2);
+    await supabaseAdmin
+      .from("support_sessions")
+      .update({
+        escalation: true,
+        escalated_at: new Date().toISOString(),
+        priority: nextPriority,
+      })
+      .eq("id", sessionId);
+
+    // Try assigning an available admin now (only because user/escalation requested live support).
+    const assigned = await assignBestAdmin(sessionId, {
+      priority: nextPriority,
+      message: "live support requested",
+      confidence: 1,
+    });
 
     if (assigned) {
-      // Upgrade mode to human
       await supabaseAdmin
         .from("support_sessions")
         .update({ mode: "human" })
@@ -63,8 +78,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, mode: "human", assigned: assigned.display_name });
     }
 
-    // No admin available
-    return NextResponse.json({ ok: true, mode: "ai", assigned: null });
+    // No admins active/available right now: keep AI active and keep this chat prioritized.
+    await supabaseAdmin
+      .from("support_sessions")
+      .update({
+        mode: "ai",
+        status: "waiting",
+        priority: Math.max(nextPriority, 3),
+        assigned_admin_id: null,
+        assigned_admin_name: null,
+      })
+      .eq("id", sessionId);
+
+    await supabaseAdmin.from("support_messages").insert({
+      session_id: sessionId,
+      sender_type: "system",
+      message: "No admin is active right now. Your chat is marked priority and an admin will join when one becomes available.",
+    });
+
+    return NextResponse.json({ ok: true, mode: "ai", assigned: null, queued: true });
   } catch {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }

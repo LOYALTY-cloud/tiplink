@@ -11,8 +11,8 @@ export type TrustInput = {
   account_age_days: number;
   /** Total successful (paid) payouts */
   successful_payouts: number;
-  /** Whether user has any chargebacks on record */
-  has_chargebacks: boolean;
+  /** Number of chargebacks in the last 30 days */
+  chargeback_count_30d: number;
   /** True if user has had consistent activity (no long gaps then spikes) */
   consistent_activity: boolean;
   /** True if current device matches previously-seen device fingerprint */
@@ -27,12 +27,18 @@ export type TrustInput = {
   large_withdrawal: boolean;
   /** True if activity count spiked vs. the user's baseline */
   activity_spike: boolean;
-  /** True if user had a chargeback within the last 30 days */
+  /** True if user had a chargeback within the last 7 days */
   recent_chargeback: boolean;
   /** True if multi-account linking signals were detected */
   multi_account_flag: boolean;
   /** True if an admin has manually flagged this profile */
   is_flagged?: boolean;
+  /** User's total tip volume (builds trust over time) */
+  total_volume?: number;
+  /** Number of recent ledger anomalies for this user */
+  ledger_anomaly_count?: number;
+  /** True if rapid-fire withdrawal pattern detected (count-based, not amount) */
+  rapid_fire?: boolean;
 };
 
 export type TrustResult = {
@@ -52,7 +58,7 @@ export function calculateTrustScore(user: TrustInput): TrustResult {
   if (user.successful_payouts >= 3) score += 20;
   else if (user.successful_payouts >= 1) score += 10;
 
-  if (!user.has_chargebacks) score += 15;
+  if (user.chargeback_count_30d === 0) score += 15;
   if (user.consistent_activity) score += 10;
   if (user.same_device) score += 10;
   if (user.stripe_verified) score += 10;
@@ -74,17 +80,43 @@ export function calculateTrustScore(user: TrustInput): TrustResult {
     score -= 15;
     reasons.push("Recent activity spike");
   }
-  if (user.recent_chargeback) {
+  if (user.chargeback_count_30d >= 3) {
     score -= 40;
+    reasons.push("Chargeback pattern (3+ in 30 days)");
+  } else if (user.chargeback_count_30d >= 2) {
+    score -= 20;
+    reasons.push("Multiple chargebacks (2 in 30 days)");
+  } else if (user.chargeback_count_30d >= 1) {
+    score -= 10;
     reasons.push("Recent chargeback");
   }
   if (user.multi_account_flag) {
     score -= 25;
     reasons.push("Multi-account signal");
   }
+  if (user.rapid_fire) {
+    score -= 15;
+    reasons.push("Rapid withdrawal pattern");
+  }
   if (user.is_flagged) {
     score -= 25;
     reasons.push("Manually flagged by admin");
+  }
+  const anomalies = user.ledger_anomaly_count ?? 0;
+  if (anomalies >= 4) {
+    score -= 25;
+    reasons.push("Multiple ledger anomalies");
+  } else if (anomalies >= 2) {
+    score -= 15;
+    reasons.push("Repeated ledger anomalies");
+  } else if (anomalies >= 1) {
+    score -= 8;
+    reasons.push("Recent ledger anomaly");
+  }
+
+  // Bonus: high-volume creators with clean history get extra trust
+  if ((user.total_volume ?? 0) >= 5000 && user.chargeback_count_30d === 0) {
+    score += 10;
   }
 
   score = Math.max(0, Math.min(100, score));

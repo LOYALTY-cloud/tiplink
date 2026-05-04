@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { trackLogin } from "@/lib/loginTracker";
+import { signAdminToken } from "@/lib/auth/adminJwt";
 
 export const runtime = "nodejs";
 
@@ -104,17 +105,41 @@ export async function POST(req: Request) {
     // Track login for fraud analytics
     trackLogin({ userId: profile.user_id, eventType: "login", ip, userAgent: req.headers.get("user-agent") || "", success: true });
 
-    return NextResponse.json({
+    // Issue signed JWT with 8-hour server-enforced expiry
+    const adminName = profile.first_name && profile.last_name
+      ? `${profile.first_name} ${profile.last_name}`
+      : profile.display_name || `${firstName.trim()} ${lastName.trim()}`;
+
+    const token = await signAdminToken({
+      sub: profile.user_id,
+      role: profile.role,
+      admin_id: profile.admin_id,
+      name: adminName,
+    });
+
+    const response = NextResponse.json({
       ok: true,
+      token,
       session: {
         id: profile.user_id,
-        name: profile.first_name && profile.last_name
-          ? `${profile.first_name} ${profile.last_name}`
-          : profile.display_name || `${firstName.trim()} ${lastName.trim()}`,
+        name: adminName,
         role: profile.role,
         admin_id: profile.admin_id,
       },
     });
+
+    // Set HTTP-only cookie so middleware can verify admin sessions server-side.
+    // The token is also returned in the JSON body for use in Authorization headers.
+    const isSecure = (process.env.NEXT_PUBLIC_SITE_URL ?? "").startsWith("https");
+    response.cookies.set("admin_jwt", token, {
+      httpOnly: true,
+      secure: isSecure,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 8 * 60 * 60, // 8 hours — matches JWT expiry
+    });
+
+    return response;
   } catch {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }

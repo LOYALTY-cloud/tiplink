@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "1neLink — Send & Receive Tips Instantly",
+  title: "1neLink — Receive & Withdraw Tips Instantly",
   description:
     "A creator platform to receive tips and withdraw instantly.",
   metadataBase: new URL("https://1nelink.com"),
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   openGraph: {
     title: "1neLink",
-    description: "Send & receive tips instantly.",
+    description: "Receive & withdraw tips instantly.",
     url: "https://1nelink.com",
     siteName: "1neLink",
     images: [
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "1neLink",
-    description: "Send & receive tips instantly.",
+    description: "Receive & withdraw tips instantly.",
     images: ["/og-image.png"],
   },
 };
@@ -65,6 +65,9 @@ export default function RootLayout({
             {children}
           </div>
         </div>
+
+        {/* Global overlay root — portals render here, outside all stacking contexts */}
+        <div id="overlay-root" />
       </body>
     </html>
   );

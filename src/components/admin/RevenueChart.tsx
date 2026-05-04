@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   LineChart,
   Line,
@@ -33,8 +33,6 @@ export default function RevenueChart({
   bestRange?: string;
   onHoverDate?: (date: string | null) => void;
 }) {
-  if (data.length === 0) return null;
-
   const [cumulative, setCumulative] = useState(false);
 
   // Format date labels as "Mar 1"
@@ -65,15 +63,12 @@ export default function RevenueChart({
   const trendSign = trendPct >= 0 ? "+" : "";
   const trendColor = trendPct >= 0 ? "text-emerald-400" : "text-red-400";
 
-  // Peak day
-  const peak = chartData.reduce((best, d) => d.revenue > best.revenue ? d : best, chartData[0]);
-
   const ranges: RangeLabel[] = ["7D", "30D", "90D"];
 
   const rangeLabel = range === "7D" ? "7 Days" : range === "90D" ? "90 Days" : "30 Days";
 
   // Map labels back to dates for hover sync
-  const labelToDate = new Map(chartData.map(d => [d.label, d.date]));
+  const labelToDate = useMemo(() => new Map(chartData.map((d) => [d.label, d.date])), [chartData]);
 
   const handleMouseMove = useCallback((state: { activeLabel?: string | number }) => {
     if (state.activeLabel && onHoverDate) {
@@ -87,8 +82,13 @@ export default function RevenueChart({
 
   const RANGE_TO_DAYS: Record<RangeLabel, string> = { "7D": "7", "30D": "30", "90D": "90" };
 
+  if (chartData.length === 0) return null;
+
+  // Peak day
+  const peak = chartData.reduce((best, d) => (d.revenue > best.revenue ? d : best), chartData[0]);
+
   return (
-    <div className="bg-white/5 border border-white/10 rounded-xl md:rounded-2xl p-3 md:p-5 mt-4 md:mt-6">
+    <div className="bg-white/5 border border-white/[0.12] rounded-xl md:rounded-2xl p-3 md:p-5 mt-4 md:mt-6">
       {/* Header row: title + trend + filter tabs (sticky within chart card) */}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3 md:mb-4 sticky top-10 z-10 bg-white/5 backdrop-blur-sm -mx-3 md:-mx-5 px-3 md:px-5 py-2 rounded-t-xl md:rounded-t-2xl">
         <div className="flex items-center gap-2 md:gap-3">
@@ -113,7 +113,7 @@ export default function RevenueChart({
                 className={`relative px-3 md:px-3 py-2 md:py-1 text-xs rounded-full md:rounded-lg font-medium transition active:scale-95 ${
                   range === r
                     ? "bg-white/10 text-white"
-                    : "text-white/40 hover:text-white/70"
+                    : "text-white/55 hover:text-white/70"
                 }`}
               >
                 {r}
@@ -127,7 +127,7 @@ export default function RevenueChart({
           <button
             onClick={() => { navigator.vibrate?.(10); setCumulative((v) => !v); }}
             className={`px-3 py-2 md:py-1 text-xs rounded-full md:rounded-lg font-medium transition active:scale-95 ${
-              cumulative ? "bg-white/10 text-white" : "text-white/40 hover:text-white/70"
+              cumulative ? "bg-white/10 text-white" : "text-white/55 hover:text-white/70"
             }`}
           >
             {cumulative ? "Cumulative" : "Daily"}
@@ -137,7 +137,7 @@ export default function RevenueChart({
 
       {/* Peak day */}
       {peak && peak.revenue > 0 && (
-        <p className="text-xs text-white/40 mb-3">
+        <p className="text-xs text-white/55 mb-3">
           Best day: {peak.label} — {formatMoney(peak.revenue)}
         </p>
       )}

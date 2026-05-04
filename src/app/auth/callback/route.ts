@@ -3,7 +3,8 @@ import { createSupabaseRouteClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
   const supabase = await createSupabaseRouteClient();
   const next = searchParams.get("next");
   const code = searchParams.get("code");
@@ -11,9 +12,10 @@ export async function GET(request: Request) {
   if (code) {
     const { data } = await supabase.auth.exchangeCodeForSession(code);
     if (data?.user) await syncProfileEmail(data.user.id, data.user.email ?? null);
-    return NextResponse.redirect(`${origin}${next ?? "/dashboard"}`);
+    return NextResponse.redirect(`${baseUrl}${next ?? "/dashboard"}`);
   }
 
+  const token = searchParams.get("token");
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type") as
     | "signup"
@@ -22,14 +24,14 @@ export async function GET(request: Request) {
     | "invite"
     | null;
 
-  if (token_hash && type) {
-    const { data } = await supabase.auth.verifyOtp({ type, token_hash });
+  if ((token || token_hash) && type) {
+    const { data } = await supabase.auth.verifyOtp({ type, token_hash: token_hash || token || "" });
     if (data?.user) await syncProfileEmail(data.user.id, data.user.email ?? null);
     const dest = type === "recovery" ? "/reset-password" : (next ?? "/dashboard");
-    return NextResponse.redirect(`${origin}${dest}`);
+    return NextResponse.redirect(`${baseUrl}${dest}`);
   }
 
-  return NextResponse.redirect(`${origin}/login`);
+  return NextResponse.redirect(`${baseUrl}/login`);
 }
 
 /**

@@ -24,16 +24,14 @@ const OVERRIDE_ACTIONS: Record<OverrideType, (userId: string) => Record<string, 
     status_reason: null,
   }),
   bypass_verification: () => ({
-    verification_required: false,
-    verification_reason: null,
+    kyc_status: "approved",
+    is_verified: true,
   }),
   override_risk_score: () => ({
     risk_score: 0,
     risk_level: "low",
-    last_fraud_score: 0,
   }),
   unlock_withdrawal: () => ({
-    withdrawal_locked: false,
     payout_hold_until: null,
   }),
   manual_flag: () => ({
@@ -69,8 +67,8 @@ export async function POST(req: NextRequest) {
     // 1. Get current state for audit trail
     const { data: profile } = await supabaseAdmin
       .from("profiles")
-      .select("is_flagged, risk_score, risk_level, account_status, verification_required, verification_reason, withdrawal_locked, payout_hold_until, restricted_until, handle, display_name")
-      .eq("id", userId)
+      .select("is_flagged, risk_score, risk_level, account_status, kyc_status, is_verified, payout_hold_until, restricted_until, handle, display_name")
+      .eq("user_id", userId)
       .single()
 
     if (!profile) {
@@ -92,7 +90,7 @@ export async function POST(req: NextRequest) {
     const { error: updateError } = await supabaseAdmin
       .from("profiles")
       .update(updates)
-      .eq("id", userId)
+      .eq("user_id", userId)
 
     if (updateError) {
       return NextResponse.json({ error: "Failed to apply override" }, { status: 500 })

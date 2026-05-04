@@ -15,7 +15,7 @@ export async function GET(req: Request) {
       .select("*")
       .eq("to_admin_id", admin.userId)
       .eq("status", "pending")
-      .eq("type", "transfer_request")
+      .in("type", ["transfer_request", "auto_assignment", "escalation_fallback"])
       .order("created_at", { ascending: false })
       .limit(1);
 

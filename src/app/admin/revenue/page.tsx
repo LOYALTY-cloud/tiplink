@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { supabaseAdmin as supabase } from "@/lib/supabase/adminBrowserClient";
 import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
 import { useRouter } from "next/navigation";
@@ -35,7 +35,7 @@ type RevenueData = {
   confidence: "Stable" | "Growing" | "Volatile";
   confidenceReason: string;
   bestRange: string;
-  daily: { date: string; fees: number; stripeFees: number; volume: number; net: number; count: number }[];
+  daily: { date: string; fees: number; stripeFees: number; volume: number; net: number; refunds: number; count: number }[];
 };
 
 export default function RevenuePage() {
@@ -43,7 +43,6 @@ export default function RevenuePage() {
   const [data, setData] = useState<RevenueData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [userRole, setUserRole] = useState<string | null>(null);
   const [range, setRange] = useState<RangeLabel>("30D");
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -51,8 +50,6 @@ export default function RevenuePage() {
   const toaster = useToast(3000);
   const { pulseClass, label: connectionLabel } = useConnectionState("revenue-probe");
   const [revenueGlow, setRevenueGlow] = useState(false);
-  const refundTableRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -64,28 +61,32 @@ export default function RevenuePage() {
         router.replace("/dashboard");
         return;
       }
-      setUserRole(session.role);
       await fetchRevenue(range);
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [router]);
 
   async function fetchRevenue(r: RangeLabel) {
-    const headers = getAdminHeaders();
-    if (!headers["X-Admin-Id"]) { router.replace("/admin/login"); return; }
+    try {
+      const headers = getAdminHeaders();
+      if (!headers["X-Admin-Id"]) { router.replace("/admin/login"); return; }
 
-    const res = await fetch(`/api/admin/revenue?range=${RANGE_MAP[r]}`, {
-      headers,
-    });
+      const res = await fetch(`/api/admin/revenue?range=${RANGE_MAP[r]}`, {
+        headers,
+      });
 
-    if (res.status === 403) { router.replace("/dashboard"); return; }
-    if (!res.ok) { setError("Failed to load revenue data"); setLoading(false); return; }
+      if (res.status === 403) { router.replace("/dashboard"); return; }
+      if (!res.ok) { setError("Failed to load revenue data"); setLoading(false); return; }
 
-    const json = await res.json();
-    setData(json);
-    setLoading(false);
-    setLastUpdated(new Date());
-    setUpdatedAgo("just now");
+      const json = await res.json();
+      setData(json);
+      setLastUpdated(new Date());
+      setUpdatedAgo("just now");
+    } catch {
+      setError("Failed to load revenue data");
+    } finally {
+      setLoading(false);
+    }
   }
 
   // Tick the "Updated X ago" label
@@ -100,95 +101,7 @@ export default function RevenuePage() {
     return () => clearInterval(interval);
   }, [lastUpdated]);
 
-  // Realtime subscription — patch state on new ledger entries
-  const handleRealtimeTx = useCallback((payload: { new: Record<string, unknown> }) => {
-    const tx = payload.new;
-    if (!tx?.meta) return;
-
-    const meta = tx.meta as Record<string, unknown>;
-    const txType = String(meta.action ?? tx.type ?? "");
-
-    // Only process relevant transaction types
-    if (!["tip_received", "tip_refunded", "payout", "dispute"].includes(txType)) return;
-
-    const platformFee = Number(meta.platform_fee || 0);
-    const stripeFee = Number(meta.stripe_fee || 0);
-    const amount = Number(tx.amount || 0);
-    const todayKey = new Date().toISOString().slice(0, 10);
-
-    setData((prev) => {
-      if (!prev) return prev;
-
-      const next = { ...prev };
-
-      // Update totals
-      next.totalRevenue = Math.round((next.totalRevenue + platformFee) * 100) / 100;
-      next.totalStripeFees = Math.round((next.totalStripeFees + stripeFee) * 100) / 100;
-
-      if (amount > 0) {
-        next.totalVolume = Math.round((next.totalVolume + amount) * 100) / 100;
-        next.tipCount += 1;
-      }
-      if (amount < 0) {
-        next.totalRefunds = Math.round((next.totalRefunds + Math.abs(amount)) * 100) / 100;
-        next.refundCount += 1;
-      }
-
-      // Update today's revenue
-      next.todayRevenue = Math.round((next.todayRevenue + platformFee) * 100) / 100;
-      next.weekRevenue = Math.round((next.weekRevenue + platformFee) * 100) / 100;
-      next.monthRevenue = Math.round((next.monthRevenue + platformFee) * 100) / 100;
-
-      // Recalculate KPIs
-      next.avgTipSize = next.tipCount > 0 ? Math.round((next.totalVolume / next.tipCount) * 100) / 100 : 0;
-      next.refundRate = next.tipCount > 0 ? Math.round((next.refundCount / next.tipCount) * 10000) / 100 : 0;
-
-      // Recalculate velocity
-      const now = new Date();
-      const midnight = new Date(now);
-      midnight.setHours(0, 0, 0, 0);
-      const hoursElapsed = Math.max((now.getTime() - midnight.getTime()) / 3_600_000, 0.1);
-      next.todayVelocity = Math.round((next.todayRevenue / hoursElapsed) * 100) / 100;
-
-      // Patch daily chart data
-      const dailyCopy = next.daily.map(d => ({ ...d }));
-      const existing = dailyCopy.find(d => d.date === todayKey);
-      if (existing) {
-        existing.fees = Math.round((existing.fees + platformFee) * 100) / 100;
-        existing.stripeFees = Math.round((existing.stripeFees + stripeFee) * 100) / 100;
-        existing.net = existing.fees;
-        if (amount > 0) {
-          existing.volume = Math.round((existing.volume + amount) * 100) / 100;
-          existing.count += 1;
-        }
-      } else {
-        dailyCopy.push({
-          date: todayKey,
-          fees: platformFee,
-          stripeFees: stripeFee,
-          volume: amount > 0 ? amount : 0,
-          net: platformFee,
-          count: amount > 0 ? 1 : 0,
-        });
-      }
-      next.daily = dailyCopy;
-
-      return next;
-    });
-
-    // Toast for new tips
-    if (amount > 0 && platformFee > 0) {
-      toaster.show(`New tip received — +${formatMoney(platformFee)} revenue`, "success");
-      // Velocity glow pulse
-      setRevenueGlow(true);
-      setTimeout(() => setRevenueGlow(false), 600);
-    } else if (amount < 0) {
-      toaster.show(`Refund processed — -${formatMoney(Math.abs(amount))}`, "error");
-    }
-
-    setLastUpdated(new Date());
-    setUpdatedAgo("just now");
-  }, [toaster]);
+  // Revenue updates handled by 15s polling below — realtime blocked by RLS on transactions_ledger
 
   const isLoaded = data !== null;
   useEffect(() => {
@@ -213,6 +126,15 @@ export default function RevenuePage() {
   }
 
   const isEmpty = data.totalRevenue === 0 && data.totalVolume === 0;
+
+  if (isEmpty) {
+    return (
+      <div className="p-4 md:p-6 flex flex-col items-center justify-center min-h-[50vh] text-center">
+        <p className="text-xl font-semibold text-white/70 mb-2">No Revenue Yet</p>
+        <p className="text-sm text-white/40">Revenue data will appear here once tips start flowing.</p>
+      </div>
+    );
+  }
 
   // Compute KPI momentum from daily data
   const avgTipMomentum = (() => {
@@ -250,23 +172,23 @@ export default function RevenuePage() {
       )}
 
       {/* HERO STRIP */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
-        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4">
-          <p className="text-xs text-white/50">Today Revenue</p>
-          <p className="text-xl font-semibold text-emerald-400">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-5">
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3 sm:p-4">
+          <p className="text-[11px] sm:text-xs text-white/50 truncate">Today</p>
+          <p className="text-base sm:text-xl font-semibold text-emerald-400 truncate">
             {formatMoney(data.todayRevenue)}
           </p>
         </div>
 
-        <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4">
-          <p className="text-xs text-white/50">Velocity</p>
-          <p className="text-xl font-semibold text-blue-400">
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-3 sm:p-4">
+          <p className="text-[11px] sm:text-xs text-white/50 truncate">Velocity</p>
+          <p className="text-base sm:text-xl font-semibold text-blue-400 truncate">
             {formatMoney(data.todayVelocity)}/hr
           </p>
         </div>
 
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-          <p className="text-xs text-white/50">Trend</p>
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-3 sm:p-4">
+          <p className="text-[11px] sm:text-xs text-white/50 truncate">Trend</p>
           <p
             className={`text-sm font-semibold ${
               data.confidence === "Growing"
@@ -285,10 +207,27 @@ export default function RevenuePage() {
         </div>
       </div>
 
-      {/* LIVE STATUS */}
-      <div className="flex items-center gap-2 text-xs text-white/50 mb-4">
-        <span className={`w-2 h-2 rounded-full ${pulseClass}`} />
-        {connectionLabel} · {updatedAgo}
+      {/* LIVE STATUS + RANGE SELECTOR */}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <div className="flex items-center gap-2 text-xs text-white/50">
+          <span className={`w-2 h-2 rounded-full ${pulseClass}`} />
+          {connectionLabel} · {updatedAgo}
+        </div>
+        <div className="flex gap-1">
+          {(["7D", "30D", "90D"] as RangeLabel[]).map((r) => (
+            <button
+              key={r}
+              onClick={() => handleRangeChange(r)}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
+                range === r
+                  ? "bg-blue-500/20 text-blue-400 border border-blue-400/30"
+                  : "bg-white/5 text-white/50 border border-white/10 hover:bg-white/10"
+              }`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* TOAST STACK */}
@@ -320,25 +259,32 @@ export default function RevenuePage() {
       </div>
 
       {/* KPI MINI BAR */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-          <p className="text-xs text-white/40">Avg Tip</p>
-          <p className="text-sm font-semibold text-white">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-6">
+        <div className="bg-white/5 border border-white/10 rounded-xl p-2 sm:p-3 text-center">
+          <p className="text-[11px] sm:text-xs text-white/40">Avg Tip</p>
+          <p className="text-xs sm:text-sm font-semibold text-white truncate">
             {formatMoney(data.avgTipSize)}
           </p>
+          {avgTipMomentum && (
+            <p className={`text-[9px] sm:text-[10px] mt-0.5 leading-tight ${
+              avgTipMomentum.direction === "up" ? "text-emerald-400" : "text-red-400"
+            }`}>
+              {avgTipMomentum.direction === "up" ? "↑" : "↓"} {avgTipMomentum.pct}%
+            </p>
+          )}
         </div>
 
-        <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-          <p className="text-xs text-white/40">Total Tips</p>
-          <p className="text-sm font-semibold text-white">
+        <div className="bg-white/5 border border-white/10 rounded-xl p-2 sm:p-3 text-center">
+          <p className="text-[11px] sm:text-xs text-white/40">Total Tips</p>
+          <p className="text-xs sm:text-sm font-semibold text-white">
             {data.tipCount.toLocaleString()}
           </p>
         </div>
 
-        <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-          <p className="text-xs text-white/40">Refund Rate</p>
+        <div className="bg-white/5 border border-white/10 rounded-xl p-2 sm:p-3 text-center">
+          <p className="text-[11px] sm:text-xs text-white/40">Refund %</p>
           <p
-            className={`text-sm font-semibold ${
+            className={`text-xs sm:text-sm font-semibold ${
               data.refundRate > 10 ? "text-red-400" : "text-white"
             }`}
           >
@@ -360,8 +306,10 @@ export default function RevenuePage() {
           {data.daily.slice().reverse().map((d) => (
             <div
               key={d.date}
-              className={`bg-white/5 border border-white/10 rounded-xl p-3 ${
-                hoveredDate === d.date ? "bg-white/10" : ""
+              onMouseEnter={() => setHoveredDate(d.date)}
+              onMouseLeave={() => setHoveredDate(null)}
+              className={`border border-white/10 rounded-xl p-3 transition ${
+                hoveredDate === d.date ? "bg-white/10" : "bg-white/5"
               }`}
             >
               <div className="flex justify-between text-xs text-white/50">
@@ -382,6 +330,15 @@ export default function RevenuePage() {
                   -{formatMoney(d.stripeFees)}
                 </span>
               </div>
+
+              {d.refunds > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-white/50">Refunds</span>
+                  <span className="text-yellow-400">
+                    -{formatMoney(d.refunds)}
+                  </span>
+                </div>
+              )}
 
               <div className="flex justify-between text-sm border-t border-white/10 mt-2 pt-2">
                 <span className="text-white/60 font-medium">Net</span>

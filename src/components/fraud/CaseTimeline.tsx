@@ -107,7 +107,7 @@ export default function CaseTimeline({ userId, events: externalEvents, onEventsL
                   </div>
                   <p className="text-white/70 text-sm mt-0.5 break-words">{e.label}</p>
                   {e.actor && e.actor !== "System" && (
-                    <p className="text-white/30 text-xs mt-0.5">by {e.actor}</p>
+                    <p className="text-white/45 text-xs mt-0.5">by {e.actor}</p>
                   )}
                 </div>
               </div>

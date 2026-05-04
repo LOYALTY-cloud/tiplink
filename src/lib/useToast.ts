@@ -32,7 +32,8 @@ export function useToast(timeoutMs = 2500) {
   }, []);
 
   useEffect(() => {
-    return () => { timers.current.forEach((t) => clearTimeout(t)); };
+    const activeTimers = timers.current;
+    return () => { activeTimers.forEach((t) => clearTimeout(t)); };
   }, []);
 
   // Backward compat: expose single `toast` as last item

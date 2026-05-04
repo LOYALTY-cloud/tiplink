@@ -9,6 +9,43 @@ function makeMockSupabase() {
   const intents: Record<string, any> = {};
   const events: Record<string, any> = {};
   const locks: Record<string, any> = {};
+  const profiles: Record<string, any> = {};
+
+  function makeWalletLockDeleteQuery() {
+    const filters: Record<string, any> = {};
+    let expiresAtLt: string | null = null;
+    const query: any = {
+      eq: (col: string, val: any) => {
+        filters[col] = val;
+        if (filters.user_id && filters.lock_type && !expiresAtLt) {
+          for (const key of Object.keys(locks)) {
+            const row = locks[key];
+            if (row.user_id === filters.user_id && row.lock_type === filters.lock_type) {
+              delete locks[key];
+            }
+          }
+        }
+        return query;
+      },
+      lt: (col: string, val: any) => {
+        if (col === "expires_at") expiresAtLt = String(val);
+        return query;
+      },
+      select: async () => {
+        const deleted: Array<{ id: string }> = [];
+        for (const key of Object.keys(locks)) {
+          const row = locks[key];
+          if (filters.user_id && row.user_id !== filters.user_id) continue;
+          if (filters.lock_type && row.lock_type !== filters.lock_type) continue;
+          if (expiresAtLt && !(row.expires_at < expiresAtLt)) continue;
+          deleted.push({ id: row.id });
+          delete locks[key];
+        }
+        return { data: deleted, error: null };
+      },
+    };
+    return query;
+  }
 
   return {
     from: (table: string) => {
@@ -45,6 +82,10 @@ function makeMockSupabase() {
               return { data: null };
             } })
           }),
+          upsert: async (payload: any) => {
+            events[payload.id] = payload;
+            return { error: null };
+          },
           insert: (payload: any) => ({ single: async () => { events[payload.id] = payload; return { data: payload }; } }),
         };
       }
@@ -60,19 +101,7 @@ function makeMockSupabase() {
             locks[key] = { id, ...payload };
             return { data: { id } };
           } }) }),
-          delete: () => ({ eq: async (col: string, val: any) => { // delete by user_id or id
-            if (col === "user_id") {
-              const userId = val as string;
-              for (const k of Object.keys(locks)) {
-                if (k.startsWith(`${userId}::`)) delete locks[k];
-              }
-            } else if (col === "id") {
-              for (const k of Object.keys(locks)) {
-                if (locks[k].id === val) delete locks[k];
-              }
-            }
-            return { data: null };
-          } }),
+          delete: () => makeWalletLockDeleteQuery(),
           select: () => ({
             eq: (col: string, val: any) => ({ maybeSingle: async () => {
               if (col === "user_id") {
@@ -82,6 +111,28 @@ function makeMockSupabase() {
               }
               return { data: null };
             } })
+          }),
+        };
+      }
+
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: (_col: string, val: any) => ({ maybeSingle: async () => ({ data: profiles[String(val)] ?? null }) }),
+          }),
+          update: (payload: any) => ({
+            eq: async (_col: string, val: any) => {
+              profiles[String(val)] = { ...(profiles[String(val)] ?? {}), ...payload };
+              return { data: null };
+            },
+          }),
+        };
+      }
+
+      if (table === "processed_refunds") {
+        return {
+          select: () => ({
+            eq: () => ({ maybeSingle: async () => ({ data: null }) }),
           }),
         };
       }
@@ -96,6 +147,7 @@ function makeMockSupabase() {
     // helpers for test to seed/fetch
     __seedTipIntent: (receipt: string, row: any) => { intents[receipt] = row; },
     __getTipByReceipt: (receipt: string) => intents[receipt],
+    __seedProfile: (userId: string, row: any) => { profiles[userId] = row; },
   } as any;
 }
 
@@ -108,6 +160,7 @@ async function run() {
   // Seed a pending tip_intent
   const intent = { id: `intent-${crypto.randomUUID()}`, creator_user_id: creator, amount: 1.23, receipt_id: receiptId, status: "pending" };
   mockSupabase.__seedTipIntent(receiptId, intent);
+  mockSupabase.__seedProfile(creator, { account_status: "active", owed_balance: 0 });
 
   const event = {
     id: `evt_${crypto.randomUUID()}`,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
+import { requireRole } from "@/lib/auth/requireRole";
 
 export const runtime = "nodejs";
 
@@ -8,6 +9,7 @@ export async function GET(req: Request) {
   try {
     const admin = await getAdminFromRequest(req);
     if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    requireRole(admin.role, "revenue");
 
     const { searchParams } = new URL(req.url);
     const filter = searchParams.get("type") || "all";
@@ -27,7 +29,7 @@ export async function GET(req: Request) {
 
     // Batch-fetch profiles for all user IDs
     const ids = [...new Set(ledger.map((r) => r.user_id))];
-    let profileMap: Record<string, { handle: string | null; display_name: string | null }> = {};
+    const profileMap: Record<string, { handle: string | null; display_name: string | null }> = {};
 
     if (ids.length > 0) {
       const { data: profiles } = await supabaseAdmin

@@ -10,6 +10,44 @@ function makeMockSupabase() {
   const intents: Record<string, any> = {};
   const events: Record<string, any> = {};
   const locks: Record<string, any> = {};
+  const processedRefunds: Record<string, boolean> = {};
+  const ledger: any[] = [];
+
+  function makeWalletLockDeleteQuery() {
+    const filters: Record<string, any> = {};
+    let expiresAtLt: string | null = null;
+    const query: any = {
+      eq: (col: string, val: any) => {
+        filters[col] = val;
+        if (filters.user_id && filters.lock_type && !expiresAtLt) {
+          for (const key of Object.keys(locks)) {
+            const row = locks[key];
+            if (row.user_id === filters.user_id && row.lock_type === filters.lock_type) {
+              delete locks[key];
+            }
+          }
+        }
+        return query;
+      },
+      lt: (col: string, val: any) => {
+        if (col === "expires_at") expiresAtLt = String(val);
+        return query;
+      },
+      select: async () => {
+        const deleted: Array<{ id: string }> = [];
+        for (const key of Object.keys(locks)) {
+          const row = locks[key];
+          if (filters.user_id && row.user_id !== filters.user_id) continue;
+          if (filters.lock_type && row.lock_type !== filters.lock_type) continue;
+          if (expiresAtLt && !(row.expires_at < expiresAtLt)) continue;
+          deleted.push({ id: row.id });
+          delete locks[key];
+        }
+        return { data: deleted, error: null };
+      },
+    };
+    return query;
+  }
 
   return {
     from: (table: string) => {
@@ -45,7 +83,21 @@ function makeMockSupabase() {
               return { data: null };
             } })
           }),
+          upsert: async (payload: any) => {
+            events[payload.id] = payload;
+            return { error: null };
+          },
           insert: (payload: any) => ({ single: async () => { events[payload.id] = payload; return { data: payload }; } }),
+        };
+      }
+
+      if (table === "processed_refunds") {
+        return {
+          select: () => ({
+            eq: (_col: string, val: any) => ({
+              maybeSingle: async () => ({ data: processedRefunds[String(val)] ? { refund_id: String(val) } : null }),
+            }),
+          }),
         };
       }
 
@@ -60,19 +112,7 @@ function makeMockSupabase() {
             locks[key] = { id, ...payload };
             return { data: { id } };
           } }) }),
-          delete: () => ({ eq: async (col: string, val: any) => { // delete by user_id or id
-            if (col === "user_id") {
-              const userId = val as string;
-              for (const k of Object.keys(locks)) {
-                if (k.startsWith(`${userId}::`)) delete locks[k];
-              }
-            } else if (col === "id") {
-              for (const k of Object.keys(locks)) {
-                if (locks[k].id === val) delete locks[k];
-              }
-            }
-            return { data: null };
-          } }),
+          delete: () => makeWalletLockDeleteQuery(),
           select: () => ({
             eq: (col: string, val: any) => ({ maybeSingle: async () => {
               if (col === "user_id") {
@@ -91,9 +131,32 @@ function makeMockSupabase() {
         insert: async () => ({ data: null }),
       };
     },
-    rpc: async () => ({ data: null }),
+    rpc: async (fn: string, args: any) => {
+      if (fn === "apply_refund_slice") {
+        const tip = Object.values(intents).find((it: any) => it.id === args.p_tip_id) as any;
+        if (!tip) return { error: { message: "tip_not_found" } };
+
+        if (processedRefunds[args.p_refund_id]) {
+          return { error: { message: "duplicate key value violates unique constraint processed_refunds_pkey", code: "23505" } };
+        }
+
+        processedRefunds[args.p_refund_id] = true;
+        tip.refunded_amount = Number((Number(tip.refunded_amount ?? 0) + Number(args.p_amount)).toFixed(2));
+        tip.refund_status = tip.refunded_amount >= Number(tip.tip_amount ?? tip.amount ?? 0) ? "full" : "partial";
+        tip.processed_refund_ids = [...(tip.processed_refund_ids ?? []), args.p_refund_id];
+        ledger.push({
+          user_id: args.p_user_id,
+          type: "tip_refunded",
+          amount: -Number(args.p_amount),
+          reference_id: args.p_refund_id,
+        });
+        return { error: null };
+      }
+      return { data: null };
+    },
     __seedTipIntent: (receipt: string, row: any) => { intents[receipt] = row; },
     __getTipByReceipt: (receipt: string) => intents[receipt],
+    __getLedger: () => ledger,
   } as any;
 }
 
@@ -121,13 +184,14 @@ async function run() {
 
   await handleStripeEvent(event, mockSupabase, mockLedger);
 
-  if (ledgerCalls !== 1) {
-    console.error("Expected ledger to be called exactly once, got", ledgerCalls);
+  const ledger = mockSupabase.__getLedger();
+  if (ledger.length !== 1) {
+    console.error("Expected one refund ledger slice, got", ledger.length);
     process.exit(2);
   }
 
-  if (!lastLedger || lastLedger.type !== "tip_refunded" || lastLedger.amount !== -50) {
-    console.error("Ledger entry incorrect", lastLedger);
+  if (ledger[0].type !== "tip_refunded" || ledger[0].amount !== -50) {
+    console.error("Ledger entry incorrect", ledger[0]);
     process.exit(3);
   }
 

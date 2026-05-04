@@ -55,15 +55,20 @@ export default function AdminVerificationsPage() {
 
   async function loadItems(status: string) {
     setLoading(true);
-    const headers = getAdminHeaders();
-    const res = await fetch(`/api/admin/verifications?status=${status}`, {
-      headers: { "Content-Type": "application/json", ...headers },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setItems(data);
+    try {
+      const headers = getAdminHeaders();
+      const res = await fetch(`/api/admin/verifications?status=${status}`, {
+        headers: { "Content-Type": "application/json", ...headers },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setItems(Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : (Array.isArray(data?.verifications) ? data.verifications : [])));
+      }
+    } catch {
+      // Network error — keep previous items
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -75,29 +80,47 @@ export default function AdminVerificationsPage() {
   async function handleApprove(v: Verification) {
     if (!confirm(`Approve verification for ${v.user?.display_name || v.user?.handle || v.user_id}? This will set their account to active.`)) return;
     setProcessing(v.id);
-    const headers = getAdminHeaders();
-    await fetch("/api/admin/verifications/review", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify({ id: v.id, action: "approve" }),
-    });
-    setProcessing(null);
-    loadItems(filter);
+    try {
+      const headers = getAdminHeaders();
+      const res = await fetch("/api/admin/verifications/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ id: v.id, action: "approve" }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        alert(json.error || "Failed to approve verification");
+      }
+    } catch {
+      alert("Network error — could not approve verification");
+    } finally {
+      setProcessing(null);
+      loadItems(filter);
+    }
   }
 
   async function handleReject() {
     if (!rejectModal || !rejectReason.trim()) return;
     setProcessing(rejectModal.id);
-    const headers = getAdminHeaders();
-    await fetch("/api/admin/verifications/review", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify({ id: rejectModal.id, action: "reject", reason: rejectReason.trim() }),
-    });
-    setProcessing(null);
-    setRejectModal(null);
-    setRejectReason("");
-    loadItems(filter);
+    try {
+      const headers = getAdminHeaders();
+      const res = await fetch("/api/admin/verifications/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ id: rejectModal.id, action: "reject", reason: rejectReason.trim() }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        alert(json.error || "Failed to reject verification");
+      }
+    } catch {
+      alert("Network error — could not reject verification");
+    } finally {
+      setProcessing(null);
+      setRejectModal(null);
+      setRejectReason("");
+      loadItems(filter);
+    }
   }
 
   return (

@@ -17,7 +17,7 @@ for pattern in \
   'sk_live_[A-Za-z0-9]' \
   'sk_test_[A-Za-z0-9]' \
   'AIzaSy[A-Za-z0-9_-]' \
-  're_[A-Za-z0-9]{10,}' \
+  '(^|[^[:alnum:]_])re_[A-Za-z0-9]{10,}' \
   'sk-proj-[A-Za-z0-9]' \
   'whsec_[A-Za-z0-9]' \
   'sb_secret_[A-Za-z0-9]' \

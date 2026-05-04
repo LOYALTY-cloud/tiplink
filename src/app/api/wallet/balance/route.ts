@@ -18,7 +18,7 @@ export async function GET() {
 
     return NextResponse.json(wallet || { balance: 0, currency: "usd" });
   } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    console.error("wallet/balance", err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

@@ -165,7 +165,8 @@ export async function GET(req: Request) {
         fees: Math.round(d.fees * 100) / 100,
         stripeFees: Math.round(d.stripeFees * 100) / 100,
         volume: Math.round(d.volume * 100) / 100,
-        net: Math.round(d.fees * 100) / 100,
+        net: Math.round((d.fees - d.stripeFees) * 100) / 100,
+        refunds: Math.round(d.refunds * 100) / 100,
         count: d.count,
       }));
 

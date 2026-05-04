@@ -20,6 +20,7 @@ export async function GET(
 
   const { ticketId } = await params;
 
+  try {
   const { data: ticket } = await supabaseAdmin
     .from("support_tickets")
     .select("id, subject, category, status, priority, assigned_admin_id, waiting_on, breach_count, created_at, updated_at, first_response_at, sla_response_deadline, sla_resolve_deadline")
@@ -85,4 +86,8 @@ export async function GET(
   };
 
   return NextResponse.json({ summary });
+  } catch (err) {
+    console.error("[ticket-summary]", err);
+    return NextResponse.json({ error: "Failed to load ticket summary" }, { status: 500 });
+  }
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
+import { logFreezeEvent } from "@/lib/freezeAudit";
 
 export const runtime = "nodejs";
 
@@ -39,8 +40,10 @@ export async function POST(req: Request) {
       .update({
         is_frozen: false,
         freeze_reason: null,
+        freeze_level: null,
         frozen_at: null,
         account_status: profile.account_status === "restricted" ? "active" : profile.account_status,
+        status_reason: null,
       })
       .eq("user_id", user_id);
 
@@ -52,8 +55,19 @@ export async function POST(req: Request) {
     await supabaseAdmin.from("admin_actions").insert({
       admin_id: session.userId,
       action: "unfreeze_account",
-      target_user_id: user_id,
-      details: { previous_status: profile.account_status },
+      target_user: user_id,
+      severity: "warning",
+      metadata: { previous_status: profile.account_status },
+    });
+
+    // Audit trail — dedicated freeze log
+    await logFreezeEvent({
+      userId: user_id,
+      action: "unfreeze",
+      reason: `Admin unfreeze by ${session.userId}`,
+      triggeredBy: "admin",
+      adminId: session.userId,
+      metadata: { previous_status: profile.account_status },
     });
 
     return NextResponse.json({ ok: true });

@@ -24,6 +24,8 @@ export default function VerifyEmailBanner({
       });
       if (!res.ok) throw new Error("Failed to send");
       setSent(true);
+      // Allow user to retry after 30 seconds
+      setTimeout(() => setSent(false), 30000);
     } catch {
       setError("Could not send verification email. Try again later.");
     } finally {

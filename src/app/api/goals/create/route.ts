@@ -8,7 +8,12 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabaseAdmin.auth.getUser(token);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await req.json();
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
   const { amount, period, duration, startDate } = body;
 
   if (!amount || !period || !duration || !startDate) {
@@ -30,7 +35,7 @@ export async function POST(req: Request) {
     start_date: startDate,
   }).select().single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: "Failed to create goal" }, { status: 500 });
 
   return NextResponse.json({
     goal: {

@@ -15,6 +15,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Missing receiptId" }, { status: 400 });
   }
 
+  // Validate UUID format to prevent enumeration / injection
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(receiptId)) {
+    return NextResponse.json({ error: "Invalid receiptId" }, { status: 400 });
+  }
+
   const { data, error } = await supabaseAdmin
     .from("tip_intents")
     .select("status, failure_reason")

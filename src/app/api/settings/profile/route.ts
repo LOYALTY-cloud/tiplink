@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { validateHandle } from "@/lib/handleValidation";
 
-const HANDLE_RE = /^[a-zA-Z0-9_]{3,30}$/;
 const MAX_BIO = 160;
 const MAX_DISPLAY_NAME = 50;
 
@@ -18,20 +18,18 @@ export async function PATCH(req: Request) {
 
     // Handle
     if (body.handle !== undefined) {
-      const h = String(body.handle).trim().toLowerCase();
-      if (!HANDLE_RE.test(h)) {
-        return NextResponse.json(
-          { error: "Handle must be 3-30 characters, letters/numbers/underscores only" },
-          { status: 400 }
-        );
+      const validation = validateHandle(String(body.handle));
+      if (!validation.ok) {
+        return NextResponse.json({ error: validation.error }, { status: 400 });
       }
+      const h = validation.handle;
 
       // Check if handle is currently locked (2-week lock after signup)
       const { data: profile } = await supabaseAdmin
         .from("profiles")
         .select("handle, handle_locked_until")
         .eq("user_id", user.id)
-        .single();
+        .maybeSingle();
 
       if (profile && profile.handle !== h) {
         if (profile.handle_locked_until) {
@@ -45,11 +43,11 @@ export async function PATCH(req: Request) {
           }
         }
 
-        // Check uniqueness
+        // Check uniqueness (case-insensitive)
         const { data: existing } = await supabaseAdmin
           .from("profiles")
           .select("user_id")
-          .eq("handle", h)
+          .ilike("handle", h)
           .neq("user_id", user.id)
           .maybeSingle();
 
@@ -88,6 +86,22 @@ export async function PATCH(req: Request) {
       updates.bio = bio || null;
     }
 
+    // Location
+    if (body.location !== undefined) {
+      const loc = String(body.location).trim().slice(0, 100);
+      updates.location = loc || null;
+    }
+
+    // Avatar URL
+    if (body.avatar_url !== undefined) {
+      updates.avatar_url = body.avatar_url ? String(body.avatar_url).trim() : null;
+    }
+
+    // Banner URL
+    if (body.banner_url !== undefined) {
+      updates.banner_url = body.banner_url ? String(body.banner_url).trim() : null;
+    }
+
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     }
@@ -98,7 +112,10 @@ export async function PATCH(req: Request) {
       .eq("user_id", user.id)
       .select("handle, display_name, bio");
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("settings/profile update", error);
+      return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
+    }
 
     if (!rows || rows.length === 0) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
@@ -128,6 +145,6 @@ function unauthorized() {
 }
 
 function serverError(e: unknown) {
-  const msg = e instanceof Error ? e.message : String(e ?? "Server error");
-  return NextResponse.json({ error: msg }, { status: 500 });
+  console.error("settings/profile", e);
+  return NextResponse.json({ error: "Server error" }, { status: 500 });
 }

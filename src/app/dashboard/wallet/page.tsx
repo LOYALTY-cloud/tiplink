@@ -6,8 +6,16 @@ import { supabase } from "@/lib/supabase/client";
 import type { WalletRow } from "@/types/db";
 import LinkDebitCardModal from "@/components/LinkDebitCardModal";
 import { EnablePayoutsModal } from "@/components/EnablePayoutsModal";
+import WithdrawalTimer from "@/components/WithdrawalTimer";
+import AnimatedBalance from "@/components/AnimatedBalance";
+import FreezeBanner from "@/components/FreezeBanner";
+import { useToast } from "@/lib/useToast";
+import { showGlobalToast } from "@/components/GlobalToast";
+import { ToastStack } from "@/components/ToastStack";
+import { fireConfetti } from "@/lib/confetti";
 import { ui } from "@/lib/ui";
 import { formatMoney, getWithdrawalFee } from "@/lib/walletFees";
+import WalletLockScreen from "@/components/wallet/WalletLockScreen";
 
 interface WithdrawalReceipt {
   withdrawal_id: string;
@@ -16,6 +24,9 @@ interface WithdrawalReceipt {
   net: number;
   payout_status: string;
   payout_method: string;
+  message?: string;
+  release_at?: string;
+  created_at?: string;
 }
 
 export default function WalletPage() {
@@ -30,6 +41,14 @@ export default function WalletPage() {
   const [withdrawing, setWithdrawing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [todayEarnings, setTodayEarnings] = useState<number>(0);
+  const [balanceFlash, setBalanceFlash] = useState(false);
+  const [freezeState, setFreezeState] = useState<{
+    is_frozen: boolean;
+    freeze_reason: string | null;
+    freeze_level: "soft" | "hard" | null;
+    freeze_signals: string[];
+  } | null>(null);
+  const { toasts, show: showToast, dismiss } = useToast(4000);
   const router = useRouter();
   
   const [payout, setPayout] = useState<{
@@ -46,10 +65,23 @@ export default function WalletPage() {
     type: string | null;
     stripe_external_account_id: string | null;
     provider: string | null;
+    provider_ref: string | null;
   };
   const [allMethods, setAllMethods] = useState<PayoutMethod[]>([]);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
+  const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null);
+
+  const [showInsufficientModal, setShowInsufficientModal] = useState(false);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+
+  // Wallet 2FA lock state
+  const [walletLocked, setWalletLocked] = useState<boolean | null>(null); // null = loading
+  const [maskedEmail, setMaskedEmail] = useState<string>("");
+  const [showBiometricSuggestion, setShowBiometricSuggestion] = useState(false);
+  const [biometricRegistering, setBiometricRegistering] = useState(false);
+  // Guard: prevent React 18 double-invoke (dev StrictMode) from sending two OTP codes
+  const codeSentRef = useRef(false);
 
   const reloadWallet = async () => {
     setLoadingWallet(true);
@@ -84,7 +116,7 @@ export default function WalletPage() {
   };
 
   const availableBalance = wallet?.balance ?? 0;
-  const totalWithdrawFees = wallet?.withdraw_fee ?? 0;
+  const totalWithdrawFees = wallet?.withdraw_fee ?? 0; // lifetime fees paid
 
   const [amountStr, setAmountStr] = useState("");
   const amount = useMemo(() => {
@@ -130,9 +162,17 @@ export default function WalletPage() {
       });
       if (res.ok) {
         const json = await res.json();
-        setAllMethods(json.methods ?? []);
+        const methods = json.methods ?? [];
+        setAllMethods(methods);
+        // Auto-select the default method if none is selected yet
+        if (!selectedMethodId && methods.length > 0) {
+          const def = methods.find((m: PayoutMethod) => m.is_default);
+          setSelectedMethodId(def ? def.id : methods[0].id);
+        }
       }
-    } catch {}
+    } catch {
+      showGlobalToast("Failed to load payout methods");
+    }
   };
 
   const handleRemoveMethod = async (methodId: string) => {
@@ -149,7 +189,11 @@ export default function WalletPage() {
       if (res.ok) {
         await loadAllMethods();
         await loadPayout();
+      } else {
+        showGlobalToast("Failed to remove payout method");
       }
+    } catch {
+      showGlobalToast("Failed to remove payout method");
     } finally {
       setRemovingId(null);
     }
@@ -169,7 +213,11 @@ export default function WalletPage() {
       if (res.ok) {
         await loadAllMethods();
         await loadPayout();
+      } else {
+        showGlobalToast("Failed to set default method");
       }
+    } catch {
+      showGlobalToast("Failed to set default method");
     } finally {
       setSettingDefaultId(null);
     }
@@ -198,15 +246,127 @@ export default function WalletPage() {
 
 
 
+  const loadFreezeState = async () => {
+    const { data: userRes } = await supabase.auth.getUser();
+    const user = userRes.user;
+    if (!user) return;
+
+    const { data } = await supabase
+      .from("profiles")
+      .select("is_frozen, freeze_reason, freeze_level")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (data) {
+      // Fetch signals from the latest freeze log
+      let signals: string[] = [];
+      if (data.is_frozen) {
+        const { data: logData } = await supabase
+          .from("account_freeze_logs")
+          .select("metadata")
+          .eq("user_id", user.id)
+          .eq("action", "freeze")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (logData?.metadata && Array.isArray((logData.metadata as Record<string, unknown>).signals)) {
+          signals = (logData.metadata as Record<string, unknown>).signals as string[];
+        }
+      }
+
+      setFreezeState({
+        is_frozen: !!data.is_frozen,
+        freeze_reason: data.freeze_reason,
+        freeze_level: data.freeze_level,
+        freeze_signals: signals,
+      });
+    }
+  };
+
+  const loadLatestWithdrawal = async () => {
+    const token = await getAuthToken();
+    if (!token) return;
+
+    try {
+      const res = await fetch("/api/withdrawals/latest", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+
+      const json = await res.json();
+      const withdrawal = json.withdrawal;
+      if (!withdrawal) return;
+
+      setReceipt({
+        withdrawal_id: withdrawal.id,
+        amount: Number(withdrawal.amount ?? 0),
+        fee: Number(withdrawal.fee ?? 0),
+        net: Number(withdrawal.net ?? 0),
+        payout_status: withdrawal.status === "approved" ? "paid" : withdrawal.status ?? "pending",
+        payout_method: withdrawal.payout_method ?? "instant",
+        message: withdrawal.failure_reason ?? undefined,
+        release_at: withdrawal.release_at ?? undefined,
+        created_at: withdrawal.created_at ?? undefined,
+      });
+    } catch {
+      // Non-blocking — wallet still works without restoring the last receipt.
+    }
+  };
+
   useEffect(() => {
     (async () => {
       const { data: userRes } = await supabase.auth.getUser();
       const user = userRes.user;
       if (user) setUserId(user.id);
+
+      // Check if wallet 2FA is enabled
+      if (user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("wallet_2fa_enabled")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        const enabled = Boolean((profile as Record<string, unknown> | null)?.wallet_2fa_enabled);
+        if (enabled) {
+          setWalletLocked(true);
+          // Auto-send code — guarded so only one email goes out even in React 18 dev mode
+          if (!codeSentRef.current) {
+            codeSentRef.current = true;
+            const { data: sess } = await supabase.auth.getSession();
+            const token = sess?.session?.access_token;
+            if (token) {
+              try {
+                const res = await fetch("/api/wallet/send-code", {
+                  method: "POST",
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                if (res.ok) {
+                  const json = await res.json();
+                  setMaskedEmail(json.maskedEmail ?? "");
+                } else {
+                  const json = await res.json().catch(() => null);
+                  console.warn("[wallet] Auto-send code failed:", json?.error);
+                }
+              } catch (err) {
+                console.warn("[wallet] Auto-send code error:", err);
+              }
+            }
+          }
+        } else {
+          setWalletLocked(false);
+        }
+      } else {
+        setWalletLocked(false);
+      }
+
       reloadWallet();
       loadPayout();
       loadAllMethods();
+      loadLatestWithdrawal();
       loadTodayEarnings();
+      loadFreezeState();
     })();
   }, []);
 
@@ -240,6 +400,50 @@ export default function WalletPage() {
 
     return () => {
       supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  // Real-time withdrawal status updates (pending → completed / failed)
+  useEffect(() => {
+    if (!userId) return;
+
+    const wdChannel = supabase
+      .channel(`wd-status-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "withdrawals",
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          const row = payload.new as { id?: string; status?: string };
+          const wasCompleted = row.status === "completed";
+          setReceipt((prev) => {
+            if (!prev || prev.withdrawal_id !== row.id) return prev;
+            return {
+              ...prev,
+              payout_status: wasCompleted ? "paid" : row.status ?? prev.payout_status,
+            };
+          });
+
+          // Celebration when payout completes
+          if (wasCompleted) {
+            fireConfetti();
+            showToast("Payout completed \uD83D\uDCB8", "success");
+            setBalanceFlash(true);
+            setTimeout(() => setBalanceFlash(false), 800);
+          }
+
+          // Refresh balance on any withdrawal status change
+          reloadWallet();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(wdChannel);
     };
   }, [userId]);
 
@@ -280,75 +484,271 @@ export default function WalletPage() {
   }
 
   const onWithdraw = async () => {
+    setWithdrawError(null);
+
+    if (amount > availableBalance) {
+      setShowInsufficientModal(true);
+      return;
+    }
+
     const payoutsOk = await ensurePayoutsEnabled();
     if (!payoutsOk) return;
 
     const { data: userRes } = await supabase.auth.getUser();
     const user = userRes.user;
-    if (!user) return alert("Not logged in.");
-
-    if (amount > availableBalance) return alert("Insufficient balance.");
+    if (!user) {
+      setWithdrawError("Session expired. Please refresh the page.");
+      return;
+    }
 
     const token = await getAuthToken();
     if (!token) {
-      alert("Please log in again.");
+      setWithdrawError("Session expired. Please refresh the page.");
       return;
     }
 
     setWithdrawing(true);
 
-    const res = await fetch("/api/withdrawals/create", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ amount }),
-    });
+    // Resolve the destination external account ID for the selected method
+    const selectedMethod = allMethods.find((m) => m.id === selectedMethodId);
+    const destination = selectedMethod?.stripe_external_account_id || selectedMethod?.provider_ref || undefined;
 
-    const json = await res.json();
+    let res: Response;
+    let json: Record<string, unknown>;
+    try {
+      res = await fetch("/api/withdrawals/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ amount, destination }),
+      });
+      json = await res.json();
+    } catch {
+      setWithdrawing(false);
+      setWithdrawError("Network error. Please try again.");
+      return;
+    }
+
     setWithdrawing(false);
 
     if (!res.ok) {
-      alert(json.error || "Withdrawal failed.");
+      const errMsg = (json.error as string) || "Withdrawal failed. Please try again.";
+      // Only show the insufficient funds modal when the user's own wallet is short.
+      // Stripe-level / platform errors go to the inline error card.
+      if (errMsg === "Insufficient balance") {
+        setShowInsufficientModal(true);
+      } else {
+        setWithdrawError(errMsg);
+      }
       return;
+    }
+
+    // Fire confetti for instant payouts too
+    if (json.status === "approved") {
+      fireConfetti();
+      showToast("Payout initiated \uD83D\uDCB8", "success");
+      setBalanceFlash(true);
+      setTimeout(() => setBalanceFlash(false), 800);
     }
 
     await reloadWallet();
     setAmountStr("");
     const newReceipt: WithdrawalReceipt = {
-      withdrawal_id: json.withdrawal_id,
-      amount: json.amount,
-      fee: json.fee,
-      net: json.net,
-      payout_status: json.payout_status,
-      payout_method: json.payout_method,
+      withdrawal_id: json.withdrawal_id as string,
+      amount: json.amount as number,
+      fee: json.fee as number,
+      net: json.net as number,
+      payout_status: (json.status === "approved" ? "paid" : (json.status as string | undefined)) ?? "pending",
+      payout_method: json.payout_method as string,
+      message: json.message as string | undefined,
+      release_at: json.release_at as string | undefined,
+      created_at: new Date().toISOString(),
     };
     setReceipt(newReceipt);
 
-    setTimeout(() => {
-      setReceipt((current) => (current === newReceipt ? null : current));
-    }, 8000);
+    // Auto-dismiss after 8s only for instant payouts
+    if (!json.release_at) {
+      const wdId = newReceipt.withdrawal_id;
+      setTimeout(() => {
+        setReceipt((current) => (current?.withdrawal_id === wdId ? null : current));
+      }, 8000);
+    }
   };
 
+  const [walletRevealed, setWalletRevealed] = useState(false);
+
   return (
-    <div>
+    <div className={walletRevealed ? "wallet-reveal" : ""}>
+      {/* Wallet 2FA lock screen */}
+      {walletLocked && (
+        <WalletLockScreen
+          maskedEmail={maskedEmail}
+          onUnlock={() => { setWalletLocked(false); setWalletRevealed(true); }}
+          onSuggestBiometric={() => {
+            const dismissed = Number(localStorage.getItem("bio_dismiss") || "0");
+            if (dismissed < 2) setShowBiometricSuggestion(true);
+          }}
+        />
+      )}
+
+      {/* Biometric suggestion banner (after first OTP unlock) */}
+      {showBiometricSuggestion && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-sm biometric-banner-enter">
+          <div className="bg-black/90 border border-emerald-400/20 backdrop-blur-xl rounded-2xl p-4 shadow-lg shadow-emerald-500/5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center shrink-0 biometric-pulse">
+                <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M7.864 4.243A7.5 7.5 0 0119.5 10.5c0 2.92-.556 5.709-1.568 8.268M5.742 6.364A7.465 7.465 0 004.5 10.5a48.667 48.667 0 00-1.26 8.342M11.25 0v.001M7.5 10.5a4.5 4.5 0 119 0c0 3.073-.574 6.017-1.622 8.726M12 10.5a1.5 1.5 0 10-3 0c0 3.378-.622 6.616-1.757 9.6" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white">Enable Face ID for faster access?</p>
+                <p className="text-[11px] text-white/55">Skip the code next time</p>
+              </div>
+              <button
+                onClick={() => {
+                  const c = Number(localStorage.getItem("bio_dismiss") || "0") + 1;
+                  localStorage.setItem("bio_dismiss", String(c));
+                  setShowBiometricSuggestion(false);
+                }}
+                className="text-white/45 hover:text-white/60 transition p-1 shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => {
+                  const c = Number(localStorage.getItem("bio_dismiss") || "0") + 1;
+                  localStorage.setItem("bio_dismiss", String(c));
+                  setShowBiometricSuggestion(false);
+                }}
+                className="flex-1 py-2 rounded-xl text-xs text-white/50 hover:text-white/70 transition"
+              >
+                Not now
+              </button>
+              <button
+                disabled={biometricRegistering}
+                onClick={async () => {
+                  setBiometricRegistering(true);
+                  try {
+                    const { data: userRes } = await supabase.auth.getUser();
+                    const user = userRes.user;
+                    if (!user) return;
+
+                    const challenge = new Uint8Array(32);
+                    crypto.getRandomValues(challenge);
+
+                    const credential = await navigator.credentials.create({
+                      publicKey: {
+                        challenge,
+                        rp: { name: "1neLink", id: window.location.hostname },
+                        user: {
+                          id: new TextEncoder().encode(user.id),
+                          name: user.email || "1neLink User",
+                          displayName: "1neLink Wallet",
+                        },
+                        pubKeyCredParams: [
+                          { alg: -7, type: "public-key" },
+                          { alg: -257, type: "public-key" },
+                        ],
+                        authenticatorSelection: {
+                          authenticatorAttachment: "platform",
+                          userVerification: "required",
+                        },
+                        timeout: 60000,
+                      },
+                    }) as PublicKeyCredential | null;
+
+                    if (credential) {
+                      const rawId = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
+                      const response = credential.response as AuthenticatorAttestationResponse;
+                      const pubKey = btoa(String.fromCharCode(...new Uint8Array(response.attestationObject)));
+
+                      const { data: sess } = await supabase.auth.getSession();
+                      const token = sess?.session?.access_token;
+                      if (token) {
+                        await fetch("/api/wallet/biometric", {
+                          method: "POST",
+                          headers: {
+                            Authorization: `Bearer ${token}`,
+                            "Content-Type": "application/json",
+                          },
+                          body: JSON.stringify({ credentialId: rawId, publicKey: pubKey }),
+                        });
+                      }
+
+                      if (navigator.vibrate) navigator.vibrate([10, 50, 10]);
+                      showToast("Biometric unlock enabled ✓", "success");
+                    }
+                  } catch {
+                    // User cancelled — that's fine
+                  } finally {
+                    setBiometricRegistering(false);
+                    setShowBiometricSuggestion(false);
+                  }
+                }}
+                className="flex-1 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 text-xs font-medium
+                  hover:bg-emerald-500/30 transition active:scale-[0.97] disabled:opacity-50"
+              >
+                {biometricRegistering ? "Setting up…" : "Enable"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Freeze banner */}
+      {freezeState?.is_frozen && (
+        <div className="mb-4">
+          <FreezeBanner
+            freezeReason={freezeState.freeze_reason}
+            freezeLevel={freezeState.freeze_level}
+            freezeSignals={freezeState.freeze_signals}
+            onUnfrozen={() => {
+              setFreezeState({ is_frozen: false, freeze_reason: null, freeze_level: null, freeze_signals: [] });
+              showToast("Account restored ✅", "success");
+            }}
+          />
+        </div>
+      )}
+
       {/* Hero balance */}
       <div className="text-center py-8 space-y-2">
         <p className="text-sm text-white/50">Available balance</p>
-        <h1
-          key={availableBalance}
-          className="text-4xl font-semibold tracking-tight text-white transition-all duration-300"
+        <div
+          className={`transition-all duration-500 rounded-xl px-4 py-2 ${
+            balanceFlash ? "bg-emerald-500/20 scale-105" : "bg-transparent scale-100"
+          }`}
         >
-          {loadingWallet ? "\u2026" : formatMoney(availableBalance)}
-        </h1>
-        <p className="text-xs text-emerald-400">
+          {loadingWallet ? (
+            <div className="flex justify-center">
+              <div className="h-10 w-40 shimmer rounded-lg" />
+            </div>
+          ) : (
+            <h1 className="text-4xl font-semibold tracking-tight text-white">
+              <AnimatedBalance value={availableBalance} />
+            </h1>
+          )}
+        </div>
+        {loadingWallet ? (
+          <div className="flex justify-center">
+            <div className="h-4 w-24 shimmer rounded" />
+          </div>
+        ) : (
+          <p className="text-xs text-emerald-400">
           {todayEarnings > 0
             ? `+${formatMoney(todayEarnings)} today`
             : availableBalance > 0
               ? "Ready to withdraw"
               : "No funds yet"}
         </p>
+        )}
+        {!loadingWallet && totalWithdrawFees > 0 && (
+          <p className="text-[11px] text-white/30">{formatMoney(totalWithdrawFees)} in fees paid lifetime</p>
+        )}
       </div>
 
       {/* Quick actions */}
@@ -361,9 +761,10 @@ export default function WalletPage() {
         </button>
         <button
           onClick={() => setLinkOpen(true)}
-          className="bg-white/5 border border-white/10 text-white/70 py-3 rounded-xl font-medium hover:bg-white/10 transition"
+          disabled={allMethods.length >= 2}
+          className={`bg-white/5 border border-white/[0.12] text-white/70 py-3 rounded-xl font-medium transition ${allMethods.length >= 2 ? "opacity-40 cursor-not-allowed" : "hover:bg-white/10"}`}
         >
-          {hasCard ? "Replace card" : "Add payout"}
+          {allMethods.length >= 2 ? "Card limit reached" : hasCard ? "Replace card" : "Add payout"}
         </button>
       </div>
 
@@ -376,18 +777,51 @@ export default function WalletPage() {
           </span>
         </div>
 
-        {/* Payout Method */}
-        {!hasCard ? (
+        {/* Payout Method Selector */}
+        {allMethods.length === 0 ? (
           <div className={`${ui.cardInner} p-3 flex items-center justify-between`}>
             <div className="text-sm text-white/55">No card linked</div>
             <button type="button" onClick={() => setLinkOpen(true)} className={`${ui.btnGhost} ${ui.btnSmall}`}>Link debit card</button>
           </div>
-        ) : (
+        ) : allMethods.length === 1 ? (
           <div className={`${ui.cardInner} p-3 flex items-center justify-between`}>
-            <div className="text-sm text-white/70">
-              {payout?.brand ? `${String(payout.brand).toUpperCase()} ` : ""}{"\u2022\u2022\u2022\u2022"} {payout?.last4}
+            <div className="flex items-center gap-2 text-sm text-white/70">
+              <span>💳</span>
+              {allMethods[0].brand ? `${String(allMethods[0].brand).toUpperCase()} ` : ""}{"\u2022\u2022\u2022\u2022"} {allMethods[0].last4}
             </div>
             <span className={`${ui.chip} bg-emerald-500/10 border-emerald-400/20 text-emerald-200`}>Instant</span>
+          </div>
+        ) : (
+          <div className={`${ui.cardInner} p-3`}>
+            <label className="text-xs text-white/50 mb-2 block">Withdraw to</label>
+            <div className="space-y-2">
+              {allMethods.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setSelectedMethodId(m.id)}
+                  className={`w-full flex items-center justify-between p-2.5 rounded-lg border transition ${
+                    selectedMethodId === m.id
+                      ? "border-emerald-400/40 bg-emerald-500/10"
+                      : "border-white/[0.12] bg-white/5 hover:bg-white/10"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-sm text-white/80">
+                    <span>💳</span>
+                    <span className="uppercase">{m.brand ?? m.type ?? "Card"}</span>
+                    <span>•••• {m.last4 ?? "????"}</span>
+                    {m.is_default && (
+                      <span className="text-xs bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full">Default</span>
+                    )}
+                  </div>
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                    selectedMethodId === m.id ? "border-emerald-400" : "border-white/30"
+                  }`}>
+                    {selectedMethodId === m.id && <div className="w-2 h-2 rounded-full bg-emerald-400" />}
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -399,7 +833,7 @@ export default function WalletPage() {
             inputMode="decimal"
             autoFocus
             value={amountStr}
-            onChange={(e) => setAmountStr(e.target.value)}
+            onChange={(e) => { setAmountStr(e.target.value); setWithdrawError(null); }}
           />
           <button
             type="button"
@@ -417,7 +851,7 @@ export default function WalletPage() {
               key={v}
               type="button"
               onClick={() => quickFill(v)}
-              className="rounded-full bg-white/5 border border-white/10 px-4 py-2 text-sm font-semibold text-white/75 hover:bg-white/10 active:scale-95 transition"
+              className="rounded-full bg-white/5 border border-white/[0.12] px-5 py-2.5 text-sm font-semibold text-white/75 hover:bg-white/10 active:scale-95 transition"
             >
               {formatMoney(v)}
             </button>
@@ -426,18 +860,19 @@ export default function WalletPage() {
 
         {/* Errors */}
         {amountTooHigh && (
-          <div className="text-sm text-red-300">
-            Amount is more than your available balance.
+          <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-400/20 rounded-xl px-3 py-2">
+            <span>⚠</span>
+            <span>Exceeds available balance of <strong>{formatMoney(availableBalance)}</strong></span>
           </div>
         )}
         {amountTooLow && (
           <div className="text-sm text-red-300">
-            Minimum withdrawal is {formatMoney(1)}.
+            Minimum withdrawal is {formatMoney(5)} (or your full balance).
           </div>
         )}
 
         {/* Summary */}
-        <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
+        <div className="p-4 rounded-xl bg-white/5 border border-white/[0.12] space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm text-white/60">Amount</span>
             <span className="text-sm font-semibold text-white/90">{formatMoney(amount || 0)}</span>
@@ -445,20 +880,52 @@ export default function WalletPage() {
 
           <div className="flex items-center justify-between">
             <span className="text-sm text-white/60">
-              Fee{tierLabel ? <span className="ml-1 text-xs text-white/40">({tierLabel})</span> : null}
+              Fee{tierLabel ? <span className="ml-1 text-xs text-white/55">({tierLabel})</span> : null}
             </span>
             <span className="text-sm font-semibold text-white/90">-{formatMoney(fee)}</span>
           </div>
 
-          <div className="border-t border-white/10 pt-3 flex items-center justify-between">
+          <div className="border-t border-white/[0.12] pt-3 flex items-center justify-between">
             <span className="text-sm text-white/80 font-semibold">You receive</span>
             <span className="text-xl font-semibold text-emerald-400">{formatMoney(net)}</span>
           </div>
         </div>
 
+        {/* Withdrawal error */}
+        {withdrawError && (
+          <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-400/20 rounded-xl px-4 py-3">
+            <span className="text-red-400 mt-0.5 shrink-0">✕</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-red-400">Withdrawal Failed</p>
+              <p className="text-xs text-red-300/70 mt-0.5">{withdrawError}</p>
+            </div>
+            <button onClick={() => setWithdrawError(null)} className="text-red-400/50 hover:text-red-400 shrink-0 text-xs">dismiss</button>
+          </div>
+        )}
+
         {/* CTA */}
-        <button onClick={onWithdraw} disabled={invalid || withdrawing || !hasCard} className={`${ui.btnPrimary} w-full`}>
-          {withdrawing ? "Processing\u2026" : `Withdraw ${formatMoney(net)}`}
+        <button
+          onClick={onWithdraw}
+          disabled={(invalid && !amountTooHigh) || withdrawing || !hasCard}
+          className={`w-full py-3 rounded-xl font-semibold transition-all relative shimmer-btn ${
+            amountTooHigh
+              ? "bg-red-500/20 border border-red-400/30 text-red-400 cursor-pointer"
+              : invalid || !hasCard
+              ? "bg-white/10 text-white/40 cursor-not-allowed"
+              : `${ui.btnPrimary}`
+          }`}
+        >
+          {withdrawing ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+              </span>
+              Processing…
+            </span>
+          ) : (
+            `Withdraw ${formatMoney(net)}`
+          )}
         </button>
         {!hasCard && (
           <p className="text-xs text-amber-400 mt-2">Link a debit card to withdraw</p>
@@ -467,47 +934,100 @@ export default function WalletPage() {
 
       {/* Withdrawal confirmation receipt */}
       {receipt && (
-        <div className={`${ui.card} mt-6 p-5 border border-emerald-500/20 bg-emerald-500/5`}>
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-emerald-400 text-lg">{"\u2705"}</span>
-            <h2 className="text-lg font-semibold text-white/90">Withdrawal Started</h2>
+        <div className={`relative overflow-hidden rounded-2xl mt-6 p-5 border backdrop-blur-xl transition-all duration-300 animate-card-enter ${
+          receipt.payout_status === "paid"
+            ? "border-emerald-400/30 bg-emerald-500/5 animate-celebrate"
+            : "border-white/[0.12] bg-white/5 hover:scale-[1.005]"
+        }`}>
+          {/* Ambient glow for processing state */}
+          {receipt.payout_status !== "paid" && (
+            <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 via-transparent to-cyan-500/10 glow-pulse pointer-events-none" />
+          )}
+
+          <div className="relative z-10">
+            <div className="flex items-center gap-2 mb-4">
+              {receipt.payout_status === "paid" ? (
+                <span className="text-2xl">✅</span>
+              ) : (
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-400" />
+                </span>
+              )}
+              <h2 className={`text-lg font-semibold ${
+                receipt.payout_status === "paid" ? "text-emerald-400" : "text-white/90"
+              }`}>
+                {receipt.payout_status === "paid" ? "Withdrawal Complete" : "Withdrawal Initiated"}
+              </h2>
+            </div>
+
+            {/* Arrival estimate */}
+            {receipt.payout_status !== "paid" && (
+              <div className="mb-4 rounded-xl bg-white/5 border border-white/[0.12] px-4 py-3 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-cyan-500/15 border border-cyan-400/30 flex items-center justify-center shrink-0">
+                  <svg className="w-4 h-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-white/80">Arrives in 1–2 business days</div>
+                  <div className="text-xs text-white/55 mt-0.5">Instant payouts arrive within minutes</div>
+                </div>
+              </div>
+            )}
+
+            {/* Countdown timer for pending withdrawals */}
+            {receipt.release_at && receipt.payout_status !== "paid" && (
+              <div className="mb-4">
+                <WithdrawalTimer
+                  releaseAt={receipt.release_at}
+                  createdAt={receipt.created_at}
+                  onReleased={() => reloadWallet()}
+                />
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-white/60">Amount</span>
+                <span className="text-sm font-semibold text-white/90">{formatMoney(receipt.amount)}</span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-white/60">Fee (Instant: 5%)</span>
+                <span className="text-sm font-semibold text-white/90">-{formatMoney(receipt.fee)}</span>
+              </div>
+
+              <div className="border-t border-white/[0.12] pt-3 flex items-center justify-between">
+                <span className="text-sm text-white/80 font-semibold">You receive</span>
+                <span className="text-lg font-semibold text-emerald-400">{formatMoney(receipt.net)}</span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-white/60">Status</span>
+                <span className={`text-sm font-semibold flex items-center gap-1.5 ${
+                  receipt.payout_status === "paid" ? "text-emerald-400" : "text-cyan-400"
+                }`}>
+                  {receipt.payout_status !== "paid" && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  )}
+                  {receipt.payout_status === "paid" ? "Paid" : receipt.message ?? "Processing"}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-white/60">Method</span>
+                <span className="text-sm text-white/70 capitalize">{receipt.payout_method}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setReceipt(null)}
+              className={`${ui.btnGhost} w-full mt-5`}
+            >
+              Done
+            </button>
           </div>
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-white/60">Amount</span>
-              <span className="text-sm font-semibold text-white/90">{formatMoney(receipt.amount)}</span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-white/60">Fee (Instant: 5%)</span>
-              <span className="text-sm font-semibold text-white/90">-{formatMoney(receipt.fee)}</span>
-            </div>
-
-            <div className="border-t border-white/10 pt-3 flex items-center justify-between">
-              <span className="text-sm text-white/80 font-semibold">You receive</span>
-              <span className="text-lg font-semibold text-emerald-400">{formatMoney(receipt.net)}</span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-white/60">Status</span>
-              <span className={`text-sm font-semibold ${receipt.payout_status === "paid" ? "text-emerald-400" : "text-amber-400"}`}>
-                {receipt.payout_status === "paid" ? "Paid" : "Processing"}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-white/60">Method</span>
-              <span className="text-sm text-white/70 capitalize">{receipt.payout_method}</span>
-            </div>
-          </div>
-
-          <button
-            onClick={() => setReceipt(null)}
-            className={`${ui.btnGhost} w-full mt-5`}
-          >
-            Done
-          </button>
         </div>
       )}
 
@@ -515,17 +1035,19 @@ export default function WalletPage() {
       <div className={`${ui.card} mt-6 p-5`}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-white/90">Payout Methods</h2>
-          <button onClick={() => setLinkOpen(true)} className={`${ui.btnGhost} text-xs`}>
-            + Add Card
-          </button>
+          {allMethods.length < 2 && (
+            <button onClick={() => setLinkOpen(true)} className={`${ui.btnGhost} text-xs`}>
+              + Add Card
+            </button>
+          )}
         </div>
 
         {allMethods.length === 0 ? (
-          <p className="text-sm text-white/40">No payout methods linked yet.</p>
+          <p className="text-sm text-white/55">No payout methods linked yet.</p>
         ) : (
           <div className="space-y-3">
             {allMethods.map((m) => (
-              <div key={m.id} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10">
+              <div key={m.id} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/[0.12]">
                 <div className="flex items-center gap-3">
                   <span className="text-lg">💳</span>
                   <div>
@@ -579,6 +1101,58 @@ export default function WalletPage() {
         }}
         balanceText={formatMoney(availableBalance)}
       />
+
+      {/* Insufficient Funds Modal */}
+      {showInsufficientModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full sm:max-w-sm bg-[#111] rounded-t-2xl sm:rounded-2xl p-5 border border-white/10 shadow-2xl">
+            <div className="flex items-center gap-2.5 mb-1">
+              <span className="text-xl">⚠️</span>
+              <h2 className="text-lg font-semibold text-white">Insufficient Funds</h2>
+            </div>
+            <p className="text-sm text-white/50 mt-1.5">
+              You don&apos;t have enough balance to complete this withdrawal.
+            </p>
+
+              <div className="mt-4 bg-white/5 rounded-xl p-4 border border-white/10 space-y-2.5">
+              <div className="flex justify-between text-sm">
+                <span className="text-white/50">Requested</span>
+                <span className="text-white font-medium">{formatMoney(amount)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-white/50">Available</span>
+                <span className="text-emerald-400 font-medium">{formatMoney(availableBalance)}</span>
+              </div>
+              {amount > availableBalance && (
+                <div className="border-t border-white/10 pt-2.5 flex justify-between text-sm">
+                  <span className="text-white/50">Shortfall</span>
+                  <span className="text-red-400 font-medium">{formatMoney(amount - availableBalance)}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setShowInsufficientModal(false)}
+                className="flex-1 py-2.5 rounded-xl bg-white/10 text-sm text-white/70 hover:bg-white/15 transition"
+              >
+                Adjust Amount
+              </button>
+              <button
+                onClick={() => {
+                  setAmountStr(String(availableBalance));
+                  setShowInsufficientModal(false);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-white text-black text-sm font-semibold hover:bg-white/90 transition"
+              >
+                Withdraw Max
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ToastStack toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }

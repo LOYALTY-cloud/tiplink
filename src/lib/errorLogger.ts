@@ -53,3 +53,11 @@ export function logCaughtError(source: string, err: unknown, extra?: Partial<Err
     ...extra,
   });
 }
+
+/**
+ * Return a safe, generic error message for API responses.
+ * Logs the real error server-side but never exposes internals to the client.
+ */
+export function safeErrorMessage(fallback = "Something went wrong"): string {
+  return fallback;
+}

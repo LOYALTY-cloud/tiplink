@@ -54,7 +54,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
-    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    console.error("account/request-review", e);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

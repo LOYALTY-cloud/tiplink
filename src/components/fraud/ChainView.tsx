@@ -72,7 +72,7 @@ export default function ChainView({ events }: Props) {
           <div key={si}>
             {/* Session label */}
             {sessions.length > 1 && (
-              <p className="text-white/30 text-[10px] uppercase tracking-wider font-medium mb-2">
+              <p className="text-white/45 text-[10px] uppercase tracking-wider font-medium mb-2">
                 Session {si + 1} · {formatDate(session[0].created_at)}
               </p>
             )}
@@ -107,34 +107,34 @@ export default function ChainView({ events }: Props) {
                       <span className={`text-[10px] mt-1 font-medium ${cfg.text} whitespace-nowrap`}>
                         {capitalize(e.type)}
                       </span>
-                      <span className="text-[9px] text-white/30 whitespace-nowrap">
+                      <span className="text-[9px] text-white/45 whitespace-nowrap">
                         {formatTime(e.created_at)}
                       </span>
 
                       {/* Hover detail card */}
                       <div className="hidden group-hover:block absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50
-                        bg-zinc-800 border border-white/10 rounded-lg p-2.5 min-w-[180px] max-w-[260px] shadow-xl pointer-events-none">
+                        bg-zinc-800 border border-white/[0.12] rounded-lg p-2.5 min-w-[180px] max-w-[260px] shadow-xl pointer-events-none">
                         <p className={`text-xs font-semibold ${cfg.text} mb-1`}>{capitalize(e.type)}</p>
                         <p className="text-white/70 text-[11px] leading-snug break-words">{e.label}</p>
                         {e.score != null && (
-                          <p className="text-white/40 text-[10px] mt-1">
+                          <p className="text-white/55 text-[10px] mt-1">
                             Score: <span className={e.score >= 70 ? "text-red-400" : e.score >= 40 ? "text-yellow-400" : "text-green-400"}>
                               {e.score}
                             </span>
                           </p>
                         )}
                         {e.amount != null && (
-                          <p className="text-white/40 text-[10px]">Amount: ${e.amount.toFixed(2)}</p>
+                          <p className="text-white/55 text-[10px]">Amount: ${e.amount.toFixed(2)}</p>
                         )}
                         {e.decision && (
-                          <p className="text-white/40 text-[10px]">Decision: <span className={
+                          <p className="text-white/55 text-[10px]">Decision: <span className={
                             dangerDecisions.has(e.decision) ? "text-red-400" : "text-green-400"
                           }>{e.decision}</span></p>
                         )}
                         {e.flags && e.flags.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1">
                             {e.flags.map((f, fi) => (
-                              <span key={fi} className="text-[9px] bg-white/5 border border-white/10 rounded px-1 text-white/50">
+                              <span key={fi} className="text-[9px] bg-white/5 border border-white/[0.12] rounded px-1 text-white/50">
                                 {f}
                               </span>
                             ))}
@@ -163,12 +163,12 @@ export default function ChainView({ events }: Props) {
         {Object.entries(nodeConfig).map(([type, cfg]) => (
           <div key={type} className="flex items-center gap-1.5">
             <div className={`w-2.5 h-2.5 rounded-full ${cfg.bg}`} />
-            <span className="text-[10px] text-white/40">{capitalize(type)}</span>
+            <span className="text-[10px] text-white/55">{capitalize(type)}</span>
           </div>
         ))}
         <div className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-full bg-zinc-500 ring-1 ring-red-400/80" />
-          <span className="text-[10px] text-white/40">Suspicious</span>
+          <span className="text-[10px] text-white/55">Suspicious</span>
         </div>
       </div>
     </div>

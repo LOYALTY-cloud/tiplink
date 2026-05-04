@@ -57,6 +57,7 @@ export default function AdminPage() {
   const [riskAlertsLoading, setRiskAlertsLoading] = useState(false);
   const [dismissing, setDismissing] = useState<string | null>(null);
   const [supportStats, setSupportStats] = useState({ tickets: 0, activeChats: 0, waitingChats: 0 });
+  const [expandedFeed, setExpandedFeed] = useState<string | null>(null);
 
   useEffect(() => {
     loadStats();
@@ -64,80 +65,35 @@ export default function AdminPage() {
     loadRiskAlerts();
     loadSupportStats();
 
-    // Real-time: listen for tip_intents + profiles changes
-    const tipChannel = supabase
-      .channel("admin-tips")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "tip_intents" },
-        () => loadStats()
-      )
-      .subscribe();
+    // Poll every 20s — avoids 3 unfiltered realtime subs on broad tables
+    const interval = setInterval(() => {
+      loadStats();
+      loadSupportStats();
+    }, 20_000);
 
-    const profileChannel = supabase
-      .channel("admin-profiles")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "profiles" },
-        () => loadStats()
-      )
-      .subscribe();
-
-    // Real-time: support sessions + tickets
-    const supportChannel = supabase
-      .channel("admin-support-overview")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "support_sessions" },
-        () => loadSupportStats()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "support_tickets" },
-        () => loadSupportStats()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(tipChannel);
-      supabase.removeChannel(profileChannel);
-      supabase.removeChannel(supportChannel);
-    };
+    return () => { clearInterval(interval); };
   }, []);
 
   async function loadStats() {
-    const [users, restricted, refunds, disputes] = await Promise.all([
-      supabase.from("profiles").select("id", { count: "exact", head: true }),
-      supabase
-        .from("profiles")
-        .select("id", { count: "exact", head: true })
-        .in("account_status", ["restricted", "suspended"]),
-      supabase
-        .from("tip_intents")
-        .select("receipt_id", { count: "exact", head: true })
-        .eq("refund_status", "initiated"),
-      supabase
-        .from("tip_intents")
-        .select("receipt_id", { count: "exact", head: true })
-        .eq("status", "disputed"),
-    ]);
+    const headers = getAdminHeaders();
+    if (!headers["X-Admin-Id"]) return;
 
-    const { data: owedRows } = await supabase
-      .from("profiles")
-      .select("owed_balance")
-      .gt("owed_balance", 0);
+    let res: Response;
+    try {
+      res = await fetch("/api/admin/stats", { headers });
+    } catch {
+      return;
+    }
+    if (!res.ok) return;
 
-    const totalOwed = (owedRows ?? []).reduce(
-      (sum, r) => sum + Number((r as any).owed_balance ?? 0),
-      0
-    );
+    const d = await res.json();
 
     const newStats: Stats = {
-      totalUsers: users.count ?? 0,
-      restrictedUsers: restricted.count ?? 0,
-      pendingRefunds: refunds.count ?? 0,
-      activeDisputes: disputes.count ?? 0,
-      totalOwed,
+      totalUsers: d.totalUsers,
+      restrictedUsers: d.restrictedUsers,
+      pendingRefunds: d.pendingRefunds,
+      activeDisputes: d.activeDisputes,
+      totalOwed: d.totalOwed,
     };
     setStats(newStats);
     dispatchAIContext({
@@ -151,49 +107,33 @@ export default function AdminPage() {
     // Build system alerts
     const newAlerts: Alert[] = [];
 
-    // Disputes in the last hour
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const { count: recentDisputeCount } = await supabase
-      .from("tip_intents")
-      .select("receipt_id", { count: "exact", head: true })
-      .eq("status", "disputed")
-      .gte("created_at", oneHourAgo);
-    if ((recentDisputeCount ?? 0) >= 3) {
+    if (d.recentDisputeCount >= 3) {
       newAlerts.push({
         id: "disputes-spike",
-        message: `${recentDisputeCount} disputes in the last hour — investigate immediately`,
+        message: `${d.recentDisputeCount} disputes in the last hour — investigate immediately`,
         severity: "critical",
       });
-    } else if ((recentDisputeCount ?? 0) >= 1) {
+    } else if (d.recentDisputeCount >= 1) {
       newAlerts.push({
         id: "disputes-recent",
-        message: `${recentDisputeCount} new dispute(s) in the last hour`,
+        message: `${d.recentDisputeCount} new dispute(s) in the last hour`,
         severity: "warning",
       });
     }
 
-    // Stale initiated refunds (>10 min)
-    const staleCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const { count: staleRefundCount } = await supabase
-      .from("tip_intents")
-      .select("receipt_id", { count: "exact", head: true })
-      .eq("refund_status", "initiated")
-      .lt("refund_initiated_at", staleCutoff);
-    if ((staleRefundCount ?? 0) > 0) {
+    if (d.staleRefundCount > 0) {
       newAlerts.push({
         id: "stale-refunds",
-        message: `${staleRefundCount} refund(s) stuck in "initiated" for >10 min — may need retry`,
+        message: `${d.staleRefundCount} refund(s) stuck in "initiated" for >10 min — may need retry`,
         severity: "warning",
       });
     }
 
-    // Users with outstanding owed balances
-    const negativeCount = (owedRows ?? []).length;
-    if ((negativeCount ?? 0) > 0) {
+    if (d.owedCount > 0) {
       newAlerts.push({
         id: "negative-balances",
-        message: `${negativeCount} user(s) with outstanding owed balance ($${totalOwed.toFixed(2)} total)`,
-        severity: (totalOwed > 100 ? "critical" : "warning") as Alert["severity"],
+        message: `${d.owedCount} user(s) with outstanding owed balance ($${d.totalOwed.toFixed(2)} total)`,
+        severity: (d.totalOwed > 100 ? "critical" : "warning") as Alert["severity"],
       });
     }
 
@@ -202,30 +142,36 @@ export default function AdminPage() {
 
   async function loadFeed() {
     setFeedLoading(true);
-    const headers = getAdminHeaders();
-    if (!headers["X-Admin-Id"]) { setFeedLoading(false); return; }
-    const res = await fetch("/api/admin/activity-feed?limit=25", {
-      headers,
-    });
-    if (res.ok) {
-      const json = await res.json();
-      setFeed(json.data ?? []);
+    try {
+      const headers = getAdminHeaders();
+      if (!headers["X-Admin-Id"]) { setFeedLoading(false); return; }
+      const res = await fetch("/api/admin/activity-feed?limit=25", {
+        headers,
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setFeed(json.data ?? []);
+      }
+    } catch { /* ignore */ } finally {
+      setFeedLoading(false);
     }
-    setFeedLoading(false);
   }
 
   async function loadRiskAlerts() {
     setRiskAlertsLoading(true);
-    const headers = getAdminHeaders();
-    if (!headers["X-Admin-Id"]) { setRiskAlertsLoading(false); return; }
-    const res = await fetch("/api/admin/risk-alerts?resolved=false&limit=20", {
-      headers,
-    });
-    if (res.ok) {
-      const json = await res.json();
-      setRiskAlerts(json.data ?? []);
+    try {
+      const headers = getAdminHeaders();
+      if (!headers["X-Admin-Id"]) { setRiskAlertsLoading(false); return; }
+      const res = await fetch("/api/admin/risk-alerts?resolved=false&limit=20", {
+        headers,
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setRiskAlerts(json.data ?? []);
+      }
+    } catch { /* ignore */ } finally {
+      setRiskAlertsLoading(false);
     }
-    setRiskAlertsLoading(false);
   }
 
   async function loadSupportStats() {
@@ -242,16 +188,19 @@ export default function AdminPage() {
 
   async function dismissRiskAlert(alertId: string) {
     setDismissing(alertId);
-    const headers = getAdminHeaders();
-    if (!headers["X-Admin-Id"]) { setDismissing(null); return; }
-    const res = await fetch("/api/admin/risk-alerts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify({ alert_id: alertId }),
-    });
-    setDismissing(null);
-    if (res.ok) {
-      setRiskAlerts((prev) => prev.filter((a) => a.id !== alertId));
+    try {
+      const headers = getAdminHeaders();
+      if (!headers["X-Admin-Id"]) { setDismissing(null); return; }
+      const res = await fetch("/api/admin/risk-alerts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ alert_id: alertId }),
+      });
+      if (res.ok) {
+        setRiskAlerts((prev) => prev.filter((a) => a.id !== alertId));
+      }
+    } catch { /* ignore */ } finally {
+      setDismissing(null);
     }
   }
 
@@ -260,19 +209,24 @@ export default function AdminPage() {
     const headers = getAdminHeaders();
     if (!headers["X-Admin-Id"]) return;
 
-    const res = await fetch("/api/admin/bulk-restrict", {
-      method: "POST",
-      headers,
-    });
-    const json = await res.json();
-    setPanicLoading(false);
-    setPanicOpen(false);
-    setPanicResult(
-      res.ok
-        ? `Restricted ${json.restricted} user(s).`
-        : `Error: ${json.error}`
-    );
-    loadStats();
+    try {
+      const res = await fetch("/api/admin/bulk-restrict", {
+        method: "POST",
+        headers,
+      });
+      const json = await res.json();
+      setPanicResult(
+        res.ok
+          ? `Restricted ${json.restricted} user(s).`
+          : `Error: ${json.error}`
+      );
+    } catch {
+      setPanicResult("Network error — bulk restrict failed");
+    } finally {
+      setPanicLoading(false);
+      setPanicOpen(false);
+      loadStats();
+    }
   }
 
   function alertStyle(severity: Alert["severity"]) {
@@ -448,26 +402,74 @@ export default function AdminPage() {
                 f.severity === "critical" ? "bg-red-400" :
                 f.severity === "warning" ? "bg-yellow-400" :
                 "bg-blue-400";
+              const isExpanded = expandedFeed === f.id;
               return (
-                <div key={f.id} className={`${ui.card} p-3`}>
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className={`w-2 h-2 rounded-full ${severityDot}`} />
-                    <span className={`text-xs ${ui.muted2}`}>{f.actor}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${badge.className}`}>
-                      {badge.label}
-                    </span>
-                    <span className={`text-xs ${ui.muted2}`}>
-                      {new Date(f.created_at).toLocaleString()}
-                    </span>
-                  </div>
-                  <p className="text-sm">{f.label}</p>
-                  {f.target_user && (
-                    <Link
-                      href={`/admin/users/${f.target_user}`}
-                      className="text-xs text-blue-400 hover:text-blue-300 hover:underline"
-                    >
-                      {f.target_handle ? `@${f.target_handle}` : f.target_display_name ?? `User ${f.target_user.slice(0, 8)}…`}
-                    </Link>
+                <div key={f.id} className={`${ui.card} transition-all duration-200 ${isExpanded ? "ring-1 ring-white/10" : "hover:bg-white/[.02]"}`}>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedFeed(isExpanded ? null : f.id)}
+                    className="w-full text-left p-3"
+                  >
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className={`w-2 h-2 rounded-full ${severityDot}`} />
+                      <span className={`text-xs ${ui.muted2}`}>{f.actor}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${badge.className}`}>
+                        {badge.label}
+                      </span>
+                      <span className={`text-xs ${ui.muted2} ml-auto`}>
+                        {new Date(f.created_at).toLocaleString()}
+                      </span>
+                      <span className={`text-xs text-white/30 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}>▾</span>
+                    </div>
+                    <p className="text-sm">{f.label}</p>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="px-3 pb-3 pt-1 border-t border-white/5 space-y-2">
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <p className="text-white/40">Action</p>
+                          <p className="text-white font-medium">{f.action.replace(/_/g, " ")}</p>
+                        </div>
+                        <div>
+                          <p className="text-white/40">Severity</p>
+                          <span className={`inline-block px-2 py-0.5 rounded-full font-semibold ${
+                            f.severity === "critical" ? "bg-red-500/10 text-red-400" :
+                            f.severity === "warning" ? "bg-yellow-500/10 text-yellow-400" :
+                            "bg-blue-500/10 text-blue-400"
+                          }`}>
+                            {f.severity}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="text-white/40">Performed by</p>
+                          <p className="text-white font-medium">{f.actor}</p>
+                        </div>
+                        <div>
+                          <p className="text-white/40">Timestamp</p>
+                          <p className="text-white font-medium">{new Date(f.created_at).toLocaleString()}</p>
+                        </div>
+                      </div>
+                      {f.target_user && (
+                        <Link
+                          href={`/admin/users/${f.target_user}`}
+                          className="flex items-center gap-2 p-2 rounded-lg bg-white/[.03] hover:bg-white/[.06] border border-white/5 transition group"
+                        >
+                          <div className="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center text-xs font-semibold text-white shrink-0">
+                            {(f.target_handle || f.target_display_name || "U").charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-white truncate">
+                              {f.target_display_name || f.target_handle || `User ${f.target_user.slice(0, 8)}…`}
+                            </p>
+                            {f.target_handle && (
+                              <p className="text-xs text-white/40">@{f.target_handle}</p>
+                            )}
+                          </div>
+                          <span className="text-xs text-blue-400 ml-auto group-hover:text-blue-300 transition">View profile →</span>
+                        </Link>
+                      )}
+                    </div>
                   )}
                 </div>
               );

@@ -25,12 +25,24 @@ export async function syncExternalAccounts(userId: string, stripeAccountId: stri
     const last4 = (ext as any).last4 ?? null;
     const isDefault = (ext as any).default_for_currency === true;
 
-    // Check if this external account already exists
-    const { data: existing } = await supabaseAdmin
+    // Check if this external account already exists (by stripe_external_account_id or provider_ref)
+    let existing: { id: string } | null = null;
+    const { data: byExtId } = await supabaseAdmin
       .from("payout_methods")
       .select("id")
       .eq("stripe_external_account_id", ext.id)
       .maybeSingle();
+    existing = byExtId ?? null;
+
+    if (!existing) {
+      const { data: byRef } = await supabaseAdmin
+        .from("payout_methods")
+        .select("id")
+        .eq("provider_ref", ext.id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      existing = byRef ?? null;
+    }
 
     if (existing) {
       // Update existing record
@@ -44,6 +56,15 @@ export async function syncExternalAccounts(userId: string, stripeAccountId: stri
         })
         .eq("id", existing.id);
     } else {
+      // Enforce 2-card limit — skip new inserts if at capacity
+      const { count } = await supabaseAdmin
+        .from("payout_methods")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("status", "active");
+
+      if ((count ?? 0) >= 2) continue;
+
       // If this will be default, unset others first
       if (isDefault) {
         await supabaseAdmin

@@ -233,7 +233,7 @@ export default function FraudLiveFeed({ onEscalation }: Props) {
         <div id="fraud-alerts" className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-white/50 border-b border-white/10">
+              <tr className="text-left text-white/50 border-b border-white/[0.12]">
                 <th className="py-3 px-3 font-medium">Time</th>
                 <th className="py-3 px-3 font-medium">User</th>
                 <th className="py-3 px-3 font-medium">Score</th>
@@ -270,10 +270,10 @@ export default function FraudLiveFeed({ onEscalation }: Props) {
                           {userLabel(a.user_id)}
                         </Link>
                       ) : (
-                        <span className="text-white/40">Anonymous</span>
+                        <span className="text-white/55">Anonymous</span>
                       )}
                       {amount && (
-                        <span className="text-white/40 ml-2 text-xs">${Number(amount).toFixed(2)}</span>
+                        <span className="text-white/55 ml-2 text-xs">${Number(amount).toFixed(2)}</span>
                       )}
                     </td>
                     <td className="py-3 px-3">
@@ -299,11 +299,11 @@ export default function FraudLiveFeed({ onEscalation }: Props) {
                           </span>
                         ))}
                         {(a.flags?.length ?? 0) > 4 && (
-                          <span className="text-xs text-white/30">+{(a.flags!.length - 4)}</span>
+                          <span className="text-xs text-white/45">+{(a.flags!.length - 4)}</span>
                         )}
                       </div>
                     </td>
-                    <td className="py-3 px-3 text-white/40 text-xs font-mono">
+                    <td className="py-3 px-3 text-white/55 text-xs font-mono">
                       {a.ip ? `${a.ip.slice(0, 15)}${a.ip.length > 15 ? "…" : ""}` : "–"}
                     </td>
                     <td className="py-3 px-3">
@@ -318,7 +318,7 @@ export default function FraudLiveFeed({ onEscalation }: Props) {
                       ) : prof?.account_status === "restricted" ? (
                         <span className="text-red-400 text-xs">Restricted</span>
                       ) : (
-                        <span className="text-white/30 text-xs">Pending</span>
+                        <span className="text-white/45 text-xs">Pending</span>
                       )}
                     </td>
                     <td className="py-3 px-3">
@@ -360,7 +360,7 @@ export default function FraudLiveFeed({ onEscalation }: Props) {
               <div key={a.id} className="flex items-start gap-3 text-sm">
                 <span className={`font-bold ${scoreColor(a.score)} min-w-[2rem]`}>{a.score}</span>
                 <span className="text-white/70">{a.reason}</span>
-                <span className="text-white/30 text-xs ml-auto whitespace-nowrap">
+                <span className="text-white/45 text-xs ml-auto whitespace-nowrap">
                   {new Date(a.created_at).toLocaleTimeString()}
                 </span>
               </div>

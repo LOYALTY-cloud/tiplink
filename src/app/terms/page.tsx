@@ -37,7 +37,7 @@ export default function TermsPage() {
           <p>Tips are voluntary payments. Because tips are irrevocable gifts, we generally do not issue refunds. However, refunds may be granted in cases of: unauthorized transactions, duplicate charges, technical errors that resulted in an incorrect charge. To request a refund, contact support within 30 days of the transaction. Refunds are processed to the original payment method and may take 5–10 business days.</p>
 
           <h2 className="font-semibold">9. Dispute Resolution</h2>
-          <p>If you have a dispute regarding a payment or account action, please contact our support team first. We will make reasonable efforts to resolve disputes within 7 business days. If unresolved, disputes may be escalated through Stripe's dispute process.</p>
+          <p>If you have a dispute regarding a payment or account action, please contact our support team first. We will make reasonable efforts to resolve disputes within 7 business days. If unresolved, disputes may be escalated through Stripe&apos;s dispute process.</p>
 
           <h2 className="font-semibold">10. Contact</h2>
           <p>For questions, contact: <a className="text-white underline" href="mailto:support@1nelink.com">support@1nelink.com</a></p>

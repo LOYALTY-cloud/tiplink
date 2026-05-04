@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe/server";
-import { addLedgerEntry } from "@/lib/ledger";
+import { reversePayoutOnce } from "@/lib/payoutReversals";
 
 export const runtime = "nodejs";
 
@@ -67,17 +67,17 @@ export async function GET(req: Request) {
           .update({ status: "failed", failure_reason: payout.failure_message ?? payout.status })
           .eq("id", w.id);
 
-        await addLedgerEntry({
-          user_id: w.user_id,
-          type: "payout_reversal",
+        await reversePayoutOnce({
+          supabase: supabaseAdmin,
+          userId: w.user_id,
           amount: Number(w.amount),
-          reference_id: w.stripe_payout_id,
-          meta: {
-            action: "stuck_payout_recovery",
-            original_withdrawal_id: w.id,
+          withdrawalId: w.id,
+          payoutId: w.stripe_payout_id,
+          reason: payout.failure_message ?? payout.status,
+          action: "stuck_payout_recovery",
+          extraMeta: {
             failure_message: payout.failure_message,
           },
-          status: "completed",
         });
 
         recovered++;

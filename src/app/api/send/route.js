@@ -1,14 +1,11 @@
-import { Resend } from "resend";
+import { NextResponse } from "next/server";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const IS_PROD = process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
 
 export async function GET() {
-  const data = await resend.emails.send({
-    from: "no-reply@1nelink.com",
-    to: "money2loyal@gmail.com",
-    subject: "Test from 1neLink",
-    html: "<p>Hello world</p>",
-  });
+  if (IS_PROD) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
-  return Response.json(data);
+  return NextResponse.json({ ok: false, error: "Deprecated dev-only route" }, { status: 410 });
 }

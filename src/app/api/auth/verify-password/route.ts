@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createSupabaseRouteClient } from "@/lib/supabase/server"
 import { createClient } from "@supabase/supabase-js"
+import { rateLimit } from "@/lib/rateLimit"
 
 export async function POST(req: Request) {
   try {
@@ -15,6 +16,15 @@ export async function POST(req: Request) {
 
     if (userError || !user?.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Rate limit: 5 attempts per 5 minutes per user
+    const { allowed } = await rateLimit(`verify_pw:${user.id}`, 5, 300)
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Too many attempts. Please wait a few minutes." },
+        { status: 429 }
+      )
     }
 
     // Use a separate client to verify password without affecting the existing session

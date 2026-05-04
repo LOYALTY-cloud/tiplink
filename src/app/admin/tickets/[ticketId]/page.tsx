@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { ui } from "@/lib/ui";
 import ReplySuggestions from "@/components/admin/ReplySuggestions";
+import { getAdminHeaders } from "@/lib/auth/adminSession";
 
 type TicketMessage = {
   id: string;
@@ -61,12 +62,6 @@ const QUICK_MACROS = [
   { label: "Escalated", text: "I've escalated this to our senior team for a closer look. You'll hear back soon." },
 ];
 
-function getAdminHeaders(): Record<string, string> {
-  const raw = localStorage.getItem("admin_session");
-  const admin = raw ? JSON.parse(raw) : null;
-  return admin?.id ? { "x-admin-id": admin.id } : {};
-}
-
 function getSlaStatus(deadline: string | null, met: boolean): { label: string; color: string } {
   if (met) return { label: "Met", color: "text-emerald-400" };
   if (!deadline) return { label: "—", color: "text-white/40" };
@@ -81,6 +76,22 @@ function getSlaStatus(deadline: string | null, met: boolean): { label: string; c
 }
 
 type NextAction = { icon: string; label: string; hint: string };
+
+function getNextActionButtonClass(label: string): string {
+  if (label === "Take over immediately") {
+    return "bg-red-500/12 border-red-400/25 text-red-200";
+  }
+  if (label === "Send first response" || label === "Reply to user" || label === "Send reminder") {
+    return "bg-blue-500/12 border-blue-400/25 text-blue-200";
+  }
+  if (label === "Reassign ticket") {
+    return "bg-amber-500/12 border-amber-400/25 text-amber-200";
+  }
+  if (label === "Consider resolving") {
+    return "bg-emerald-500/12 border-emerald-400/25 text-emerald-200";
+  }
+  return "bg-indigo-500/10 border-indigo-400/15 text-indigo-200";
+}
 
 function getNextBestActions(ticket: Ticket, messageCount: number): NextAction[] {
   const actions: NextAction[] = [];
@@ -124,6 +135,7 @@ type ThreadSummary = {
 export default function AdminTicketDetailPage() {
   const { ticketId } = useParams<{ ticketId: string }>();
   const router = useRouter();
+  const [mobileTab, setMobileTab] = useState<"chat" | "details">("chat");
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -184,39 +196,71 @@ export default function AdminTicketDetailPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Polling fallback so admin sees new messages/status without manual refresh.
+  useEffect(() => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/admin/tickets/${ticketId}`, {
+          headers: getAdminHeaders(),
+        });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if (data.ticket) setTicket(data.ticket);
+        if (Array.isArray(data.messages)) setMessages(data.messages);
+        if (data.user) setUser(data.user);
+      } catch {
+        // polling is best-effort
+      }
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [ticketId]);
+
   async function loadTicket() {
     setLoading(true);
-    let userId: string | null = null;
-    const res = await fetch(`/api/admin/tickets/${ticketId}`, {
-      headers: getAdminHeaders(),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setTicket(data.ticket);
-      setMessages(data.messages ?? []);
-      setUser(data.user ?? null);
-      userId = data.ticket?.user_id ?? null;
-    }
+    try {
+      let userId: string | null = null;
+      const res = await fetch(`/api/admin/tickets/${ticketId}`, {
+        headers: getAdminHeaders(),
+      });
 
-    // Load thread summary
-    fetch(`/api/admin/tickets/${ticketId}/summary`, {
-      headers: getAdminHeaders(),
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.summary) setSummary(d.summary); })
-      .catch(() => {});
+      if (res.ok) {
+        const data = await res.json();
+        setTicket(data.ticket ?? null);
+        setMessages(data.messages ?? []);
+        setUser(data.user ?? null);
+        userId = data.ticket?.user_id ?? null;
+      } else {
+        setTicket(null);
+        setMessages([]);
+        setUser(null);
+      }
 
-    // Load user health card
-    if (userId) {
-      fetch(`/api/admin/users/${userId}/health`, {
+      // Load thread summary
+      fetch(`/api/admin/tickets/${ticketId}/summary`, {
         headers: getAdminHeaders(),
       })
         .then((r) => (r.ok ? r.json() : null))
-        .then((d) => { if (d?.health) setUserHealth(d.health); })
+        .then((d) => { if (d?.summary) setSummary(d.summary); })
         .catch(() => {});
-    }
 
-    setLoading(false);
+      // Load user health card
+      if (userId) {
+        fetch(`/api/admin/users/${userId}/health`, {
+          headers: getAdminHeaders(),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => { if (d?.health) setUserHealth(d.health); })
+          .catch(() => {});
+      }
+    } catch {
+      setTicket(null);
+      setMessages([]);
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleReply(e: React.FormEvent) {
@@ -323,6 +367,85 @@ export default function AdminTicketDetailPage() {
     setAiLoading(false);
   }
 
+  async function handleSendReminder() {
+    if (updating) return;
+    setUpdating(true);
+    try {
+      await fetch(`/api/admin/tickets/${ticketId}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAdminHeaders() },
+        body: JSON.stringify({
+          message: "Quick follow-up: when you have a moment, please share an update so we can keep your ticket moving.",
+          is_internal: false,
+        }),
+      });
+      await loadTicket();
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  async function handleEscalate() {
+    if (!ticket || updating) return;
+    setUpdating(true);
+    try {
+      const nextPriority = Math.min((ticket.priority ?? 1) + 1, 3);
+      await fetch(`/api/admin/tickets/${ticketId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getAdminHeaders() },
+        body: JSON.stringify({
+          priority: nextPriority,
+          status: ticket.status === "open" ? "in_progress" : ticket.status,
+        }),
+      });
+      await loadTicket();
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  async function handleReassign() {
+    if (updating) return;
+    setUpdating(true);
+    try {
+      await fetch(`/api/admin/tickets/${ticketId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getAdminHeaders() },
+        body: JSON.stringify({
+          assigned_admin_id: null,
+          status: "open",
+        }),
+      });
+      await loadTicket();
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  async function handleNextAction(label: string) {
+    if (label === "Take over immediately") {
+      await handleTakeOver();
+      return;
+    }
+    if (label === "Send first response" || label === "Reply to user") {
+      setMobileTab("chat");
+      const el = document.getElementById("admin-ticket-reply-input") as HTMLInputElement | null;
+      el?.focus();
+      return;
+    }
+    if (label === "Send reminder") {
+      await handleSendReminder();
+      return;
+    }
+    if (label === "Reassign ticket") {
+      await handleReassign();
+      return;
+    }
+    if (label === "Consider resolving") {
+      await handleStatusChange("resolved");
+    }
+  }
+
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-8 text-center">
@@ -349,7 +472,7 @@ export default function AdminTicketDetailPage() {
     <>
     <div className="max-w-4xl mx-auto px-4 md:px-8 py-6 space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
           <button
             onClick={() => router.push("/admin/tickets")}
@@ -364,10 +487,10 @@ export default function AdminTicketDetailPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 overflow-x-auto no-scrollbar pb-1">
           <button
             onClick={handleStartChat}
-            className={`${ui.btnGhost} ${ui.btnSmall} text-sm`}
+            className={`${ui.btnGhost} ${ui.btnSmall} text-sm shrink-0`}
             title="Open live chat with this user"
           >
             💬 Chat
@@ -376,7 +499,7 @@ export default function AdminTicketDetailPage() {
             value={ticket.status}
             onChange={(e) => handleStatusChange(e.target.value)}
             disabled={updating}
-            className={`${ui.select} text-sm py-2 w-auto`}
+            className={`${ui.select} text-sm py-2 w-auto shrink-0`}
           >
             {STATUS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -389,12 +512,33 @@ export default function AdminTicketDetailPage() {
             <button
               onClick={handleTakeOver}
               disabled={updating}
-              className={`${ui.btnPrimary} ${ui.btnSmall} text-sm`}
+              className={`${ui.btnPrimary} ${ui.btnSmall} text-sm shrink-0`}
             >
               Take Over
             </button>
           )}
         </div>
+      </div>
+
+      <div className="md:hidden inline-flex rounded-xl border border-white/10 bg-white/[0.03] p-1 w-full">
+        <button
+          type="button"
+          onClick={() => setMobileTab("chat")}
+          className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium transition ${
+            mobileTab === "chat" ? "bg-white/10 text-white" : "text-white/60"
+          }`}
+        >
+          Chat
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileTab("details")}
+          className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium transition ${
+            mobileTab === "details" ? "bg-white/10 text-white" : "text-white/60"
+          }`}
+        >
+          Details
+        </button>
       </div>
 
       {/* Breach warning */}
@@ -429,16 +573,19 @@ export default function AdminTicketDetailPage() {
         const actions = getNextBestActions(ticket, messages.length);
         if (actions.length === 0) return null;
         return (
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
             {actions.map((a, i) => (
-              <div
+              <button
+                type="button"
                 key={i}
-                className="flex items-center gap-1.5 text-xs bg-indigo-500/10 border border-indigo-400/15 rounded-lg px-3 py-1.5"
+                onClick={() => handleNextAction(a.label)}
+                disabled={updating || sending || uploading}
+                className={`flex items-center gap-1.5 text-xs md:text-[11px] border rounded-xl px-3 py-2 md:py-1.5 shrink-0 min-h-9 md:min-h-0 transition active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed ${getNextActionButtonClass(a.label)}`}
                 title={a.hint}
               >
                 <span>{a.icon}</span>
-                <span className="text-indigo-300 font-medium">{a.label}</span>
-              </div>
+                <span className="font-semibold">{a.label}</span>
+              </button>
             ))}
           </div>
         );
@@ -446,7 +593,7 @@ export default function AdminTicketDetailPage() {
 
       <div className="grid md:grid-cols-[1fr_260px] gap-4">
         {/* Messages */}
-        <div className={`${ui.card} p-4 space-y-3 max-h-[65vh] overflow-y-auto`}>
+        <div className={`${mobileTab === "details" ? "hidden md:block" : "block"} ${ui.card} p-3 md:p-4 space-y-3 max-h-[65vh] overflow-y-auto`}>
           {messages.map((m) => {
             const isUser = m.sender_type === "user";
             const isSystem = m.sender_type === "system";
@@ -466,7 +613,7 @@ export default function AdminTicketDetailPage() {
                 className={`flex ${isUser ? "justify-start" : "justify-end"}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
+                  className={`max-w-[85%] md:max-w-[80%] rounded-2xl px-3 md:px-4 py-2 md:py-2.5 ${
                     isInternal
                       ? "bg-amber-500/10 border border-amber-400/20 border-dashed"
                       : isUser
@@ -480,7 +627,7 @@ export default function AdminTicketDetailPage() {
                   <p className="text-xs font-semibold text-white/60 mb-1">
                     {isUser ? (user?.display_name ?? "User") : (m.sender_name ?? "Admin")}
                   </p>
-                  <p className="text-sm leading-relaxed">{m.message}</p>
+                  <p className="text-[13px] md:text-sm leading-relaxed">{m.message}</p>
                   {m.file_url && (
                     <div className="mt-2">
                       {isImageFile(m.file_url, m.file_type) ? (
@@ -531,7 +678,7 @@ export default function AdminTicketDetailPage() {
         </div>
 
         {/* Sidebar */}
-        <div className="space-y-3">
+        <div className={`${mobileTab === "chat" ? "hidden md:block" : "block"} space-y-3`}>
           {/* User card */}
           {user && (
             <div className={`${ui.cardInner} p-4 space-y-2`}>
@@ -753,14 +900,14 @@ export default function AdminTicketDetailPage() {
 
       {/* Reply box */}
       {ticket.status !== "closed" && (
-        <div className="space-y-2">
+        <div className={`${mobileTab === "details" ? "hidden md:block" : "block"} space-y-2`}>
           {/* Quick macros */}
-          <div className="flex gap-1.5 flex-wrap">
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
             {QUICK_MACROS.map((m) => (
               <button
                 key={m.label}
                 onClick={() => setReply(m.text)}
-                className="text-[11px] px-2.5 py-1 rounded-full bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70 transition"
+                className="text-[11px] md:text-[10px] px-2.5 py-1.5 rounded-full bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70 transition shrink-0"
               >
                 {m.label}
               </button>
@@ -808,6 +955,7 @@ export default function AdminTicketDetailPage() {
               {uploading ? <span className="animate-spin inline-block text-sm">⏳</span> : "📎"}
             </button>
             <input
+              id="admin-ticket-reply-input"
               type="text"
               value={reply}
               onChange={(e) => setReply(e.target.value)}
@@ -824,6 +972,21 @@ export default function AdminTicketDetailPage() {
             </button>
           </form>
         </div>
+      )}
+
+      {ticket.status !== "closed" && (
+        <button
+          type="button"
+          onClick={() => {
+            setMobileTab("chat");
+            const el = document.getElementById("admin-ticket-reply-input") as HTMLInputElement | null;
+            el?.focus();
+          }}
+          className="md:hidden fixed bottom-20 right-4 w-12 h-12 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-lg"
+          aria-label="Jump to reply box"
+        >
+          ✏️
+        </button>
       )}
     </div>
 

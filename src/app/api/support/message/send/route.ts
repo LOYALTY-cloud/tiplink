@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromSession } from "@/lib/auth/getAdminFromSession";
+import { rateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 
-// In-memory rate-limit map: userId -> last message timestamp
-const rateLimitMap = new Map<string, number>();
-const RATE_LIMIT_MS = 500;
 const MAX_MESSAGE_LENGTH = 500;
 
 export async function POST(req: Request) {
@@ -99,13 +97,11 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Session not available" }, { status: 403 });
       }
 
-      // Rate limit per user
-      const now = Date.now();
-      const lastMsg = rateLimitMap.get(senderId) || 0;
-      if (now - lastMsg < RATE_LIMIT_MS) {
-        return NextResponse.json({ error: "Too fast" }, { status: 429 });
+      // Rate limit: 10 messages per 10 seconds per user (DB-backed, survives cold starts)
+      const { allowed: userAllowed } = await rateLimit(`support-msg:${senderId}`, 10, 10);
+      if (!userAllowed) {
+        return NextResponse.json({ error: "Too fast. Please slow down." }, { status: 429 });
       }
-      rateLimitMap.set(senderId, now);
     } else {
       // Admin auth — verify via JWT or admin_id header
       const adminId = req.headers.get("x-admin-id") ?? body.adminId ?? null;
@@ -149,13 +145,11 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Session is assigned to another admin" }, { status: 403 });
       }
 
-      // Rate limit per admin
-      const now = Date.now();
-      const lastMsg = rateLimitMap.get(senderId) || 0;
-      if (now - lastMsg < RATE_LIMIT_MS) {
-        return NextResponse.json({ error: "Too fast" }, { status: 429 });
+      // Rate limit: 20 messages per 10 seconds per admin
+      const { allowed: adminAllowed } = await rateLimit(`support-msg-admin:${senderId}`, 20, 10);
+      if (!adminAllowed) {
+        return NextResponse.json({ error: "Too fast. Please slow down." }, { status: 429 });
       }
-      rateLimitMap.set(senderId, now);
     }
 
     const { error } = await supabaseAdmin.from("support_messages").insert({

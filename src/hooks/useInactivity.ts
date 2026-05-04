@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase/client"
 export function useInactivity(timeout = 15 * 60 * 1000, warningTime = 14 * 60 * 1000) {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const warningTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const lastResetAt = useRef(0)
 
   const resetTimer = useCallback(() => {
     clearTimeout(timer.current)
@@ -17,25 +18,38 @@ export function useInactivity(timeout = 15 * 60 * 1000, warningTime = 14 * 60 * 
 
     timer.current = setTimeout(async () => {
       // Auto-logout on inactivity
-      // Check if this is admin or user and handle accordingly
       const adminSession = localStorage.getItem("admin_session")
       if (adminSession) {
+        // Clear localStorage and HTTP-only cookie
         localStorage.removeItem("admin_session")
+        localStorage.removeItem("admin_token")
+        await fetch("/api/admin/logout", { method: "POST" }).catch(() => {})
       }
       await supabase.auth.signOut()
       window.location.href = "/login"
     }, timeout)
   }, [timeout, warningTime])
 
+  const onFrequentActivity = useCallback(() => {
+    const now = Date.now()
+    if (now - lastResetAt.current < 750) return
+    lastResetAt.current = now
+    resetTimer()
+  }, [resetTimer])
+
   useEffect(() => {
-    const events = ["mousemove", "keydown", "click", "scroll", "touchstart"]
-    events.forEach((e) => window.addEventListener(e, resetTimer))
+    const directEvents = ["keydown", "click", "touchstart", "touchend"]
+    const frequentEvents = ["mousemove", "scroll", "touchmove"]
+
+    directEvents.forEach((e) => window.addEventListener(e, resetTimer, { passive: true }))
+    frequentEvents.forEach((e) => window.addEventListener(e, onFrequentActivity, { passive: true }))
     resetTimer()
 
     return () => {
-      events.forEach((e) => window.removeEventListener(e, resetTimer))
+      directEvents.forEach((e) => window.removeEventListener(e, resetTimer))
+      frequentEvents.forEach((e) => window.removeEventListener(e, onFrequentActivity))
       clearTimeout(timer.current)
       clearTimeout(warningTimer.current)
     }
-  }, [resetTimer])
+  }, [resetTimer, onFrequentActivity])
 }

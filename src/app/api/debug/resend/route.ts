@@ -18,10 +18,15 @@ export async function POST(req: Request) {
   if (IS_PROD) return NextResponse.json({ error: "Not available" }, { status: 404 });
   try {
     const { to } = await req.json();
-    const resend = new Resend(process.env.RESEND_API_KEY!);
+    const apiKey = process.env.RESEND_API_KEY;
+    const from = process.env.RECEIPTS_FROM_EMAIL;
+    if (!apiKey || !from) {
+      return NextResponse.json({ ok: false, error: "RESEND_API_KEY or RECEIPTS_FROM_EMAIL not configured" }, { status: 500 });
+    }
+    const resend = new Resend(apiKey);
 
     const result = await resend.emails.send({
-      from: process.env.RECEIPTS_FROM_EMAIL!,
+      from,
       to,
       subject: "1NELINK receipts test ✅",
       html: "<p>If you got this, Resend API key is valid.</p>",
@@ -29,7 +34,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, result });
   } catch (e: unknown) {
-    const errMsg = e instanceof Error ? e.message : String(e ?? "error");
-    return NextResponse.json({ ok: false, error: errMsg }, { status: 500 });
+    console.error("debug/resend", e);
+    return NextResponse.json({ ok: false, error: "Server error" }, { status: 500 });
   }
 }

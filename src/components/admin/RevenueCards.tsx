@@ -26,7 +26,7 @@ function pctChange(current: number, previous: number): string | null {
 function changeColor(current: number, previous: number): string {
   if (current > previous) return "text-emerald-400";
   if (current < previous) return "text-red-400";
-  return "text-white/40";
+  return "text-white/55";
 }
 
 export default function RevenueCards({ data, glow }: Props) {
@@ -41,13 +41,13 @@ export default function RevenueCards({ data, glow }: Props) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
       {/* Today */}
-      <div className={`bg-white/5 border border-white/10 rounded-xl md:rounded-2xl p-3 md:p-4 transition-all duration-300 ${glow ? "revenue-glow" : ""}`}>
+      <div className={`bg-white/5 border border-white/[0.12] rounded-xl md:rounded-2xl p-3 md:p-4 transition-all duration-300 ${glow ? "revenue-glow" : ""}`}>
         <p className="text-[10px] md:text-xs text-white/50">Today</p>
         <p key={data.todayRevenue} className="text-base md:text-lg font-semibold text-emerald-400 transition-all duration-300">
           {formatMoney(data.todayRevenue)}
         </p>
         {data.todayVelocity != null && data.todayVelocity > 0 && (
-          <p className="text-[10px] md:text-xs text-white/30 mt-0.5">
+          <p className="text-[10px] md:text-xs text-white/45 mt-0.5">
             ≈ {formatMoney(data.todayVelocity)}/hr
           </p>
         )}
@@ -64,7 +64,7 @@ export default function RevenueCards({ data, glow }: Props) {
       </div>
 
       {/* Week */}
-      <div className="bg-white/5 border border-white/10 rounded-xl md:rounded-2xl p-3 md:p-4 transition-all duration-300">
+      <div className="bg-white/5 border border-white/[0.12] rounded-xl md:rounded-2xl p-3 md:p-4 transition-all duration-300">
         <p className="text-[10px] md:text-xs text-white/50">This Week</p>
         <p key={data.weekRevenue} className="text-base md:text-lg font-semibold text-white transition-all duration-300">
           {formatMoney(data.weekRevenue)}
@@ -77,7 +77,7 @@ export default function RevenueCards({ data, glow }: Props) {
       </div>
 
       {/* Month */}
-      <div className="bg-white/5 border border-white/10 rounded-xl md:rounded-2xl p-3 md:p-4 transition-all duration-300">
+      <div className="bg-white/5 border border-white/[0.12] rounded-xl md:rounded-2xl p-3 md:p-4 transition-all duration-300">
         <p className="text-[10px] md:text-xs text-white/50">This Month</p>
         <p key={data.monthRevenue} className="text-base md:text-lg font-semibold text-white transition-all duration-300">
           {formatMoney(data.monthRevenue)}
@@ -85,7 +85,7 @@ export default function RevenueCards({ data, glow }: Props) {
       </div>
 
       {/* Total */}
-      <div className="bg-white/5 border border-white/10 rounded-xl md:rounded-2xl p-3 md:p-4 transition-all duration-300">
+      <div className="bg-white/5 border border-white/[0.12] rounded-xl md:rounded-2xl p-3 md:p-4 transition-all duration-300">
         <p className="text-[10px] md:text-xs text-white/50">Total Revenue</p>
         <p key={data.totalRevenue} className="text-base md:text-lg font-semibold text-blue-400 transition-all duration-300">
           {formatMoney(data.totalRevenue)}

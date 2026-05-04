@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import crypto from "crypto";
 
 type LoginEvent = {
   userId: string;
@@ -9,6 +10,65 @@ type LoginEvent = {
   success: boolean;
   failureReason?: string;
 };
+
+/**
+ * Generate a stable device fingerprint from User-Agent only.
+ * IP is excluded because it changes frequently (mobile, ISP rotation, VPN)
+ * and would cause false "new device" alerts on every login.
+ */
+export function generateDeviceHash(ip: string, userAgent: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(userAgent)
+    .digest("hex")
+    .slice(0, 16);
+}
+
+/**
+ * Parse a User-Agent string into a human-readable device label.
+ */
+export function parseDeviceLabel(ua: string): string {
+  let browser = "Unknown browser";
+  let os = "Unknown OS";
+
+  if (/edg/i.test(ua)) browser = "Edge";
+  else if (/chrome/i.test(ua) && !/chromium/i.test(ua)) browser = "Chrome";
+  else if (/firefox/i.test(ua)) browser = "Firefox";
+  else if (/safari/i.test(ua) && !/chrome/i.test(ua)) browser = "Safari";
+  else if (/opera|opr/i.test(ua)) browser = "Opera";
+
+  if (/windows/i.test(ua)) os = "Windows";
+  else if (/macintosh|mac os/i.test(ua)) os = "macOS";
+  else if (/android/i.test(ua)) os = "Android";
+  else if (/iphone|ipad/i.test(ua)) os = "iOS";
+  else if (/linux/i.test(ua)) os = "Linux";
+
+  return `${browser} on ${os}`;
+}
+
+/**
+ * Check if this device hash has been seen before for this user.
+ * Returns true if this is the first time.
+ */
+export async function isNewDevice(
+  userId: string,
+  deviceHash: string
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("login_logs")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("device_hash", deviceHash)
+      .eq("success", true)
+      .limit(1);
+
+    if (error) return false; // fail safe — don't send false alerts
+    return !data || data.length === 0;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Record a login/auth event for fraud analytics.

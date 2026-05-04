@@ -6,8 +6,7 @@ import { ProfileRow } from "@/types/db";
 import { uploadImage } from "@/lib/uploadImage";
 import ProfileImageCropper from "@/components/ProfileImageCropper";
 import { ui } from "@/lib/ui";
-
-type SocialType = "instagram" | "tiktok" | "x" | "youtube" | "website";
+import { detectSocialType, SOCIAL_ICONS } from "@/lib/social-icons";
 
 export default function ProfilePage() {
   const [profileId, setProfileId] = useState<string | null>(null);
@@ -22,7 +21,7 @@ export default function ProfilePage() {
   const [imageSrcLocal, setImageSrcLocal] = useState<string | null>(null);
   const [handleLockedUntil, setHandleLockedUntil] = useState<string | null>(null);
   const [links, setLinks] = useState<
-    { type: SocialType; url: string; sort_order: number }[]
+    { type: string; url: string; sort_order: number }[]
   >([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -84,8 +83,11 @@ export default function ProfilePage() {
 
   const updateLink = (idx: number, key: "type" | "url", value: string) => {
     const next = [...links];
-    // @ts-expect-error - indexed dynamic update to union type
-    next[idx][key] = value;
+    if (key === "url") {
+      next[idx] = { ...next[idx], url: value, type: detectSocialType(value) };
+    } else {
+      next[idx] = { ...next[idx], [key]: value };
+    }
     setLinks(next.map((l, i) => ({ ...l, sort_order: i })));
   };
 
@@ -131,36 +133,46 @@ export default function ProfilePage() {
       }
     }
 
-    // Set new 2-week lock if handle is changing
-    const newLockUntil = isHandleChange && hasExistingHandle
-      ? new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString()
-      : handleLockedUntil;
+    // Route profile changes through the server API for proper validation
+    const session = (await supabase.auth.getSession()).data.session;
+    const res = await fetch("/api/settings/profile", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        handle: cleanHandle,
+        display_name: displayName,
+        bio,
+        location,
+        avatar_url: avatarUrl || null,
+        banner_url: bannerUrl || null,
+      }),
+    });
 
-    const { data: profUpsert, error: profErr } = await supabase
-      .from("profiles")
-      .upsert(
-        {
-          user_id: user.id,
-          handle: cleanHandle,
-          display_name: displayName,
-          bio,
-          location,
-          avatar_url: avatarUrl || null,
-          banner_url: bannerUrl || null,
-          handle_locked_until: newLockUntil,
-        },
-        { onConflict: "user_id" }
-      )
-      .select("id")
-      .single();
+    const result = await res.json();
 
-    if (profErr) {
+    if (!res.ok) {
       setSaving(false);
-      setMsg(profErr.message);
+      setMsg(result.error || "Failed to save profile");
       return;
     }
 
-    const profId = profUpsert.id as string;
+    // Get the profile ID for social links
+    const { data: profRow } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("user_id", user.id)
+      .single();
+
+    if (!profRow) {
+      setSaving(false);
+      setMsg("Profile not found");
+      return;
+    }
+
+    const profId = profRow.id as string;
     setProfileId(profId);
     setSavedHandle(cleanHandle);
 
@@ -169,7 +181,14 @@ export default function ProfilePage() {
     const filtered = links
       .map((l, i) => ({ ...l, sort_order: i }))
       .filter((l) => l.url.trim().length > 0)
+      .filter((l) => /^https?:\/\/.+/i.test(l.url.trim()))
       .slice(0, 5);
+
+    if (filtered.length !== links.filter((l) => l.url.trim().length > 0).length) {
+      setSaving(false);
+      setMsg("Social links must start with https:// or http://");
+      return;
+    }
 
     if (filtered.length) {
       const { error: linkErr } = await supabase.from("social_links").insert(
@@ -189,7 +208,6 @@ export default function ProfilePage() {
     }
 
     setSaving(false);
-    if (newLockUntil !== handleLockedUntil) setHandleLockedUntil(newLockUntil);
     setMsg("Saved OK");
   };
 
@@ -200,8 +218,8 @@ export default function ProfilePage() {
         <div className="relative">
           <div className="relative h-32 w-full">
             {bannerUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={bannerUrl} className="absolute inset-0 w-full h-full object-cover" />
+               
+              <img src={bannerUrl} alt="Profile banner" className="absolute inset-0 w-full h-full object-cover" />
             ) : (
               <div className="h-32 w-full bg-gradient-to-r from-purple-300/35 via-pink-200/25 to-amber-200/25" />
             )}
@@ -222,7 +240,7 @@ export default function ProfilePage() {
           <div className="absolute inset-x-0 top-16 flex justify-center">
             <div className="relative h-24 w-24 rounded-2xl bg-white/10 border border-white/15 overflow-hidden shadow-sm">
               {avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
+                 
                 <img src={avatarUrl} alt={displayName || handle || "Profile"} className="h-full w-full object-cover" />
               ) : (
                 <div className="h-full w-full flex items-center justify-center text-white/70 font-semibold text-2xl">
@@ -345,18 +363,17 @@ export default function ProfilePage() {
 
           <div className="space-y-3">
             {links.map((l, idx) => (
-              <div key={idx} className="flex gap-2">
-                <select className="rounded-xl px-3 py-3 w-36 bg-white/5 border border-white/10 text-white" value={l.type} onChange={(e) => updateLink(idx, "type", e.target.value)}>
-                  <option value="instagram">Instagram</option>
-                  <option value="tiktok">TikTok</option>
-                  <option value="x">X</option>
-                  <option value="youtube">YouTube</option>
-                  <option value="website">Website</option>
-                </select>
+              <div key={idx} className="flex gap-2 items-center">
+                <span
+                  className="w-8 h-8 flex items-center justify-center shrink-0 text-white/60"
+                  title={(SOCIAL_ICONS[l.type] ?? SOCIAL_ICONS.website!).label}
+                >
+                  {(SOCIAL_ICONS[l.type] ?? SOCIAL_ICONS.website!).icon}
+                </span>
 
-                <input className={`${ui.input} flex-1`} placeholder="https://..." value={l.url} onChange={(e) => updateLink(idx, "url", e.target.value)} />
+                <input className={`${ui.input} flex-1`} placeholder="https://instagram.com/yourname" value={l.url} onChange={(e) => updateLink(idx, "url", e.target.value)} />
 
-                <button onClick={() => removeLink(idx)} className={`text-sm font-medium underline ${ui.muted}`}>Remove</button>
+                <button onClick={() => removeLink(idx)} className={`text-sm font-medium underline ${ui.muted} shrink-0`}>Remove</button>
               </div>
             ))}
           </div>

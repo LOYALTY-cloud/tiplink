@@ -4,11 +4,14 @@ import { supabaseAdmin } from "@/lib/supabase/admin"
 export const runtime = "nodejs"
 
 /**
- * Daily snapshot cron: archives all admin_actions from yesterday into
- * permanent daily_event_snapshots rows (one per user per day).
+ * Daily wallet snapshot cron.
  *
- * Call via Vercel Cron or external scheduler:
- *   GET /api/cron/snapshot-daily?key=YOUR_CRON_SECRET
+ * For every user with a wallet, captures current balance and lifetime
+ * tip_received total into the `daily_snapshots` table. Uses a single
+ * aggregation query + bulk upsert — no per-user loops.
+ *
+ * Schedule: 0 0 * * * (midnight UTC)
+ * GET /api/cron/snapshot-daily?key=CRON_SECRET
  */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
@@ -17,62 +20,104 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const yesterday = new Date()
-  yesterday.setDate(yesterday.getDate() - 1)
-  const dateStr = yesterday.toISOString().split("T")[0]
+  const today = new Date().toISOString().split("T")[0] // UTC date
 
-  // Fetch all admin actions for the target day
-  const { data: events, error } = await supabaseAdmin
-    .from("admin_actions")
-    .select("*")
-    .gte("created_at", `${dateStr}T00:00:00Z`)
-    .lte("created_at", `${dateStr}T23:59:59Z`)
+  // Single query: join wallets with aggregated earnings from ledger
+  const { data: rows, error: queryErr } = await supabaseAdmin.rpc(
+    "snapshot_wallet_balances"
+  )
 
-  if (error || !events) {
-    return NextResponse.json({ error: "Failed to fetch actions", detail: error?.message }, { status: 500 })
+  if (queryErr || !rows) {
+    // Fallback: manual two-step if RPC doesn't exist yet
+    if (queryErr?.message?.includes("function") && queryErr?.message?.includes("does not exist")) {
+      return await fallbackSnapshot(today)
+    }
+    return NextResponse.json(
+      { error: "Failed to query wallets", detail: queryErr?.message },
+      { status: 500 }
+    )
   }
 
-  if (events.length === 0) {
-    return NextResponse.json({ ok: true, snapshotted: 0, date: dateStr })
+  if (rows.length === 0) {
+    return NextResponse.json({ ok: true, snapshotted: 0, date: today })
   }
 
-  // Group by target user
-  const map: Record<string, typeof events> = {}
+  // Bulk upsert (Supabase supports array upsert)
+  const snapshots = rows.map((r: { user_id: string; balance: number; total_earned: number }) => ({
+    user_id: r.user_id,
+    balance: r.balance,
+    total_earned: r.total_earned,
+    date: today,
+  }))
 
-  for (const e of events) {
-    const uid = e.target_user
-    if (!uid) continue
-    if (!map[uid]) map[uid] = []
-    map[uid].push(e)
+  const { error: upsertErr, count } = await supabaseAdmin
+    .from("daily_snapshots")
+    .upsert(snapshots, { onConflict: "user_id,date", count: "exact" })
+
+  if (upsertErr) {
+    return NextResponse.json(
+      { error: "Failed to upsert snapshots", detail: upsertErr.message },
+      { status: 500 }
+    )
   }
 
-  // Upsert snapshots per user
-  let snapshotted = 0
+  return NextResponse.json({ ok: true, snapshotted: count ?? rows.length, date: today })
+}
 
-  for (const [userId, userEvents] of Object.entries(map)) {
-    const refunds = userEvents.filter((e) =>
-      e.action?.toLowerCase().includes("refund")
-    ).length
+/** Fallback if the RPC hasn't been deployed yet. Uses two queries. */
+async function fallbackSnapshot(today: string) {
+  // 1. Fetch all wallets
+  const { data: wallets, error: wErr } = await supabaseAdmin
+    .from("wallets")
+    .select("user_id, balance")
 
-    const fraudScore = Math.min(100, refunds >= 2 ? 80 : userEvents.length * 5)
-    const riskLevel = fraudScore >= 70 ? "high" : fraudScore >= 30 ? "medium" : "low"
-
-    const { error: upsertErr } = await supabaseAdmin
-      .from("daily_event_snapshots")
-      .upsert(
-        {
-          user_id: userId,
-          date: dateStr,
-          events: userEvents,
-          summary: { total: userEvents.length, refunds },
-          fraud_score: fraudScore,
-          risk_level: riskLevel,
-        },
-        { onConflict: "user_id,date" }
-      )
-
-    if (!upsertErr) snapshotted++
+  if (wErr || !wallets) {
+    return NextResponse.json(
+      { error: "Failed to fetch wallets", detail: wErr?.message },
+      { status: 500 }
+    )
   }
 
-  return NextResponse.json({ ok: true, snapshotted, date: dateStr })
+  if (wallets.length === 0) {
+    return NextResponse.json({ ok: true, snapshotted: 0, date: today })
+  }
+
+  // 2. Get total earned per user (sum of tip_received)
+  const { data: earnings, error: eErr } = await supabaseAdmin
+    .from("transactions_ledger")
+    .select("user_id, amount")
+    .eq("type", "tip_received")
+
+  // Build a map of user_id -> total_earned
+  const earnedMap: Record<string, number> = {}
+  if (!eErr && earnings) {
+    for (const e of earnings) {
+      earnedMap[e.user_id] = (earnedMap[e.user_id] || 0) + Number(e.amount)
+    }
+  }
+
+  const snapshots = wallets.map((w) => ({
+    user_id: w.user_id,
+    balance: Number(w.balance),
+    total_earned: earnedMap[w.user_id] || 0,
+    date: today,
+  }))
+
+  const { error: upsertErr, count } = await supabaseAdmin
+    .from("daily_snapshots")
+    .upsert(snapshots, { onConflict: "user_id,date", count: "exact" })
+
+  if (upsertErr) {
+    return NextResponse.json(
+      { error: "Failed to upsert snapshots", detail: upsertErr.message },
+      { status: 500 }
+    )
+  }
+
+  return NextResponse.json({
+    ok: true,
+    snapshotted: count ?? wallets.length,
+    date: today,
+    mode: "fallback",
+  })
 }

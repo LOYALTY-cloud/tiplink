@@ -32,8 +32,9 @@ RETURNS TABLE(distinct_ips bigint, distinct_devices bigint) AS $$
   SELECT
     COUNT(DISTINCT ip_address)  AS distinct_ips,
     COUNT(DISTINCT device_hash) AS distinct_devices
-  FROM login_logs
+  FROM public.login_logs
   WHERE user_id = p_user_id
     AND created_at > now() - (p_window_hours || ' hours')::interval
     AND success = true;
-$$ LANGUAGE sql STABLE;
+$$ LANGUAGE sql STABLE
+SET search_path = '';

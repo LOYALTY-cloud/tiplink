@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       .maybeSingle()
       .returns<ProfileRow | null>();
 
-    if (profErr) return NextResponse.json({ error: profErr.message }, { status: 500 });
+    if (profErr) return NextResponse.json({ error: "Failed to start Stripe setup" }, { status: 500 });
 
     let accountId = prof?.stripe_account_id as string | null;
 
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
         .update({ stripe_account_id: accountId })
         .eq("user_id", userId);
 
-      if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+      if (upErr) return NextResponse.json({ error: "Failed to start Stripe setup" }, { status: 500 });
     }
 
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -79,7 +79,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ url: accountLink.url, accountId });
   } catch (e: unknown) {
-    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    return NextResponse.json({ error: "Failed to start Stripe setup" }, { status: 500 });
   }
 }

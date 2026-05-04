@@ -14,10 +14,11 @@ export async function POST(
     if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const { sessionId } = await params;
-    const { fileName, fileUrl, fileType, senderName } = await req.json();
+    const { fileName, fileRef, fileUrl, fileType, senderName } = await req.json();
+    const storedFileUrl = fileRef ?? fileUrl ?? null;
 
-    if (!fileUrl) {
-      return NextResponse.json({ error: "fileUrl required" }, { status: 400 });
+    if (!storedFileUrl) {
+      return NextResponse.json({ error: "fileRef required" }, { status: 400 });
     }
 
     const { error } = await supabaseAdmin.from("support_messages").insert({
@@ -26,7 +27,7 @@ export async function POST(
       sender_id: admin.userId,
       sender_name: senderName || "Admin",
       message: fileName || "File",
-      file_url: fileUrl,
+      file_url: storedFileUrl,
       file_type: fileType || null,
     });
 

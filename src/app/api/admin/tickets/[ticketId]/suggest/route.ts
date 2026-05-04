@@ -19,7 +19,14 @@ export async function GET(
 
   const { ticketId } = await params;
 
-  const suggestions = await generateReplySuggestions(ticketId);
-
-  return NextResponse.json({ suggestions });
+  try {
+    const suggestions = await generateReplySuggestions(ticketId);
+    return NextResponse.json({ suggestions });
+  } catch (err) {
+    console.error("[suggest] AI generation failed:", err);
+    return NextResponse.json(
+      { error: "Failed to generate suggestions" },
+      { status: 500 }
+    );
+  }
 }

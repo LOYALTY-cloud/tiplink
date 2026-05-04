@@ -245,7 +245,7 @@ export default function VerifyPage() {
               className={`w-full border-2 border-dashed rounded-xl p-6 text-center transition ${
                 frontFile
                   ? "border-emerald-500/40 bg-emerald-500/5"
-                  : "border-white/10 hover:border-white/20"
+                  : "border-white/[0.12] hover:border-white/20"
               }`}
             >
               {frontFile ? (
@@ -273,7 +273,7 @@ export default function VerifyPage() {
               className={`w-full border-2 border-dashed rounded-xl p-6 text-center transition ${
                 backFile
                   ? "border-emerald-500/40 bg-emerald-500/5"
-                  : "border-white/10 hover:border-white/20"
+                  : "border-white/[0.12] hover:border-white/20"
               }`}
             >
               {backFile ? (

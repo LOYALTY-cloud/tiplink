@@ -233,7 +233,7 @@ export function analyzeEscalation(
 }
 
 // ============================================================
-// Escalation trigger — updates DB, assigns admin, notifies
+// Escalation trigger — updates DB, tries to connect available admin, else queues with priority.
 // ============================================================
 
 export type EscalationOutcome = {
@@ -294,7 +294,7 @@ export async function triggerEscalation(
     message: `⚠️ Escalation triggered — ${reasonLabel}. Attempting to connect a live agent.`,
   });
 
-  // 4. Try assigning an admin
+  // 4. Try assigning an available admin for this escalation.
   let adminAssigned = false;
   let adminName: string | null = null;
 
@@ -309,7 +309,6 @@ export async function triggerEscalation(
       adminAssigned = true;
       adminName = admin.display_name;
 
-      // Upgrade mode to human
       await supabaseAdmin
         .from("support_sessions")
         .update({ mode: "human" })
@@ -319,6 +318,25 @@ export async function triggerEscalation(
         session_id: sessionId,
         sender_type: "system",
         message: `Live support connected — ${admin.display_name || "an agent"} is now helping you.`,
+      });
+    } else {
+      // Nobody active/available: keep AI active and keep this chat prioritized.
+      await supabaseAdmin
+        .from("support_sessions")
+        .update({
+          mode: "ai",
+          status: "waiting",
+          priority: Math.max(newPriority, 3),
+          assigned_admin_id: null,
+          assigned_admin_name: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", sessionId);
+
+      await supabaseAdmin.from("support_messages").insert({
+        session_id: sessionId,
+        sender_type: "system",
+        message: "No admin is active right now. Your chat is marked priority and will be picked up when an admin becomes available.",
       });
     }
   }

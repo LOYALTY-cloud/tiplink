@@ -22,9 +22,7 @@ export async function GET(req: Request) {
       .order("created_at", { ascending: false })
       .limit(limit);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    return NextResponse.json({ data: data ?? [] });
+    if (error) return NextResponse.json({ error: "Failed to load risk alerts." }, { status: 500 });
   } catch (e: unknown) {
     if (e instanceof Error && e.message === "FORBIDDEN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -49,8 +47,7 @@ export async function POST(req: Request) {
       .update({ resolved: true })
       .eq("id", alert_id);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
+    if (error) return NextResponse.json({ error: "Failed to update alert." }, { status: 500 });
     await supabaseAdmin.from("admin_actions").insert({
       admin_id: session.userId,
       action: "resolve_risk_alert",

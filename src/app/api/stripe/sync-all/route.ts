@@ -1,16 +1,24 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
+import { requireRole } from "@/lib/auth/requireRole";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+function getSyncClients() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  if (!supabaseUrl || !supabaseKey || !stripeKey) {
+    return null;
+  }
+  return {
+    supabase: createClient(supabaseUrl, supabaseKey),
+    stripe: new Stripe(stripeKey),
+  };
+}
 
 /**
  * POST /api/stripe/sync-all
@@ -18,11 +26,21 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
  * and updates the DB. Admin-only (requires service role key in header).
  */
 export async function POST(req: Request) {
-  // Simple auth: require the service role key as bearer token
-  const auth = req.headers.get("authorization") || "";
-  const token = auth.replace("Bearer ", "");
-  if (token !== process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  const clients = getSyncClients();
+  if (!clients) {
+    return NextResponse.json({ error: "Server not configured" }, { status: 500 });
+  }
+  const { supabase: supabaseAdmin, stripe } = clients;
+
+  // Admin JWT auth
+  const admin = await getAdminFromRequest(req);
+  if (!admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  try {
+    requireRole(admin.role, "panic");
+  } catch {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const { data: profiles, error } = await supabaseAdmin
@@ -31,7 +49,8 @@ export async function POST(req: Request) {
     .not("stripe_account_id", "is", null);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("sync-all: profiles query failed", error);
+    return NextResponse.json({ error: "Failed to fetch profiles" }, { status: 500 });
   }
 
   const results: { user_id: string; account: string; charges: boolean; payouts: boolean; error?: string }[] = [];

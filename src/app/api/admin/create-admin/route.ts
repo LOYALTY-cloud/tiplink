@@ -3,7 +3,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
 import { generateAdminId, generateAdminPasscode, validateAdminIdPrefix } from "@/lib/auth/generateAdminId";
-import { resend } from "@/lib/email";
+import { emailFooter } from "@/lib/email/footer";
+import { sendEmail } from "@/lib/emailService";
 
 export const runtime = "nodejs";
 
@@ -163,12 +164,10 @@ export async function POST(req: Request) {
 
     const loginLink = resetData?.properties?.action_link ?? `${process.env.NEXT_PUBLIC_SITE_URL}/admin/login`;
 
-    const from = process.env.RECEIPTS_FROM_EMAIL;
-    if (from) {
-      await resend.emails.send({
-        from,
-        to: email.trim().toLowerCase(),
-        subject: "Welcome to 1neLink Administration",
+    await sendEmail({
+      type: "ADMIN_WELCOME",
+      to: email.trim().toLowerCase(),
+      subject: "Welcome to 1neLink Administration",
         html: `
         <div style="font-family:Arial,Helvetica,sans-serif;background:#f7f7f8;padding:32px 16px;">
           <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;">
@@ -198,10 +197,10 @@ export async function POST(req: Request) {
             <p style="margin:0;color:#9ca3af;font-size:12px;">
               If you did not expect this email, you can safely ignore it.
             </p>
+            ${emailFooter()}
           </div>
         </div>`,
-      }).catch(() => {});
-    }
+    }).catch(() => {});
 
     // Log admin action with full context
     await supabaseAdmin.from("admin_actions").insert({

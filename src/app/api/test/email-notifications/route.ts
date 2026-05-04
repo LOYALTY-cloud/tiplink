@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resend } from "@/lib/email";
+import { emailFooter } from "@/lib/email/footer";
 
 export const runtime = "nodejs";
 
@@ -29,6 +30,7 @@ function buildFullEmail(title: string, inner: string, ctaLabel: string, ctaHref:
         You can manage notification preferences in your
         <a href="${DASHBOARD_URL}" style="color:#6b7280;">Settings</a>.
       </p>
+      ${emailFooter()}
     </div>
   </div>`;
 }
@@ -42,13 +44,9 @@ function buildFullEmail(title: string, inner: string, ctaLabel: string, ctaHref:
  */
 export async function POST(req: Request) {
   try {
-    // Block in production unless admin
+    // Block in production — this is a dev/test-only route
     if (process.env.NODE_ENV === "production") {
-      const authHeader = req.headers.get("authorization");
-      const cronSecret = req.headers.get("x-cron-secret");
-      if (cronSecret !== process.env.CRON_SECRET && !authHeader) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const body = await req.json();
@@ -58,7 +56,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Valid email required in body" }, { status: 400 });
     }
 
-    const from = process.env.EMAIL_FROM!;
+    const from = process.env.EMAIL_FROM || "1neLink <noreply@1nelink.com>";
     const fakeTicketId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
     const ticketLink = `${DASHBOARD_URL}/support/tickets/${fakeTicketId}`;
     const results: { name: string; ok: boolean; error?: string }[] = [];

@@ -793,8 +793,6 @@ export default function ThemeBuilderDashboard() {
     }));
 
     if (!nextActive) {
-      setCodes((prev) => prev.map((c) => c.theme_id === themeId ? { ...c, is_active: false } : c));
-      setNewThemeId((prev) => (prev === themeId ? "" : prev));
     }
   }
 

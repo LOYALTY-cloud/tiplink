@@ -17,25 +17,50 @@ export default function AdminLoginPage() {
     setError(null);
     setLoading(true);
 
-    const res = await fetch("/api/admin/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ firstName, lastName, passcode }),
-    });
+    let data;
+    try {
+      const res = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ firstName, lastName, passcode }),
+      });
 
-    const data = await res.json();
+      data = await res.json();
 
-    if (!res.ok || !data.ok) {
-      setError(data.error ?? "Login failed");
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? "Login failed");
+        setLoading(false);
+        return;
+      }
+    } catch {
+      setError("Network error — please try again");
       setLoading(false);
       return;
     }
 
-    // Store admin session with 8-hour expiry
+    if (!data.session || !data.token) {
+      setError("Invalid server response");
+      setLoading(false);
+      return;
+    }
+
+    // Store signed JWT for API authentication
+    localStorage.setItem("admin_token", data.token);
+
+    // Store session metadata (for UI display only — auth is via JWT)
     localStorage.setItem("admin_session", JSON.stringify({
       ...data.session,
       expires_at: Date.now() + 8 * 60 * 60 * 1000,
     }));
+
+    // Start work session for payroll tracking
+    fetch("/api/admin/session/start", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${data.token}`,
+      },
+    }).catch(() => {});
 
     setLoading(false);
     router.push("/admin");

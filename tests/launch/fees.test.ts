@@ -16,38 +16,38 @@ console.log("── Fee Calculation Tests ──\n");
 // 1. Constants
 assert(STRIPE_PERCENT === 0.029, "Stripe percent is 2.9%");
 assert(STRIPE_FLAT === 0.30, "Stripe flat fee is $0.30");
-assert(PLATFORM_PERCENT === 0.011, "Platform percent is 1.1%");
+assert(PLATFORM_PERCENT === 0, "Platform percent is 0% (no platform fee on tips");
 
 // 2. $1 minimum tip
 {
   const r = calculateTipFees(1);
-  assert(r.stripeFee === 0.33, `$1 tip: stripe fee = $0.33 (got ${r.stripeFee})`);
+  assert(r.stripeFee === 0.34, `$1 tip: stripe fee = $0.34 (got ${r.stripeFee})`);
   assert(r.platformFee === 0.01, `$1 tip: platform fee = $0.01 (got ${r.platformFee})`);
-  assert(r.total === 1.34, `$1 tip: total = $1.34 (got ${r.total})`);
+  assert(r.total === 1.35, `$1 tip: total = $1.35 (got ${r.total})`);
 }
 
 // 3. $10 tip
 {
   const r = calculateTipFees(10);
-  assert(r.stripeFee === 0.59, `$10 tip: stripe fee = $0.59 (got ${r.stripeFee})`);
-  assert(r.platformFee === 0.11, `$10 tip: platform fee = $0.11 (got ${r.platformFee})`);
-  assert(r.total === 10.70, `$10 tip: total = $10.70 (got ${r.total})`);
+  assert(r.stripeFee === 0.61, `$10 tip: stripe fee = $0.61 (got ${r.stripeFee})`);
+  assert(r.platformFee === 0.12, `$10 tip: platform fee = $0.12 (got ${r.platformFee})`);
+  assert(r.total === 10.73, `$10 tip: total = $10.73 (got ${r.total})`);
 }
 
 // 4. $100 tip
 {
   const r = calculateTipFees(100);
-  assert(r.stripeFee === 3.20, `$100 tip: stripe fee = $3.20 (got ${r.stripeFee})`);
-  assert(r.platformFee === 1.10, `$100 tip: platform fee = $1.10 (got ${r.platformFee})`);
-  assert(r.total === 104.30, `$100 tip: total = $104.30 (got ${r.total})`);
+  assert(r.stripeFee === 3.33, `$100 tip: stripe fee = $3.33 (got ${r.stripeFee})`);
+  assert(r.platformFee === 1.15, `$100 tip: platform fee = $1.15 (got ${r.platformFee})`);
+  assert(r.total === 104.48, `$100 tip: total = $104.48 (got ${r.total})`);
 }
 
 // 5. $500 max tip
 {
   const r = calculateTipFees(500);
-  assert(r.stripeFee === 14.80, `$500 tip: stripe fee = $14.80 (got ${r.stripeFee})`);
-  assert(r.platformFee === 5.50, `$500 tip: platform fee = $5.50 (got ${r.platformFee})`);
-  assert(r.total === 520.30, `$500 tip: total = $520.30 (got ${r.total})`);
+  assert(r.stripeFee === 15.41, `$500 tip: stripe fee = $15.41 (got ${r.stripeFee})`);
+  assert(r.platformFee === 5.73, `$500 tip: platform fee = $5.73 (got ${r.platformFee})`);
+  assert(r.total === 521.15, `$500 tip: total = $521.15 (got ${r.total})`);
 }
 
 // 6. No floating point dust — all results should be clean 2-decimal values

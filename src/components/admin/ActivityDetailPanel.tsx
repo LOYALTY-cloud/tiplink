@@ -79,18 +79,18 @@ export default function ActivityDetailPanel({
       <div className="flex-1 bg-black/50" onClick={onClose} />
 
       {/* Slide-in panel */}
-      <div className="w-[400px] max-w-[90vw] bg-[#0B0F1A] border-l border-white/10 p-5 overflow-y-auto animate-[slideIn_0.2s_ease-out]">
+      <div className="w-[400px] max-w-[90vw] bg-[#0B0F1A] border-l border-white/[0.12] p-5 overflow-y-auto animate-[slideIn_0.2s_ease-out]">
         {/* Header */}
         <div className="flex justify-between items-start mb-5">
           <div>
             <h2 className="text-white font-semibold text-base">
               {ACTION_LABELS[data.action] ?? data.action.replace(/_/g, " ")}
             </h2>
-            <p className="text-[11px] text-white/30 mt-0.5 font-mono">{data.id.slice(0, 12)}…</p>
+            <p className="text-[11px] text-white/45 mt-0.5 font-mono">{data.id.slice(0, 12)}…</p>
           </div>
           <button
             onClick={onClose}
-            className="text-white/40 hover:text-white/70 text-lg transition p-1"
+            className="text-white/55 hover:text-white/70 text-lg transition p-1"
           >
             ✕
           </button>
@@ -103,20 +103,20 @@ export default function ActivityDetailPanel({
 
         {/* Transaction detail card */}
         {isTransaction && amount !== null && (
-          <div className="mb-4 p-3 rounded-lg bg-white/5 border border-white/10 space-y-2">
+          <div className="mb-4 p-3 rounded-lg bg-white/5 border border-white/[0.12] space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-white/40">Amount</span>
+              <span className="text-xs text-white/55">Amount</span>
               <span className={`text-lg font-bold ${data.action === "dispute" ? "text-red-400" : data.action === "tip_refunded" ? "text-amber-400" : "text-emerald-400"}`}>
                 {data.action === "dispute" || data.action === "tip_refunded" ? "-" : "+"}${Math.abs(amount).toFixed(2)}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-white/40">Type</span>
+              <span className="text-xs text-white/55">Type</span>
               <span className="text-xs text-white/70 capitalize">{(String(meta.type ?? data.action)).replace(/_/g, " ")}</span>
             </div>
             {typeof meta.reference_id === "string" && (
               <div className="flex items-center justify-between">
-                <span className="text-xs text-white/40">Reference</span>
+                <span className="text-xs text-white/55">Reference</span>
                 <span className="text-xs text-white/50 font-mono">{meta.reference_id.slice(0, 16)}…</span>
               </div>
             )}
@@ -125,16 +125,16 @@ export default function ActivityDetailPanel({
 
         {/* Ticket detail card */}
         {isTicket && (
-          <div className="mb-4 p-3 rounded-lg bg-white/5 border border-white/10 space-y-2">
+          <div className="mb-4 p-3 rounded-lg bg-white/5 border border-white/[0.12] space-y-2">
             {typeof meta.subject === "string" && (
               <div className="flex items-center justify-between">
-                <span className="text-xs text-white/40">Subject</span>
+                <span className="text-xs text-white/55">Subject</span>
                 <span className="text-sm text-white/90 text-right max-w-[200px] truncate">{meta.subject}</span>
               </div>
             )}
             {typeof meta.status === "string" && (
               <div className="flex items-center justify-between">
-                <span className="text-xs text-white/40">Status</span>
+                <span className="text-xs text-white/55">Status</span>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                   meta.status === "resolved" ? "bg-emerald-500/20 text-emerald-400"
                     : meta.status === "closed" ? "bg-white/10 text-white/50"
@@ -147,7 +147,7 @@ export default function ActivityDetailPanel({
             )}
             {typeof meta.priority === "number" && (
               <div className="flex items-center justify-between">
-                <span className="text-xs text-white/40">Priority</span>
+                <span className="text-xs text-white/55">Priority</span>
                 <span className={`text-xs font-medium ${
                   meta.priority >= 3 ? "text-red-400" : meta.priority >= 2 ? "text-amber-400" : "text-white/50"
                 }`}>
@@ -178,12 +178,12 @@ export default function ActivityDetailPanel({
         {/* Metadata */}
         {visibleMeta.length > 0 && (
           <>
-            <div className="my-4 border-t border-white/10" />
-            <p className="text-white/40 text-xs mb-3 font-medium uppercase tracking-wider">Metadata</p>
+            <div className="my-4 border-t border-white/[0.12]" />
+            <p className="text-white/55 text-xs mb-3 font-medium uppercase tracking-wider">Metadata</p>
             <div className="space-y-2">
               {visibleMeta.map(([key, value]) => (
                 <div key={key} className="flex justify-between gap-3 text-xs">
-                  <span className="text-white/40 shrink-0">{key.replace(/_/g, " ")}</span>
+                  <span className="text-white/55 shrink-0">{key.replace(/_/g, " ")}</span>
                   <span className="text-white text-right truncate">{formatValue(value)}</span>
                 </div>
               ))}
@@ -192,7 +192,7 @@ export default function ActivityDetailPanel({
         )}
 
         {/* Actions */}
-        <div className="my-4 border-t border-white/10" />
+        <div className="my-4 border-t border-white/[0.12]" />
         <div className="space-y-2">
           {data.target_user && (
             <Link
@@ -223,8 +223,8 @@ export default function ActivityDetailPanel({
         {/* Timeline */}
         {data.target_user && (
           <>
-            <div className="my-4 border-t border-white/10" />
-            <p className="text-white/40 text-xs mb-3 font-medium uppercase tracking-wider">Activity Timeline</p>
+            <div className="my-4 border-t border-white/[0.12]" />
+            <p className="text-white/55 text-xs mb-3 font-medium uppercase tracking-wider">Activity Timeline</p>
             <ActivityTimeline userId={data.target_user} selectedId={data.id} />
           </>
         )}
@@ -236,7 +236,7 @@ export default function ActivityDetailPanel({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-white/40 text-[11px] mb-0.5">{label}</p>
+      <p className="text-white/55 text-[11px] mb-0.5">{label}</p>
       <p className="text-white text-sm">{value}</p>
     </div>
   )

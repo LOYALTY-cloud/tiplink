@@ -58,7 +58,8 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (profileErr) {
-      return NextResponse.json({ error: profileErr.message }, { status: 500 });
+      console.error("stripe/connect/onboard profile", profileErr);
+      return NextResponse.json({ error: "Failed to load profile" }, { status: 500 });
     }
 
     // If profile row doesn't exist, create it (safe)

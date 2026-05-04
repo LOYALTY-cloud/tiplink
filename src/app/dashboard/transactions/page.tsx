@@ -1,8 +1,10 @@
 "use client"
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDownCircle, ArrowUpCircle, CreditCard, RotateCcw, AlertTriangle, Banknote, Settings2 } from "lucide-react"
+import Link from "next/link"
+import { ArrowDownCircle, ArrowUpCircle, CreditCard, RotateCcw, AlertTriangle, Banknote, Settings2, Palette } from "lucide-react"
 import { supabase } from "@/lib/supabase/client"
+import { showGlobalToast } from "@/components/GlobalToast"
 import { formatMoney } from "@/lib/walletFees"
 import Avatar from "@/components/ui/Avatar"
 
@@ -49,6 +51,8 @@ function getIcon(type: string) {
     case "adjustment":
     case "system":
       return <Settings2 size={20} />
+    case "theme_purchase":
+      return <Palette size={20} />
     default:
       return <ArrowDownCircle size={20} />
   }
@@ -80,7 +84,33 @@ export default function TransactionsPage() {
   const [hasMore, setHasMore] = useState(true)
   const [search, setSearch] = useState("")
   const [selected, setSelected] = useState<Transaction | null>(null)
+  const [balance, setBalance] = useState<number | null>(null)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
+
+  // Fetch live balance
+  useEffect(() => {
+    let mounted = true
+    async function fetchBalance() {
+      const { data: sess } = await supabase.auth.getSession()
+      const uid = sess.session?.user?.id
+      if (!uid) return
+      const { data } = await supabase
+        .from("wallets")
+        .select("balance")
+        .eq("user_id", uid)
+        .maybeSingle()
+      if (mounted && data) setBalance(Number(data.balance ?? 0))
+    }
+    fetchBalance()
+    // Subscribe to realtime balance changes
+    const chan = supabase
+      .channel("tx-balance")
+      .on("postgres_changes", { event: "*", schema: "public", table: "wallets" }, () => {
+        fetchBalance()
+      })
+      .subscribe()
+    return () => { mounted = false; supabase.removeChannel(chan) }
+  }, [])
 
   async function loadTransactions() {
     if (loading) return
@@ -108,10 +138,19 @@ export default function TransactionsPage() {
     if (!res.ok) {
       setLoading(false)
       setHasMore(false)
+      showGlobalToast("Failed to load transactions")
       return
     }
 
-    const data = await res.json()
+    let data
+    try {
+      data = await res.json()
+    } catch {
+      setLoading(false)
+      setHasMore(false)
+      showGlobalToast("Failed to load transactions")
+      return
+    }
 
     setTransactions((prev) => {
       const seen = new Set(prev.map((t) => t.id))
@@ -124,11 +163,12 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     loadTransactions()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [])
 
   useEffect(() => {
-    if (!sentinelRef.current) return
+    const node = sentinelRef.current
+    if (!node) return
     if (!hasMore) return
 
     const obs = new IntersectionObserver((entries) => {
@@ -139,17 +179,40 @@ export default function TransactionsPage() {
       })
     })
 
-    obs.observe(sentinelRef.current)
+    obs.observe(node)
 
     return () => obs.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sentinelRef.current, hasMore])
+     
+  }, [hasMore])
 
-  const totalIn = transactions
+  // Current week boundaries (Monday 00:00 → Sunday 23:59)
+  const weekStart = useMemo(() => {
+    const now = new Date()
+    const day = now.getDay() // 0=Sun
+    const diff = day === 0 ? 6 : day - 1 // days since Monday
+    const mon = new Date(now)
+    mon.setDate(now.getDate() - diff)
+    mon.setHours(0, 0, 0, 0)
+    return mon
+  }, [])
+
+  const weekLabel = useMemo(() => {
+    const end = new Date(weekStart)
+    end.setDate(weekStart.getDate() + 6)
+    const fmt = (d: Date) =>
+      d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    return `${fmt(weekStart)} – ${fmt(end)}`
+  }, [weekStart])
+
+  const thisWeek = transactions.filter(
+    (t) => new Date(t.created_at) >= weekStart
+  )
+
+  const totalIn = thisWeek
     .filter((t) => t.amount > 0)
     .reduce((sum, t) => sum + t.amount, 0)
 
-  const totalOut = transactions
+  const totalOut = thisWeek
     .filter((t) => t.amount < 0)
     .reduce((sum, t) => sum + Math.abs(t.amount), 0)
 
@@ -180,18 +243,26 @@ export default function TransactionsPage() {
   return (
     <div className="max-w-xl mx-auto p-6">
 
-      <div className="mb-6 grid grid-cols-2 gap-3">
-        <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+      <p className="text-[11px] text-white/40 mb-2">This week · {weekLabel}</p>
+      <div className="mb-6 grid grid-cols-3 gap-3">
+        <div className="bg-white/5 border border-white/[0.12] rounded-xl p-4">
           <p className="text-xs text-white/50">Money in</p>
           <p className="text-lg font-semibold text-emerald-400">
             {formatMoney(totalIn)}
           </p>
         </div>
 
-        <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+        <div className="bg-white/5 border border-white/[0.12] rounded-xl p-4">
           <p className="text-xs text-white/50">Money out</p>
           <p className="text-lg font-semibold text-white/80">
             {formatMoney(totalOut)}
+          </p>
+        </div>
+
+        <div className="bg-white/5 border border-white/[0.12] rounded-xl p-4">
+          <p className="text-xs text-white/50">Balance</p>
+          <p className="text-lg font-semibold text-emerald-400">
+            {balance !== null ? formatMoney(balance) : "$—.——"}
           </p>
         </div>
       </div>
@@ -202,7 +273,7 @@ export default function TransactionsPage() {
         placeholder="Search transactions..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="w-full mb-4 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+        className="w-full mb-4 bg-white/5 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white"
       />
 
       {Object.entries(
@@ -214,13 +285,14 @@ export default function TransactionsPage() {
         }, {} as Record<string, Transaction[]>)
       ).map(([day, txs]) => (
         <div key={day}>
-          <h2 className="text-xs text-neutral-500 mt-6 mb-2">{day}</h2>
+          <h2 className="text-xs text-white/55 mt-6 mb-2">{day}</h2>
 
           {txs.map((tx) => {
             const isPositive = tx.amount > 0
             const amount = Math.abs(tx.amount).toFixed(2)
             const isBigTip = tx.type === "tip_received" && tx.amount >= 100
             const isTip = tx.type === "tip_received"
+            const isThemePurchase = tx.type === "theme_purchase"
             const supporterName = isTip
               ? (tx.meta?.is_anonymous ? "Anonymous" : (tx.meta as any)?.supporter_name || (tx.meta as any)?.tipper_name || "Supporter")
               : null
@@ -240,7 +312,7 @@ export default function TransactionsPage() {
                   {isTip ? (
                     <Avatar name={supporterName} size={36} />
                   ) : (
-                    <div className="text-neutral-400">{getIcon(tx.type)}</div>
+                    <div className="text-white/70">{getIcon(tx.type)}</div>
                   )}
 
                   <div>
@@ -255,10 +327,16 @@ export default function TransactionsPage() {
                         )}
                       </p>
                     )}
+                    {isThemePurchase && (tx.meta as any)?.theme_name && (
+                      <p className="text-xs text-white/50">{(tx.meta as any).theme_name}</p>
+                    )}
+                    {tx.type === "fee" && (tx.meta as any)?.payment_method === "wallet_balance" && (tx.meta as any)?.store_id && (
+                      <p className="text-xs text-white/50">Store Subscription · from balance</p>
+                    )}
                     {isTip && (tx.meta as any)?.message && (
                       <p className="text-xs text-white/60 mt-0.5">{(tx.meta as any).message}</p>
                     )}
-                    <p className="text-xs text-neutral-500">{new Date(tx.created_at).toLocaleTimeString()}</p>
+                    <p className="text-xs text-white/55">{new Date(tx.created_at).toLocaleTimeString()}</p>
                     {tx.type === "tip_refunded" && (
                       <p className="text-xs text-yellow-600 mt-0.5">
                         {(tx.meta as any)?.refund_type === "partial" ? "Partial refund" : "Refund"}
@@ -269,7 +347,7 @@ export default function TransactionsPage() {
                       <p className="text-xs text-orange-500 mt-0.5">Refund processing…</p>
                     )}
                     {tx.meta?.fee != null && (
-                      <p className="text-xs text-neutral-400 mt-0.5">
+                      <p className="text-xs text-white/70 mt-0.5">
                         Fee: {formatMoney(tx.meta.fee)}
                         {tx.meta.net != null && <> · Net: {formatMoney(tx.meta.net)}</>}
                       </p>
@@ -286,17 +364,40 @@ export default function TransactionsPage() {
         </div>
       ))}
 
-      {loading && (
-        <div className="py-4 text-center text-sm text-neutral-500">Loading…</div>
+      {loading && transactions.length === 0 && (
+        <div className="space-y-2 animate-[fadeIn_0.3s_ease]">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="rounded-xl bg-white/5 border border-white/[0.12] px-4 py-3 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-full bg-white/[0.06] animate-pulse shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-3.5 w-32 bg-white/[0.06] rounded-xl animate-pulse" />
+                <div className="h-3 w-20 bg-white/[0.06] rounded-xl animate-pulse" />
+              </div>
+              <div className="h-4 w-16 bg-white/[0.06] rounded-xl animate-pulse" />
+            </div>
+          ))}
+        </div>
+      )}
+      {loading && transactions.length > 0 && (
+        <div className="py-4 text-center text-sm text-white/55">Loading more…</div>
       )}
       <div ref={sentinelRef} />
 
       {!hasMore && transactions.length === 0 && (
-        <p className="text-center text-neutral-500 mt-6">No transactions yet.</p>
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          <div className="w-14 h-14 rounded-full bg-white/5 border border-white/[0.12] flex items-center justify-center mb-3">
+            <span className="text-xl">📋</span>
+          </div>
+          <p className="text-sm font-medium text-white/60">No transactions yet</p>
+          <p className="text-xs text-white/55 mt-1">Once you receive or send tips, they&apos;ll show up here.</p>
+          <Link href="/dashboard/share" className="mt-3 text-xs text-emerald-400 hover:text-emerald-300 font-medium transition">
+            Share Your Link →
+          </Link>
+        </div>
       )}
 
       {!hasMore && transactions.length > 0 && (
-        <p className="text-center text-neutral-500 mt-6">End of transactions</p>
+        <p className="text-center text-white/55 mt-6">End of transactions</p>
       )}
 
       {hasMore && !loading && (
@@ -309,7 +410,7 @@ export default function TransactionsPage() {
 
       {selected && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-[#0B0F1A] p-5 rounded-xl w-[90%] max-w-sm border border-white/10">
+          <div className="bg-[#0B0F1A] p-5 rounded-xl w-[90%] max-w-sm border border-white/[0.12]">
             <h3 className="text-lg font-semibold text-white">
               {formatType(selected.type)}
             </h3>
@@ -354,7 +455,7 @@ export default function TransactionsPage() {
                   ? "Anonymous"
                   : (selected.meta as any)?.supporter_name || (selected.meta as any)?.tipper_name || "Supporter"
                 return (
-                  <div className="mt-3 pt-3 border-t border-white/10">
+                  <div className="mt-3 pt-3 border-t border-white/[0.12]">
                     <p className="text-white/50 text-xs mb-1">Note from {fromName}</p>
                     <p className="text-white/90 text-sm italic">
                       &ldquo;{msg}&rdquo;

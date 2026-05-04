@@ -23,7 +23,7 @@ export default function FraudAIAssistant() {
   const [error, setError] = useState<string | null>(null);
 
   async function analyzeUser() {
-    const trimmed = query.trim().replace(/^@/, "");
+    const trimmed = query.trim().replace(/^@/, "").toLowerCase();
     if (!trimmed) return;
 
     setLoading(true);

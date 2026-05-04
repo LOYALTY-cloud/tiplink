@@ -15,11 +15,11 @@ export default function AccountStatusBadge() {
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let mounted = true;
 
-    (async () => {
+    async function fetchStatus() {
       const { data } = await supabase.auth.getUser();
-      if (!data.user) return;
+      if (!data.user || !mounted) return;
       const userId = data.user.id;
 
       const { data: prof } = await supabase
@@ -28,23 +28,14 @@ export default function AccountStatusBadge() {
         .eq("user_id", userId)
         .maybeSingle();
 
-      setStatus(prof?.account_status ?? "active");
+      if (mounted) setStatus(prof?.account_status ?? "active");
+    }
 
-      // Real-time updates
-      channel = supabase
-        .channel(`status-badge-${userId}`)
-        .on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "profiles", filter: `user_id=eq.${userId}` },
-          (payload) => {
-            const updated = payload.new as { account_status?: string };
-            if (updated.account_status) setStatus(updated.account_status);
-          }
-        )
-        .subscribe();
-    })();
+    fetchStatus();
+    // Poll every 60s — account status changes are rare admin actions
+    const interval = setInterval(fetchStatus, 60_000);
 
-    return () => { if (channel) supabase.removeChannel(channel); };
+    return () => { mounted = false; clearInterval(interval); };
   }, []);
 
   if (!status || status === "active") return null;

@@ -123,9 +123,7 @@ export async function POST(req: Request) {
       .update(updatePayload)
       .eq("user_id", target_user_id);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    // Audit log
+    if (error) return NextResponse.json({ error: "Failed to update role." }, { status: 500 });
     await supabaseAdmin.from("admin_actions").insert({
       admin_id: session.userId,
       action: "set_role",
