@@ -45,31 +45,31 @@ assert(
 
   assert(
     src.includes('pathname.startsWith("/admin")'),
-    "middleware: /admin/* route check present (line ~95)"
+    "proxy: /admin/* route check present (line ~95)"
   );
   assert(
     src.includes("admin_jwt"),
-    "middleware: reads admin_jwt cookie"
+    "proxy: reads admin_jwt cookie"
   );
   assert(
     src.includes("verifyAdminCookie"),
-    "middleware: calls verifyAdminCookie"
+    "proxy: calls verifyAdminCookie"
   );
   assert(
     src.includes("jwtVerify"),
-    "middleware: uses jose jwtVerify (not manual decode)"
+    "proxy: uses jose jwtVerify (not manual decode)"
   );
   assert(
     src.includes("/admin/login"),
-    "middleware: /admin/login is exempted from gate"
+    "proxy: /admin/login is exempted from gate"
   );
   assert(
     src.includes('pathname.startsWith("/dashboard")'),
-    "middleware: /dashboard/* also gated"
+    "proxy: /dashboard/* also gated"
   );
   assert(
     src.includes('"/api/:path*"'),
-    "middleware: /api/:path* in matcher config (rate limiting active)"
+    "proxy: /api/:path* in matcher config (rate limiting active)"
   );
 }
 

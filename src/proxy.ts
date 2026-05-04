@@ -69,8 +69,8 @@ async function verifyAdminCookie(req: NextRequest): Promise<boolean> {
   }
 }
 
-// --------------- middleware ---------------
-export async function middleware(req: NextRequest) {
+// --------------- proxy ---------------
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const ip = getIp(req);
 
