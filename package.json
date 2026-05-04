@@ -15,6 +15,10 @@
     "test-tip-flow": "tsx scripts/test-tip-flow.ts",
     "test-launch": "bash tests/launch/run-all.sh",
     "test-integration": "tsx tests/integration/live.test.ts",
+    "load-test": "docker run --rm -i --network=host grafana/k6 run - < load-test.js",
+    "load-test:smoke": "docker run --rm -i --network=host -e RAMP_MODE=smoke grafana/k6 run - < load-test.js",
+    "load-test:stress": "docker run --rm -i --network=host -e RAMP_MODE=stress grafana/k6 run - < load-test.js",
+    "load-test:prod": "docker run --rm -i grafana/k6 run -e BASE_URL=$npm_config_url -e RAMP_MODE=load - < load-test.js",
     "prepare": "husky"
   },
   "dependencies": {
