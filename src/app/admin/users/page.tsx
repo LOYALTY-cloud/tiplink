@@ -46,6 +46,8 @@ function AdminUsersContent() {
   const [pendingAction, setPendingAction] = useState<{ userId: string; status: string; displayName: string } | null>(null);
   const [actionReason, setActionReason] = useState("");
   const [restrictedUntil, setRestrictedUntil] = useState("");
+  const [suspendedUntil, setSuspendedUntil] = useState("");
+  const isInitialLoad = useState(true);
   const canAssignRoles = (() => {
     const s = getAdminSession();
     return s?.role === "owner" || s?.role === "super_admin";
@@ -53,16 +55,16 @@ function AdminUsersContent() {
   const router = useRouter();
 
   useEffect(() => {
-    fetchUsers();
+    fetchUsers(true);
 
     // Poll every 30s — unfiltered realtime on profiles is expensive at scale
-    const interval = setInterval(() => fetchUsers(), 30_000);
+    const interval = setInterval(() => fetchUsers(false), 30_000);
 
     return () => { clearInterval(interval); };
   }, [filter]);
 
-  async function fetchUsers() {
-    setLoading(true);
+  async function fetchUsers(showLoader = false) {
+    if (showLoader) setLoading(true);
     let query = supabase
       .from("profiles")
       .select(
@@ -94,6 +96,7 @@ function AdminUsersContent() {
     setPendingAction(null);
     setActionReason("");
     setRestrictedUntil("");
+    setSuspendedUntil("");
 
     try {
       const headers = getAdminHeaders();
@@ -102,13 +105,20 @@ function AdminUsersContent() {
         return;
       }
 
+      const body: Record<string, unknown> = { user_id: userId, status, reason };
+      // Dangerous actions already passed through the confirmation modal — auto-confirm
+      if (status === "suspended" || status === "closed") {
+        body.confirm_text = status.toUpperCase();
+      }
+      // Duration-based auto-lift for both restricted and suspended
+      if ((status === "restricted" || status === "suspended") && duration) {
+        body.restricted_until = duration;
+      }
+
       const res = await fetch("/api/admin/update-status", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...headers,
-        },
-        body: JSON.stringify({ user_id: userId, status, reason, ...(status === "restricted" && duration ? { restricted_until: duration } : {}) }),
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
@@ -239,7 +249,7 @@ function AdminUsersContent() {
           {sorted.map((u) => (
             <div
               key={u.id}
-              className={`${ui.card} p-4 flex flex-col gap-3 transition-all duration-300 hover:scale-[1.01]`}
+              className={`${ui.card} p-4 flex flex-col gap-3 transition-colors duration-200`}
             >
               <div className="flex items-center justify-between gap-3">
                 {/* LEFT: Avatar + Identity */}
@@ -328,9 +338,14 @@ function AdminUsersContent() {
         loading={!!updating}
         disabled={!actionReason.trim()}
         onConfirm={() => {
-          if (pendingAction) updateStatus(pendingAction.userId, pendingAction.status, actionReason.trim(), restrictedUntil);
+          if (pendingAction) updateStatus(
+            pendingAction.userId,
+            pendingAction.status,
+            actionReason.trim(),
+            pendingAction.status === "suspended" ? suspendedUntil : restrictedUntil
+          );
         }}
-        onCancel={() => { setPendingAction(null); setActionReason(""); setRestrictedUntil(""); }}
+        onCancel={() => { setPendingAction(null); setActionReason(""); setRestrictedUntil(""); setSuspendedUntil(""); }}
       >
         <p className="text-white/70">
           Are you sure you want to set{" "}
@@ -348,19 +363,36 @@ function AdminUsersContent() {
               <select
                 value={restrictedUntil}
                 onChange={(e) => setRestrictedUntil(e.target.value)}
-                className="w-full rounded-lg bg-white/5 border border-white/10 text-sm text-white px-3 py-2 focus:outline-none focus:ring-1 focus:ring-white/20"
+                className="w-full rounded-lg bg-zinc-900 border border-white/10 text-sm text-white px-3 py-2 focus:outline-none focus:ring-1 focus:ring-white/20"
               >
-                <option value="">Permanent (manual unlock)</option>
-                <option value="24h">24 hours</option>
-                <option value="72h">72 hours</option>
-                <option value="7d">7 days</option>
-                <option value="30d">30 days</option>
+                <option value="" style={{background:"#18181b",color:"#fff"}}>Permanent (manual unlock)</option>
+                <option value="24h" style={{background:"#18181b",color:"#fff"}}>24 hours</option>
+                <option value="72h" style={{background:"#18181b",color:"#fff"}}>72 hours</option>
+                <option value="7d" style={{background:"#18181b",color:"#fff"}}>7 days</option>
+                <option value="30d" style={{background:"#18181b",color:"#fff"}}>30 days</option>
               </select>
             </div>
           </>
         )}
         {pendingAction?.status === "suspended" && (
-          <p className="text-white/50 text-xs">The user will be fully locked out of all account functionality.</p>
+          <>
+            <p className="text-white/50 text-xs">The user will be fully locked out of all account functionality.</p>
+            <div>
+              <label className="text-xs text-white/50 block mb-1">Auto-unsuspend after (optional)</label>
+              <select
+                value={suspendedUntil}
+                onChange={(e) => setSuspendedUntil(e.target.value)}
+                className="w-full rounded-lg bg-zinc-900 border border-white/10 text-sm text-white px-3 py-2 focus:outline-none focus:ring-1 focus:ring-white/20"
+              >
+                <option value="" style={{background:"#18181b",color:"#fff"}}>Permanent (manual lift)</option>
+                <option value="24h" style={{background:"#18181b",color:"#fff"}}>24 hours</option>
+                <option value="72h" style={{background:"#18181b",color:"#fff"}}>72 hours</option>
+                <option value="7d" style={{background:"#18181b",color:"#fff"}}>7 days</option>
+                <option value="30d" style={{background:"#18181b",color:"#fff"}}>30 days</option>
+                <option value="90d" style={{background:"#18181b",color:"#fff"}}>90 days</option>
+              </select>
+            </div>
+          </>
         )}
         <div>
           <label className="text-xs text-white/50 block mb-1">Reason for action <span className="text-red-400">*</span></label>
