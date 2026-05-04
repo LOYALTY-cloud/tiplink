@@ -14,6 +14,7 @@
     "test-webhook-all": "tsx tests/webhook/payment-intent.test.ts && tsx tests/webhook/refund.test.ts && tsx tests/concurrent/withdraw-refund.test.ts",
     "test-tip-flow": "tsx scripts/test-tip-flow.ts",
     "test-launch": "bash tests/launch/run-all.sh",
+    "test-integration": "tsx tests/integration/live.test.ts",
     "prepare": "husky"
   },
   "dependencies": {

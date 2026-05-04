@@ -53,6 +53,12 @@ run_test "Webhook: Refund"       "tests/webhook/refund.test.ts"
 run_test "Webhook: Refund FB"    "tests/webhook/refund_fallback.test.ts"
 run_test "Concurrency: W+R"     "tests/concurrent/withdraw-refund.test.ts"
 
+# Security & performance harness
+run_test "Cache Headers"         "tests/launch/cache-headers.test.ts"
+run_test "Admin Auth Gate"       "tests/launch/admin-auth-gate.test.ts"
+run_test "Payment Idempotency"   "tests/launch/payment-idempotency.test.ts"
+run_test "Rate Limiter Logic"    "tests/launch/rate-limiter.test.ts"
+
 echo ""
 echo "╔══════════════════════════════════════════════╗"
 echo "║              SUMMARY                         ║"
