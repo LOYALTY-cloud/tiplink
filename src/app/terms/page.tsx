@@ -31,7 +31,7 @@ export default function TermsPage() {
           <p>1neLink is provided “as is” without warranties of any kind.</p>
 
           <h2 className="font-semibold">7. Fees & Charges</h2>
-          <p>Tips are subject to a processing fee of 2.9% + $0.30 (charged by Stripe) and a platform fee of 1.1%. These fees are transparently displayed before each transaction is confirmed. The creator receives the full tip amount minus applicable fees.</p>
+          <p>Tips are subject to a processing fee of 2.9% + $0.30 (charged by Stripe). These fees are transparently displayed before each transaction is confirmed. The creator receives the full tip amount minus applicable Stripe processing fees.</p>
 
           <h2 className="font-semibold">8. Refund Policy</h2>
           <p>Tips are voluntary payments. Because tips are irrevocable gifts, we generally do not issue refunds. However, refunds may be granted in cases of: unauthorized transactions, duplicate charges, technical errors that resulted in an incorrect charge. To request a refund, contact support within 30 days of the transaction. Refunds are processed to the original payment method and may take 5–10 business days.</p>

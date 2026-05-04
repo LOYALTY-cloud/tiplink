@@ -35,11 +35,11 @@ const CATEGORIES: Category[] = [
       },
       {
         title: "💳 Fees explained",
-        body: "Some transactions include small processing fees.\n\nBreakdown:\n• Sending a tip: 2.9% + $0.30 (Stripe processing) + 1.1% (platform fee)\n• Withdrawals: A small processing fee may apply\n• Receiving tips: No fee to receive — fees are charged to the sender\n\nFees are always shown before you confirm a transaction so there are no surprises.",
+        body: "Some transactions include small processing fees.\n\nBreakdown:\n• Sending a tip: 2.9% + $0.30 (Stripe processing) — no platform fee\n• Withdrawals: 5% (instant) or 3.5% + $0.30 (standard)\n• Receiving tips: No fee to receive — fees are charged to the sender\n\nFees are always shown before you confirm a transaction so there are no surprises.",
       },
       {
         title: "How do tips work?",
-        body: "When someone visits your 1neLink page, they can send you a tip using their debit or credit card. The money goes through Stripe and lands in your connected account, minus processing fees (2.9% + $0.30 Stripe + 1.1% platform fee). Tips appear in your wallet balance almost immediately.",
+        body: "When someone visits your 1neLink page, they can send you a tip using their debit or credit card. The money goes through Stripe and lands in your connected account, minus Stripe processing fees (2.9% + $0.30). Tips appear in your wallet balance almost immediately.",
       },
       {
         title: "Why was my tip declined?",
@@ -73,7 +73,7 @@ const CATEGORIES: Category[] = [
       },
       {
         title: "Minimum withdrawal amount",
-        body: "The minimum withdrawal amount is $5.00 (or you can withdraw your full balance if it's under $5). A small platform fee (1.1%) applies to each withdrawal. There is no maximum withdrawal limit as long as you have sufficient balance.",
+        body: "The minimum withdrawal amount is $5.00 (or you can withdraw your full balance if it's under $5). A withdrawal fee applies: 5% for instant, or 3.5% + $0.30 for standard. There is no maximum withdrawal limit as long as you have sufficient balance.",
       },
     ],
   },
@@ -159,7 +159,7 @@ const CATEGORIES: Category[] = [
       },
       {
         title: "Is 1neLink free to use?",
-        body: "Creating a 1neLink account is completely free. There are no monthly or subscription fees. When you receive tips, standard processing fees apply: 2.9% + $0.30 (Stripe) and 1.1% (platform fee). Fees are always shown before confirming any transaction.",
+        body: "Creating a 1neLink account is completely free. There are no monthly or subscription fees. When you receive tips, a Stripe processing fee applies: 2.9% + $0.30 — no platform fee. Fees are always shown before confirming any transaction.",
       },
       {
         title: "How do I contact support?",

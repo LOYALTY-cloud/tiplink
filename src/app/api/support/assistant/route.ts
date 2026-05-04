@@ -112,7 +112,7 @@ export async function POST(req: Request) {
 
   // --- Fees ---
   if (lower.includes("fee") || lower.includes("charge") || lower.includes("why was i charged")) {
-    return replyWithEscalation("Tips include a 2.9% + $0.30 processing fee (Stripe) and a 1.1% platform fee. These are shown to the tipper before they confirm.");
+    return replyWithEscalation("Tips include a 2.9% + $0.30 Stripe processing fee — there is no platform fee. Withdrawals cost 5% (instant) or 3.5% + $0.30 (standard). All fees are shown before you confirm.");
   }
 
   // --- Refund ---
