@@ -22,7 +22,7 @@ export async function GET(req: Request) {
       unlocked: data?.map((t: { theme: string }) => t.theme) || [],
     });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Server error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("themes/list", e);
+    return NextResponse.json({ error: "An error occurred. Please try again." }, { status: 500 });
   }
 }

@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("is_flagged, risk_score, last_fraud_score, last_flagged_at")
-      .eq("id", userId)
+      .eq("user_id", userId)
       .single()
 
     if (profile?.is_flagged && profile.risk_score >= clampedScore) {
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     const { error } = await supabaseAdmin
       .from("profiles")
       .update(updatePayload)
-      .eq("id", userId)
+      .eq("user_id", userId)
 
     if (error) {
       return NextResponse.json({ error: "Failed to flag user" }, { status: 500 })

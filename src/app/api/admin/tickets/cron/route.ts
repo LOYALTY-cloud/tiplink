@@ -5,14 +5,14 @@ import { createNotification } from "@/lib/notifications";
 export const runtime = "nodejs";
 
 /**
- * POST /api/admin/tickets/cron — Cron job for:
+ * GET /api/admin/tickets/cron — Cron job for:
  * 1. SLA breach detection + admin notification + priority escalation
  * 2. Auto-close warning (no user reply for 5 days)
  * 3. Auto-close execution (warning sent + no reply for 1 more day)
  *
- * Protect with CRON_SECRET header in production.
+ * Vercel cron jobs always use GET — Authorization: Bearer <CRON_SECRET> header sent automatically.
  */
-export async function POST(req: Request) {
+export async function GET(req: Request) {
   // Strict auth: require CRON_SECRET always (Vercel sends Authorization: Bearer <secret>)
   const auth = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
@@ -363,9 +363,4 @@ export async function POST(req: Request) {
     console.error("Ticket cron error:", err);
     return NextResponse.json({ error: "Cron failed" }, { status: 500 });
   }
-}
-
-// Vercel cron invokes GET by default
-export async function GET(req: Request) {
-  return POST(req);
 }

@@ -1,6 +1,15 @@
 import { emailFooter } from "@/lib/email/footer";
 import { sendEmail } from "@/lib/emailService";
 
+function escapeHtml(str: string): string {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 type SendTipReceiptArgs = {
   to: string;
   receiptId: string;
@@ -22,10 +31,10 @@ export async function sendTipReceipt(args: SendTipReceiptArgs) {
       </p>
 
       <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
-        <p style="margin:0;color:#111827;"><strong>Receipt ID:</strong> ${args.receiptId}</p>
-        <p style="margin:10px 0 0;color:#111827;"><strong>Creator:</strong> ${args.creatorName}</p>
-        <p style="margin:10px 0 0;color:#111827;"><strong>Amount:</strong> ${args.amountUsd}</p>
-        <p style="margin:10px 0 0;color:#111827;"><strong>Date:</strong> ${args.createdAt}</p>
+        <p style="margin:0;color:#111827;"><strong>Receipt ID:</strong> ${escapeHtml(args.receiptId)}</p>
+        <p style="margin:10px 0 0;color:#111827;"><strong>Creator:</strong> ${escapeHtml(args.creatorName)}</p>
+        <p style="margin:10px 0 0;color:#111827;"><strong>Amount:</strong> ${escapeHtml(args.amountUsd)}</p>
+        <p style="margin:10px 0 0;color:#111827;"><strong>Date:</strong> ${escapeHtml(args.createdAt)}</p>
         <p style="margin:10px 0 0;color:#6b7280;font-size:12px;">
           This support is private. The creator will not see your email.
         </p>

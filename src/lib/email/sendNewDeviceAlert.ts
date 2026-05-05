@@ -1,6 +1,14 @@
 import { emailFooter } from "@/lib/email/footer";
 import { sendEmailAsync } from "@/lib/emailService";
 
+function esc(s: string): string {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 type NewDeviceEmailParams = {
   to: string;
   device: string;   // e.g. "Chrome on Windows"
@@ -41,19 +49,19 @@ export async function sendNewDeviceEmail(params: NewDeviceEmailParams): Promise<
           <table style="width:100%;border-spacing:0;font-size:14px;">
             <tr>
               <td style="color:#9ca3af;padding:6px 0;width:100px;">Device</td>
-              <td style="color:#f9fafb;padding:6px 0;">${params.device}</td>
+              <td style="color:#f9fafb;padding:6px 0;">${esc(params.device)}</td>
             </tr>
             <tr>
               <td style="color:#9ca3af;padding:6px 0;">IP Address</td>
-              <td style="color:#f9fafb;padding:6px 0;">${params.ip}</td>
+              <td style="color:#f9fafb;padding:6px 0;">${esc(params.ip)}</td>
             </tr>
             ${params.location ? `<tr>
               <td style="color:#9ca3af;padding:6px 0;">Location</td>
-              <td style="color:#f9fafb;padding:6px 0;">${params.location}</td>
+              <td style="color:#f9fafb;padding:6px 0;">${esc(params.location)}</td>
             </tr>` : ""}
             <tr>
               <td style="color:#9ca3af;padding:6px 0;">Time</td>
-              <td style="color:#f9fafb;padding:6px 0;">${params.time}</td>
+              <td style="color:#f9fafb;padding:6px 0;">${esc(params.time)}</td>
             </tr>
           </table>
         </div>

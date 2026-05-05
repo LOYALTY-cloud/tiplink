@@ -68,7 +68,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ clientSecret: intent.client_secret });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Server error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("create-legacy-payment-intent", e);
+    return NextResponse.json({ error: "An error occurred. Please try again." }, { status: 500 });
   }
 }

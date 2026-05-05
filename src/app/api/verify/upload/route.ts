@@ -176,8 +176,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, message: "Verification submitted" });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e ?? "Server error");
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("verify/upload", e);
+    return NextResponse.json({ error: "An error occurred. Please try again." }, { status: 500 });
   }
 }
 
