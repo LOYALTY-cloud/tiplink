@@ -70,6 +70,7 @@ function AdminUsersContent() {
       .select(
         "id, user_id, handle, display_name, email, account_status, owed_balance, is_flagged, role, first_name, last_name, created_at"
       )
+      .not("role", "in", '("owner","super_admin","finance_admin","support_admin")')
       .order("created_at", { ascending: false })
       .limit(100);
 
