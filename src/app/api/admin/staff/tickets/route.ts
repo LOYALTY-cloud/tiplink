@@ -151,6 +151,9 @@ export async function POST(req: Request) {
         }, { status: 400 });
       }
       return NextResponse.json({ error: "Failed to create disciplinary ticket." }, { status: 500 });
+    }
+
+    const severityMap: Record<string, string> = {
       escalation: "warning",
       performance_review: "info",
       note: "info",
