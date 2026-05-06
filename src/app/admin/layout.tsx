@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, useRef, memo } from "react";
+import { useEffect, useState, useRef, memo, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { ui } from "@/lib/ui";
 import SupportTransferModal from "@/components/admin/SupportTransferModal";
@@ -357,23 +357,18 @@ export default function AdminLayout({
   }, []);
 
   // Prevent scroll-chaining into the page while the MOBILE drawer is open.
-  // Desktop moreMenu uses a fixed overlay that already blocks interaction —
-  // applying position:fixed on desktop causes a visible layout jump (scrollbar
-  // flash + page-top snap) which is the "jitter when menu opens" bug.
+  // overflow:hidden (not position:fixed) preserves scroll position automatically —
+  // no need for window.scrollTo hack which causes a visible scroll jump.
   useEffect(() => {
     if (!adminDrawerOpen) return;
 
     const body = document.body;
-    const scrollY = window.scrollY;
     const prevOverflow = body.style.overflow;
 
     body.style.overflow = "hidden";
-    document.documentElement.style.overflow = "hidden";
 
     return () => {
       body.style.overflow = prevOverflow;
-      document.documentElement.style.overflow = "";
-      window.scrollTo(0, scrollY);
     };
   }, [adminDrawerOpen]);
 
@@ -543,10 +538,14 @@ export default function AdminLayout({
   ];
 
   const adminNavItems = NAV_SECTIONS[0].items;
+  // Memoize the slice so MoreMenuPanel (memo'd) doesn't re-render every time
+  // AdminLayout re-renders with new state (search typing, etc.)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const moreSections = useMemo(() => NAV_SECTIONS.slice(1), [userRole]);
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-10 bg-black/60 backdrop-blur-xl border-b border-white/10">
+      <header className="sticky top-0 z-10 bg-black/60 backdrop-blur-xl border-b border-white/10 [will-change:transform]">
         <div className="max-w-7xl mx-auto px-3 md:px-8 h-12 md:h-auto md:py-3 flex items-center justify-between gap-2 md:gap-3">
           <div className="flex items-center gap-2 md:gap-4">
             <button
@@ -562,7 +561,7 @@ export default function AdminLayout({
                 <span className="text-sm md:text-lg font-semibold tracking-wide">ADMIN</span>
               </Link>
 
-              <MoreMenuPanel sections={NAV_SECTIONS.slice(1)} />
+              <MoreMenuPanel sections={moreSections} />
             </div>
 
             <nav className="hidden md:flex items-center gap-1">
