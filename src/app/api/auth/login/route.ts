@@ -31,8 +31,11 @@ export async function POST(req: Request) {
     const normalizedEmail = email.trim().toLowerCase();
     const ip = getClientIp(req);
 
-    // ── Rate limit: per-IP (20 attempts / 15 min) ────────────────────
-    const ipLimit = await rateLimit(`login_ip:${ip}`, 20, 900);
+    // ── Rate limit: per-IP (500 attempts / 15 min) ───────────────────
+    // High threshold — IP is a poor key on shared infrastructure (Vercel,
+    // corporate NAT, etc.) where many users share one IP. This is only a
+    // last-resort DDoS backstop; per-email is the real brute-force control.
+    const ipLimit = await rateLimit(`login_ip:${ip}`, 500, 900);
     if (!ipLimit.allowed) {
       return NextResponse.json(
         { error: "Too many login attempts. Please try again later." },
