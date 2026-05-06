@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
@@ -29,7 +29,7 @@ const COMMON_PASSWORDS = [
   "changeme",
 ];
 
-export default function SetPasswordPage() {
+function SetPasswordContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -234,5 +234,13 @@ export default function SetPasswordPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function SetPasswordPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#050A1A]" />}>
+      <SetPasswordContent />
+    </Suspense>
   );
 }

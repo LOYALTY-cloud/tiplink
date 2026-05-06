@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
@@ -134,7 +134,7 @@ async function getToken() {
   return data.session?.access_token ?? null;
 }
 
-export default function StorePage() {
+function StorePageContent() {
   const searchParams = useSearchParams();
   const [themes, setThemes] = useState<ThemeItem[]>([]);
   const [featuredCreators, setFeaturedCreators] = useState<FeaturedCreator[]>([]);
@@ -429,6 +429,14 @@ export default function StorePage() {
         />
       )}
     </div>
+  );
+}
+
+export default function StorePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#050A1A]" />}>
+      <StorePageContent />
+    </Suspense>
   );
 }
 

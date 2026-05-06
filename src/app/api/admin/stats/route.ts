@@ -11,11 +11,18 @@ export async function GET(req: Request) {
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     requireRole(session.role, "view_admin");
 
+    // Exclude admin accounts from all user-facing counts
+    const ADMIN_ROLE_VALUES = ["owner", "super_admin", "finance_admin", "support_admin"];
+
     const [users, restricted, refunds, disputes, owedRows] = await Promise.all([
-      supabaseAdmin.from("profiles").select("id", { count: "exact", head: true }),
       supabaseAdmin
         .from("profiles")
         .select("id", { count: "exact", head: true })
+        .not("role", "in", `(${ADMIN_ROLE_VALUES.map((r) => `"${r}"`).join(",")})`),
+      supabaseAdmin
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .not("role", "in", `(${ADMIN_ROLE_VALUES.map((r) => `"${r}"`).join(",")})`)
         .in("account_status", ["restricted", "suspended"]),
       supabaseAdmin
         .from("tip_intents")

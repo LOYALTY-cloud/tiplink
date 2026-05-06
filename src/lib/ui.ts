@@ -1,7 +1,7 @@
 export const ui = {
   // page background container
   page:
-    "min-h-screen bg-[color:var(--bg0)] text-[color:var(--text)] relative overflow-x-hidden",
+    "min-h-screen bg-[color:var(--bg0)] text-[color:var(--text)] relative [overflow-x:clip]",
 
   // glow blobs
   glowWrap: "pointer-events-none absolute inset-0 overflow-hidden",

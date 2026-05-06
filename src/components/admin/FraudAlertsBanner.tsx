@@ -62,13 +62,18 @@ export default function FraudAlertsBanner() {
     setAlerts((prev) => prev.filter((a) => a.id !== alertId))
   }
 
-  if (alerts.length === 0) return null
-
   const criticalCount = alerts.filter((a) => a.severity === "critical").length
-  const topAlert = alerts[0]
+  const topAlert = alerts[0] ?? null
 
+  // Always render — use max-height transition to avoid layout shifts on mount/unmount.
+  // Returning null was causing content below to jump every ~30s when alert count changed.
   return (
-    <div className="relative">
+    <div
+      className="overflow-hidden transition-[max-height] duration-300 ease-in-out"
+      style={{ maxHeight: alerts.length > 0 ? "56px" : "0px" }}
+      aria-live="polite"
+    >
+    {topAlert && <div className="relative">
       {/* Compact bar */}
       <button
         onClick={() => setExpanded((e) => !e)}
@@ -129,6 +134,8 @@ export default function FraudAlertsBanner() {
           ))}
         </div>
       )}
+    </div>
+    }
     </div>
   )
 }

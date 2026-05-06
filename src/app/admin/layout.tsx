@@ -149,6 +149,8 @@ export default function AdminLayout({
   };
 
   // Heartbeat: ping presence API every 20s to stay online (production-grade)
+  // Intentionally no pathname dependency — one interval for the layout lifetime.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (pathname === "/admin/login") return;
     const raw = localStorage.getItem("admin_session");
@@ -175,7 +177,7 @@ export default function AdminLayout({
     }, 20_000); // every 20 seconds
 
     return () => clearInterval(interval);
-  }, [pathname]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mark offline on tab close / hide
   useEffect(() => {
@@ -230,7 +232,7 @@ export default function AdminLayout({
       window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [pathname]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close search dropdown on outside click
   useEffect(() => {
@@ -434,6 +436,8 @@ export default function AdminLayout({
               { label: "Staff", href: "/admin/staff", icon: "🛡️" },
               { label: "Discipline", href: "/admin/staff/tickets", icon: "🧾" },
               { label: "Payroll", href: "/admin/payroll", icon: "💰" },
+              { label: "Applicants", href: "/admin/applicants", icon: "📝" },
+              { label: "Interview Calendar", href: "/admin/interviews", icon: "📅" },
             ]
           : []),
         { label: "Approvals", href: "/admin/approvals", icon: "✅" },

@@ -18,11 +18,16 @@ export default function AdminDisciplinaryAlertBanner({
 }: AdminDisciplinaryAlertBannerProps) {
   const [open, setOpen] = useState(false);
 
-  if (!alerts.length && !open) return null;
-
+  // Never return null — always render a stable wrapper so that the DOM height
+  // doesn't change when alerts appear/disappear (prevents content below jumping).
   return (
     <>
-      {alerts.length > 0 && (
+      <div
+        className="overflow-hidden transition-[max-height] duration-300 ease-in-out"
+        style={{ maxHeight: alerts.length > 0 ? "64px" : "0px" }}
+        aria-live="polite"
+      >
+        {alerts.length > 0 && (
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-4">
           <div className="bg-red-500/10 border border-red-500/20 text-red-300 px-4 py-2 rounded-lg flex items-center justify-between">
             <span className="text-sm">
@@ -37,6 +42,7 @@ export default function AdminDisciplinaryAlertBanner({
           </div>
         </div>
       )}
+      </div>
 
       {open && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
