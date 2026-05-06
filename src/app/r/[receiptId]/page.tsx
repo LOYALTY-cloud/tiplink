@@ -8,16 +8,33 @@ function formatMoney(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
-const supabasePublic = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+function getSupabasePublic() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
 
 export default async function ReceiptPage({
   params,
 }: {
   params: Promise<{ receiptId: string }>;
 }) {
+  const supabasePublic = getSupabasePublic();
+
+  if (!supabasePublic) {
+    return (
+      <div className="min-h-screen bg-[#F7F7F8] p-6 flex items-center justify-center">
+        <div className="w-full max-w-md bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+          <div className="text-xl font-semibold text-gray-900">Receipt unavailable</div>
+          <p className="mt-2 text-sm text-gray-600">
+            This environment is not configured to load receipts.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const { receiptId: encodedReceiptId } = await params;
   const receiptId = decodeURIComponent(encodedReceiptId);
 
