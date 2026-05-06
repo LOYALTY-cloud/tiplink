@@ -88,6 +88,75 @@ const routeSuggestions: Record<string, (ctx: PageContext) => Suggestion | null> 
     text: "Review recent admin activity. Watch for unusual patterns outside business hours.",
     severity: "info",
   }),
+
+  "/admin/activity-calendar": () => ({
+    text: "View scheduled admin activity over time. Use this to spot patterns across shifts.",
+    severity: "info",
+  }),
+
+  "/admin/staff": () => ({
+    text: "Manage your team here. Review roles and permissions before making changes.",
+    severity: "info",
+  }),
+
+  "/admin/staff/tickets": () => ({
+    text: "Disciplinary tickets are formal records. Ensure documentation is thorough before submitting.",
+    severity: "warn",
+  }),
+
+  "/admin/payroll": (ctx) => {
+    if (ctx.admin_role !== "owner" && ctx.admin_role !== "super_admin") {
+      return { text: "Payroll is restricted to owners and super admins.", severity: "warn" }
+    }
+    return { text: "Review staff hours and compensation. Confirm all entries before processing.", severity: "info" }
+  },
+
+  "/admin/applicants": () => ({
+    text: "Review candidates in the hiring pipeline. Use the kanban columns to move applicants through stages.",
+    severity: "info",
+  }),
+
+  "/admin/interviews": () => ({
+    text: "Check upcoming scheduled interviews. Make sure invite links are sent and confirmed.",
+    severity: "info",
+  }),
+
+  "/admin/overrides": () => ({
+    text: "Manual overrides bypass normal limits — use with caution and document your reason.",
+    severity: "warn",
+  }),
+
+  "/admin/owner-ai": (ctx) => {
+    if (ctx.admin_role !== "owner") {
+      return { text: "Owner AI is restricted to the account owner only.", severity: "warn" }
+    }
+    return { text: "Use Owner AI for high-level business insights. All queries are logged.", severity: "info" }
+  },
+
+  "/admin/creator-applications": () => ({
+    text: "Review creator upgrade requests. Check profile quality and payment setup before approving.",
+    severity: "info",
+  }),
+
+  "/admin/creators": () => ({
+    text: "Elite tier applications require high standards. Review earnings history and content quality.",
+    severity: "info",
+  }),
+
+  "/admin/store-hero": () => ({
+    text: "Hero ad slots are premium placements. Verify content and expiry dates before publishing.",
+    severity: "info",
+  }),
+
+  "/admin/notifications": () => ({
+    text: "Broadcast notifications reach all users — double-check content and targeting before sending.",
+    severity: "warn",
+  }),
+
+  "/admin/support/analytics": () => ({
+    text: "Review SLA compliance and response times. Use trends to identify understaffed periods.",
+    severity: "info",
+  }),
 }
 
 export function getSuggestion(ctx: PageContext): Suggestion | null {

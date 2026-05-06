@@ -96,4 +96,95 @@ export const AI_MAP: Record<string, AISection> = {
     navLabel: "Guide",
     items: ["guide", "help", "documentation", "how to", "instructions"],
   },
+
+  staff: {
+    name: "Staff",
+    route: "/admin/staff",
+    navLabel: "Staff",
+    items: ["staff", "admins", "team", "moderators", "employees", "hire staff"],
+  },
+
+  discipline: {
+    name: "Discipline",
+    route: "/admin/staff/tickets",
+    navLabel: "Discipline",
+    items: ["discipline", "disciplinary", "staff ticket", "write up", "warning", "infraction"],
+  },
+
+  payroll: {
+    name: "Payroll",
+    route: "/admin/payroll",
+    navLabel: "Payroll",
+    items: ["payroll", "salary", "pay", "hours", "wages", "compensation"],
+  },
+
+  applicants: {
+    name: "Applicants",
+    route: "/admin/applicants",
+    navLabel: "Applicants",
+    items: ["applicants", "applications", "candidates", "hiring", "pipeline", "interview", "offer", "resume", "cover letter"],
+  },
+
+  interviews: {
+    name: "Interview Calendar",
+    route: "/admin/interviews",
+    navLabel: "Interview Calendar",
+    items: ["interview calendar", "interviews", "interview schedule", "scheduled interviews"],
+  },
+
+  overrides: {
+    name: "Overrides",
+    route: "/admin/overrides",
+    navLabel: "Overrides",
+    items: ["overrides", "override", "manual override", "force", "override limit", "bypass"],
+  },
+
+  ownerAI: {
+    name: "Owner AI",
+    route: "/admin/owner-ai",
+    navLabel: "Owner AI",
+    items: ["owner ai", "ai insights", "owner insights", "business intelligence"],
+  },
+
+  creatorApplications: {
+    name: "Creator Applications",
+    route: "/admin/creator-applications",
+    navLabel: "Creator Applications",
+    items: ["creator applications", "creator apply", "creator requests", "creator approval"],
+  },
+
+  eliteApplications: {
+    name: "Elite Applications",
+    route: "/admin/creators",
+    navLabel: "Elite Applications",
+    items: ["elite", "elite tier", "elite applications", "elite creators", "elite upgrade"],
+  },
+
+  storeHero: {
+    name: "Store Hero Ads",
+    route: "/admin/store-hero",
+    navLabel: "Store Hero Ads",
+    items: ["store hero", "hero ads", "banner ads", "store ads", "featured ads"],
+  },
+
+  notifications: {
+    name: "Notifications",
+    route: "/admin/notifications",
+    navLabel: "Notifications",
+    items: ["notifications", "send notification", "push notification", "broadcast", "alert users"],
+  },
+
+  activityCalendar: {
+    name: "Activity Calendar",
+    route: "/admin/activity-calendar",
+    navLabel: "Activity Calendar",
+    items: ["activity calendar", "calendar", "activity schedule", "schedule"],
+  },
+
+  supportAnalytics: {
+    name: "Support Analytics",
+    route: "/admin/support/analytics",
+    navLabel: "Support Analytics",
+    items: ["support analytics", "support stats", "response time", "ticket analytics", "sla analytics"],
+  },
 }
