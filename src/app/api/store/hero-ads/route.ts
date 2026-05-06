@@ -5,6 +5,10 @@ export const runtime = "nodejs";
 export const revalidate = 60;
 
 export async function GET() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return NextResponse.json({ ads: [] }, { status: 200 });
+  }
+
   const nowTs = Date.now();
 
   const { data, error } = await supabaseAdmin
