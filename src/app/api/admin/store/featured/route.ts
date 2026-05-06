@@ -42,7 +42,6 @@ export async function POST(req: Request) {
     if (e instanceof Error && e.message === "FORBIDDEN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

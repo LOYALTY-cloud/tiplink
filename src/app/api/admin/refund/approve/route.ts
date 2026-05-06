@@ -308,8 +308,7 @@ export async function POST(req: Request) {
         .from("refund_requests")
         .update({ locked_at: null, locked_by: null })
         .eq("id", refund_id);
-      const errMsg = e instanceof Error ? e.message : String(e ?? "Stripe refund failed");
-      return NextResponse.json({ error: errMsg }, { status: 400 });
+      return NextResponse.json({ error: "Stripe refund failed. Please check the tip status and try again." }, { status: 400 });
     }
 
     // Mark request as approved (release in-flight lock)
@@ -344,7 +343,6 @@ export async function POST(req: Request) {
     if (e instanceof Error && e.message === "FORBIDDEN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

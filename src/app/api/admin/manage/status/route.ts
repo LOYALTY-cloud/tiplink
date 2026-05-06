@@ -83,7 +83,7 @@ export async function POST(req: Request) {
       .eq("id", adminId);
 
     if (updateErr) {
-      return NextResponse.json({ error: "Failed to update status: " + updateErr.message }, { status: 500 });
+      return NextResponse.json({ error: "Failed to update admin status." }, { status: 500 });
     }
 
     // Also update is_active on profiles for suspended/terminated

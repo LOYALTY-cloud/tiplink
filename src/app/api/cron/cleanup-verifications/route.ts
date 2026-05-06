@@ -31,7 +31,7 @@ export async function GET(req: Request) {
     .limit(100);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch stale verifications." }, { status: 500 });
   }
 
   let deleted = 0;

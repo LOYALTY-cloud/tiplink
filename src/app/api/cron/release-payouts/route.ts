@@ -41,7 +41,7 @@ export async function GET(req: Request) {
 
   if (fetchErr) {
     console.error("[release-payouts] Failed to fetch pending withdrawals:", fetchErr);
-    return NextResponse.json({ error: fetchErr.message }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch pending withdrawals." }, { status: 500 });
   }
 
   let released = 0;

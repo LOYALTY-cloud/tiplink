@@ -15,7 +15,7 @@ export async function GET(req: Request) {
     await triggerAIAlerts("cron_scheduled");
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[cron/ai-alerts]", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

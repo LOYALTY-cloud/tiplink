@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       .eq("user_id", target_user_id)
       .maybeSingle();
 
-    if (targetErr) return NextResponse.json({ error: targetErr.message }, { status: 500 });
+    if (targetErr) return NextResponse.json({ error: "Failed to fetch target profile." }, { status: 500 });
     if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
     // For admin roles, fill blanks from existing profile or auth user
@@ -137,7 +137,6 @@ export async function POST(req: Request) {
     if (e instanceof Error && e.message === "FORBIDDEN") {
       return NextResponse.json({ error: "Forbidden: owner only" }, { status: 403 });
     }
-    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

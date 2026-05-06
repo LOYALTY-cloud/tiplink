@@ -46,7 +46,7 @@ export async function POST(req: Request) {
 
     if (applyErr) {
       console.error("themes/apply:", applyErr);
-      return NextResponse.json({ error: applyErr.message }, { status: 500 });
+      return NextResponse.json({ error: "Failed to apply theme." }, { status: 500 });
     }
 
     return NextResponse.json({ ok: true });

@@ -210,8 +210,7 @@ export async function POST(req: Request) {
           .update({ refund_initiated_at: tip.refund_initiated_at })
           .eq("receipt_id", tip.receipt_id);
       }
-      const errMsg = e instanceof Error ? e.message : String(e ?? "Stripe refund retry failed");
-      return NextResponse.json({ error: errMsg }, { status: 400 });
+      return NextResponse.json({ error: "Stripe refund retry failed. Please check the tip status and try again." }, { status: 400 });
     }
 
     // Log admin action
@@ -230,8 +229,7 @@ export async function POST(req: Request) {
       status: stripeRefund.status,
       retried: true,
     });
-  } catch (e: unknown) {
-    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

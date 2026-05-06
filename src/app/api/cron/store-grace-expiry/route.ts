@@ -26,7 +26,7 @@ export async function GET(req: Request) {
 
   if (error) {
     console.error("[store-grace-expiry] failed to load stores:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Failed to load expired stores." }, { status: 500 });
   }
 
   let deactivated = 0;

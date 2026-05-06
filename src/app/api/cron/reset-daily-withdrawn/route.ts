@@ -22,7 +22,7 @@ export async function GET(req: Request) {
 
   if (error) {
     console.error("reset_daily_withdrawn error:", error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Failed to reset daily withdrawn." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

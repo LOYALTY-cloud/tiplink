@@ -32,7 +32,7 @@ export async function GET(req: Request) {
 
   if (walletsErr) {
     console.error("[ledger-audit] Failed to fetch wallets:", walletsErr);
-    return NextResponse.json({ error: walletsErr.message }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch wallets." }, { status: 500 });
   }
 
   let checked = 0;

@@ -194,7 +194,7 @@ export async function POST(req: Request) {
             .eq("id", approval_id)
             .eq("status", "pending")
             .eq("approved_by", session.userId);
-        return NextResponse.json({ error: e instanceof Error ? e.message : "Execution failed" }, { status: 500 });
+        return NextResponse.json({ error: "Dispute action failed. Please try again." }, { status: 500 });
       }
 
       // Mark approval as approved
@@ -300,8 +300,8 @@ export async function POST(req: Request) {
           receipt_id, action, note.trim(),
           tip.creator_user_id, tip.stripe_payment_intent_id, session.userId,
         );
-      } catch (e) {
-        return NextResponse.json({ error: e instanceof Error ? e.message : "Execution failed" }, { status: 500 });
+      } catch {
+        return NextResponse.json({ error: "Dispute action failed. Please try again." }, { status: 500 });
       }
 
       // Record as instant approval
@@ -424,8 +424,7 @@ export async function POST(req: Request) {
     if (e instanceof Error && e.message === "FORBIDDEN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 

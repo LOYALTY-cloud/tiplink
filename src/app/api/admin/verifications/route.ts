@@ -29,7 +29,7 @@ export async function GET(req: Request) {
       supabaseAdmin.from("identity_verifications").select("id", { count: "exact", head: true }).eq("status", "rejected"),
     ]);
 
-    if (itemsResult.error) return NextResponse.json({ error: itemsResult.error.message }, { status: 500 });
+    if (itemsResult.error) return NextResponse.json({ error: "Failed to fetch verifications." }, { status: 500 });
     const data = itemsResult.data ?? [];
 
     // Fetch user profiles for display
@@ -96,7 +96,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ data: enriched, counts, total, page, pageSize });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e ?? "Server error");
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

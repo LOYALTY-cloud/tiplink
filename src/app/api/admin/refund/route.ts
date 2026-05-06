@@ -288,8 +288,7 @@ export async function POST(req: Request) {
         .from("tip_intents")
         .update({ refund_status: alreadyRefunded > 0 ? "partial" : "none" })
         .eq("receipt_id", tip.receipt_id);
-      const errMsg = e instanceof Error ? e.message : String(e ?? "Stripe refund failed");
-      return NextResponse.json({ error: errMsg }, { status: 400 });
+      return NextResponse.json({ error: "Stripe refund failed. Please check the tip status and try again." }, { status: 400 });
     }
 
     // Log admin action
@@ -334,8 +333,7 @@ export async function POST(req: Request) {
       amount: refundAmt,
       status: stripeRefund.status,
     });
-  } catch (e: unknown) {
-    const errMsg = e instanceof Error ? e.message : String(e ?? "Server error");
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
