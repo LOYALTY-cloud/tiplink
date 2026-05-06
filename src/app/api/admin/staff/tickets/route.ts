@@ -56,6 +56,10 @@ export async function POST(req: Request) {
   try {
     const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // Only owner/super_admin can issue disciplinary tickets
+    try { requireRole(session.role, ["owner", "super_admin"]); } catch {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const body = await req.json();
     const { toAdminId, type, message } = body;
@@ -146,13 +150,7 @@ export async function POST(req: Request) {
           error: "Note tickets are not enabled in the current database schema yet. Run APPLY_ADMIN_TICKETS_COLUMNS.sql to sync the admin_tickets constraint.",
         }, { status: 400 });
       }
-      return NextResponse.json({ error: "Failed to create ticket: " + error.message }, { status: 500 });
-    }
-
-    // Log action
-    const severityMap: Record<string, string> = {
-      warning: "warning",
-      policy_violation: "critical",
+      return NextResponse.json({ error: "Failed to create disciplinary ticket." }, { status: 500 });
       escalation: "warning",
       performance_review: "info",
       note: "info",

@@ -35,6 +35,8 @@ export async function POST(req: Request) {
       .eq("id", payroll_run_id);
 
     if (error) return NextResponse.json({ error: "Failed to mark payroll as paid." }, { status: 500 });
+
+    return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
