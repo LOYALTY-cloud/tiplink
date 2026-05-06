@@ -12,7 +12,7 @@ export const runtime = "nodejs";
  */
 export async function GET(req: NextRequest) {
   const key = req.nextUrl.searchParams.get("key");
-  if (!key || key !== process.env.CRON_SECRET) {
+  if (req.headers.get("x-vercel-cron") !== "1" && (!key || key !== process.env.CRON_SECRET)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

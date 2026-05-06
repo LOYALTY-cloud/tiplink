@@ -13,10 +13,11 @@ export const runtime = "nodejs";
  * Vercel cron jobs always use GET — Authorization: Bearer <CRON_SECRET> header sent automatically.
  */
 export async function GET(req: Request) {
-  // Strict auth: require CRON_SECRET always (Vercel sends Authorization: Bearer <secret>)
+  // Accept x-vercel-cron header (Vercel automated) OR Authorization: Bearer <CRON_SECRET>
   const auth = req.headers.get("authorization");
+  const isCron = req.headers.get("x-vercel-cron") === "1";
   const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret || !auth || auth !== `Bearer ${cronSecret}`) {
+  if (!cronSecret || (!isCron && (!auth || auth !== `Bearer ${cronSecret}`))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

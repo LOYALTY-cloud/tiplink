@@ -1,11 +1,11 @@
 {
   "crons": [
     {
-      "path": "/api/support/session/cleanup?key=${CRON_SECRET}",
+      "path": "/api/support/session/cleanup",
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/interview-reminders?key=${CRON_SECRET}",
+      "path": "/api/cron/interview-reminders",
       "schedule": "*/10 * * * *"
     },
     {
@@ -13,51 +13,51 @@
       "schedule": "0 * * * *"
     },
     {
-      "path": "/api/cron/cleanup-verifications?key=${CRON_SECRET}",
+      "path": "/api/cron/cleanup-verifications",
       "schedule": "0 3 * * *"
     },
     {
-      "path": "/api/cron/cleanup-rate-limits?key=${CRON_SECRET}",
+      "path": "/api/cron/cleanup-rate-limits",
       "schedule": "0 4 * * *"
     },
     {
-      "path": "/api/cron/reset-daily-withdrawn?key=${CRON_SECRET}",
+      "path": "/api/cron/reset-daily-withdrawn",
       "schedule": "0 0 * * *"
     },
     {
-      "path": "/api/cron/recover-stuck-payouts?key=${CRON_SECRET}",
+      "path": "/api/cron/recover-stuck-payouts",
       "schedule": "0 * * * *"
     },
     {
-      "path": "/api/cron/reconcile-stripe?key=${CRON_SECRET}",
+      "path": "/api/cron/reconcile-stripe",
       "schedule": "0 5 * * *"
     },
     {
-      "path": "/api/cron/ledger-audit?key=${CRON_SECRET}",
+      "path": "/api/cron/ledger-audit",
       "schedule": "0 6 * * *"
     },
     {
-      "path": "/api/cron/release-payouts?key=${CRON_SECRET}",
+      "path": "/api/cron/release-payouts",
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/snapshot-daily?key=${CRON_SECRET}",
+      "path": "/api/cron/snapshot-daily",
       "schedule": "0 0 * * *"
     },
     {
-      "path": "/api/cron/ai-alerts?key=${CRON_SECRET}",
+      "path": "/api/cron/ai-alerts",
       "schedule": "*/10 * * * *"
     },
     {
-      "path": "/api/cron/approve-theme-sales?key=${CRON_SECRET}",
+      "path": "/api/cron/approve-theme-sales",
       "schedule": "0 */6 * * *"
     },
     {
-      "path": "/api/themes/payout/process?key=${CRON_SECRET}",
+      "path": "/api/themes/payout/process",
       "schedule": "0 9 * * *"
     },
     {
-      "path": "/api/cron/store-grace-expiry?key=${CRON_SECRET}",
+      "path": "/api/cron/store-grace-expiry",
       "schedule": "0 2 * * *"
     }
   ]

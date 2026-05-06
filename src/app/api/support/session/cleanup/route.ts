@@ -4,7 +4,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export const runtime = "nodejs";
 
 async function handleCleanup(req: Request) {
-  // Strict auth — accept Bearer header OR ?key= query param (Vercel cron compat)
+  // Accept x-vercel-cron header (Vercel automated), Bearer token, or ?key= query param
+  const isCronHeader = req.headers.get("x-vercel-cron") === "1";
   const auth = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
   const url = new URL(req.url);
@@ -13,7 +14,7 @@ async function handleCleanup(req: Request) {
   const headerOk = auth && cronSecret && auth === `Bearer ${cronSecret}`;
   const queryOk = queryKey && cronSecret && queryKey === cronSecret;
 
-  if (!cronSecret || (!headerOk && !queryOk)) {
+  if (!cronSecret || (!isCronHeader && !headerOk && !queryOk)) {
     return new Response("Unauthorized", { status: 401 });
   }
 

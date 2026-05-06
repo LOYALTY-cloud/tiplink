@@ -18,7 +18,7 @@ function escHtml(s: string): string {
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const key = searchParams.get("key");
-  if (key !== process.env.CRON_SECRET) {
+  if (req.headers.get("x-vercel-cron") !== "1" && key !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -19,8 +19,9 @@ export const runtime = "nodejs";
  * Run daily. Safe to run at any time.
  */
 export async function GET(req: Request) {
+  const isCron = req.headers.get("x-vercel-cron") === "1";
   const key = new URL(req.url).searchParams.get("key");
-  if (key !== process.env.CRON_SECRET) {
+  if (!isCron && key !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
