@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       .eq("user_id", user_id)
       .maybeSingle();
 
-    if (profileErr) return NextResponse.json({ error: profileErr.message }, { status: 500 });
+    if (profileErr) return NextResponse.json({ error: "Failed to load user profile." }, { status: 500 });
     if (!targetProfile) return NextResponse.json({ error: "User not found" }, { status: 404 });
     if (targetProfile.account_status === "closed") {
       return NextResponse.json({ error: "Account already closed" }, { status: 400 });
@@ -73,7 +73,7 @@ export async function POST(req: Request) {
       })
       .eq("user_id", user_id);
 
-    if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+    if (updErr) return NextResponse.json({ error: "Failed to update account status." }, { status: 500 });
 
     // 8. Write enriched audit ledger entry
     try {

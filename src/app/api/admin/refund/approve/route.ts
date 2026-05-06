@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       .from("refund_approval_votes")
       .insert({ refund_id, admin_id: adminId });
 
-    if (voteErr) return NextResponse.json({ error: voteErr.message }, { status: 500 });
+    if (voteErr) return NextResponse.json({ error: "Failed to record approval vote." }, { status: 500 });
 
     // Count total votes
     const { count } = await supabaseAdmin
@@ -135,7 +135,7 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (lockErr) {
-      return NextResponse.json({ error: lockErr.message }, { status: 500 });
+      return NextResponse.json({ error: "Failed to acquire refund lock." }, { status: 500 });
     }
 
     if (!lockResult) {

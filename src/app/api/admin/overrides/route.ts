@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
     );
 
     if (activityCountError) {
-      return NextResponse.json({ error: activityCountError.message }, { status: 500 });
+      return NextResponse.json({ error: "Failed to load activity data." }, { status: 500 });
     }
 
     for (const row of (activityCountRows ?? []) as OverrideActivityCountRow[]) {

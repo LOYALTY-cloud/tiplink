@@ -52,7 +52,7 @@ export async function POST(req: Request) {
       .order("created_at", { ascending: false })
       .limit(240);
 
-    if (listError) return NextResponse.json({ error: listError.message }, { status: 500 });
+    if (listError) return NextResponse.json({ error: "Failed to fetch notifications." }, { status: 500 });
 
     const targetIds = ((data ?? []) as AdminNotificationRow[])
       .filter((row) => !row.read)

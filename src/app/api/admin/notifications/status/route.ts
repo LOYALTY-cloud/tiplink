@@ -63,7 +63,7 @@ export async function POST(req: Request) {
       .eq("id", id)
       .maybeSingle();
 
-    if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 });
+    if (fetchError) return NextResponse.json({ error: "Failed to fetch notification." }, { status: 500 });
     if (!notification) return NextResponse.json({ error: "Notification not found" }, { status: 404 });
 
     const row = notification as AdminNotificationRow;
@@ -87,7 +87,7 @@ export async function POST(req: Request) {
       })
       .eq("id", id);
 
-    if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+    if (updateError) return NextResponse.json({ error: "Failed to update notification." }, { status: 500 });
 
     return NextResponse.json({ ok: true });
   } catch {

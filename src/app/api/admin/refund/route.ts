@@ -77,7 +77,7 @@ export async function POST(req: Request) {
       .eq("receipt_id", tip_intent_id)
       .maybeSingle();
 
-    if (tipErr) return NextResponse.json({ error: tipErr.message }, { status: 500 });
+    if (tipErr) return NextResponse.json({ error: "Failed to load tip data." }, { status: 500 });
     if (!tip) return NextResponse.json({ error: "Tip not found" }, { status: 404 });
     if (!tip.stripe_payment_intent_id) return NextResponse.json({ error: "No Stripe PaymentIntent linked to this tip" }, { status: 400 });
 
@@ -134,7 +134,7 @@ export async function POST(req: Request) {
         if (insertReqErr.code === "23505") {
           return NextResponse.json({ error: "A refund request is already pending for this tip" }, { status: 409 });
         }
-        return NextResponse.json({ error: insertReqErr.message }, { status: 500 });
+        return NextResponse.json({ error: "Failed to create refund request." }, { status: 500 });
       }
 
       // Log to admin_actions

@@ -70,7 +70,7 @@ export async function POST(req: Request) {
       .eq("receipt_id", tip_intent_id)
       .maybeSingle();
 
-    if (tipErr) return NextResponse.json({ error: tipErr.message }, { status: 500 });
+    if (tipErr) return NextResponse.json({ error: "Failed to load tip data." }, { status: 500 });
     if (!tip) return NextResponse.json({ error: "Tip not found" }, { status: 404 });
 
     // Only retry tips stuck in "initiated"

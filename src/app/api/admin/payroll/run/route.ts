@@ -133,7 +133,7 @@ export async function POST(req: Request) {
       .single();
 
     if (runErr || !run) {
-      return NextResponse.json({ error: runErr?.message ?? "Failed to create run" }, { status: 500 });
+      return NextResponse.json({ error: "Failed to create payroll run." }, { status: 500 });
     }
 
     // Insert item snapshots and return with generated IDs

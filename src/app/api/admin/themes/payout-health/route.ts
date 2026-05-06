@@ -58,10 +58,10 @@ export async function GET(req: Request) {
     ]);
 
     if (salesErr) {
-      return NextResponse.json({ error: `Failed to load theme sales: ${salesErr.message}` }, { status: 500 });
+      return NextResponse.json({ error: "Failed to load theme sales." }, { status: 500 });
     }
     if (payoutsErr) {
-      return NextResponse.json({ error: `Failed to load payout requests: ${payoutsErr.message}` }, { status: 500 });
+      return NextResponse.json({ error: "Failed to load payout requests." }, { status: 500 });
     }
 
     const salesRows = (sales ?? []) as ThemeSaleRow[];

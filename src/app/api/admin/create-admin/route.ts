@@ -94,7 +94,7 @@ export async function POST(req: Request) {
       }).eq("user_id", targetUserId);
 
       if (updateErr) {
-        return NextResponse.json({ error: "Failed to update profile: " + updateErr.message }, { status: 500 });
+        return NextResponse.json({ error: "Failed to update profile." }, { status: 500 });
       }
 
     // ── Create brand-new admin user ──
@@ -118,7 +118,7 @@ export async function POST(req: Request) {
       });
 
       if (authErr || !authData.user) {
-        return NextResponse.json({ error: authErr?.message ?? "Failed to create auth user" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to create auth user." }, { status: 500 });
       }
 
       userId = authData.user.id;
@@ -140,7 +140,7 @@ export async function POST(req: Request) {
 
       if (profileErr) {
         await supabaseAdmin.auth.admin.deleteUser(userId);
-        return NextResponse.json({ error: "Failed to create profile: " + profileErr.message }, { status: 500 });
+        return NextResponse.json({ error: "Failed to create profile." }, { status: 500 });
       }
     }
 

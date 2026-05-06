@@ -131,7 +131,7 @@ export async function POST(req: Request) {
         .eq("status", "pending")
         .maybeSingle() as { data: ApprovalRow | null; error: any };
 
-      if (apErr) return NextResponse.json({ error: apErr.message }, { status: 500 });
+      if (apErr) return NextResponse.json({ error: "Failed to load approval record." }, { status: 500 });
       if (!approval) return NextResponse.json({ error: "Approval not found or already resolved" }, { status: 404 });
 
       // Can't approve your own proposal
@@ -162,7 +162,7 @@ export async function POST(req: Request) {
           .select("id")
           .maybeSingle();
 
-        if (claimErr) return NextResponse.json({ error: claimErr.message }, { status: 500 });
+        if (claimErr) return NextResponse.json({ error: "Failed to load dispute claim." }, { status: 500 });
         if (!claimedApproval) {
           return NextResponse.json({ error: "Approval is already being processed or completed" }, { status: 409 });
         }
@@ -207,7 +207,7 @@ export async function POST(req: Request) {
           .eq("approved_by", session.userId);
 
         if (markApprovedErr) {
-          return NextResponse.json({ error: markApprovedErr.message }, { status: 500 });
+          return NextResponse.json({ error: "Failed to update approval status." }, { status: 500 });
         }
 
       // Log both admin actions
@@ -286,7 +286,7 @@ export async function POST(req: Request) {
       .eq("receipt_id", receipt_id)
       .maybeSingle();
 
-    if (tipErr) return NextResponse.json({ error: tipErr.message }, { status: 500 });
+    if (tipErr) return NextResponse.json({ error: "Failed to load tip data." }, { status: 500 });
     if (!tip) return NextResponse.json({ error: "Dispute not found" }, { status: 404 });
     if (tip.status !== "disputed") {
       return NextResponse.json({ error: "Tip is not in disputed status" }, { status: 400 });
@@ -378,7 +378,7 @@ export async function POST(req: Request) {
       .select("id")
       .single();
 
-    if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 });
+    if (insertErr) return NextResponse.json({ error: "Failed to save dispute approval." }, { status: 500 });
 
     // Log the proposal
     await supabaseAdmin.from("admin_actions").insert({

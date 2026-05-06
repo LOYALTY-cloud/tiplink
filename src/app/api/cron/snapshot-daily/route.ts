@@ -33,7 +33,7 @@ export async function GET(req: Request) {
       return await fallbackSnapshot(today)
     }
     return NextResponse.json(
-      { error: "Failed to query wallets", detail: queryErr?.message },
+      { error: "Failed to query wallets" },
       { status: 500 }
     )
   }
@@ -56,7 +56,7 @@ export async function GET(req: Request) {
 
   if (upsertErr) {
     return NextResponse.json(
-      { error: "Failed to upsert snapshots", detail: upsertErr.message },
+      { error: "Failed to upsert snapshots" },
       { status: 500 }
     )
   }
@@ -73,7 +73,7 @@ async function fallbackSnapshot(today: string) {
 
   if (wErr || !wallets) {
     return NextResponse.json(
-      { error: "Failed to fetch wallets", detail: wErr?.message },
+      { error: "Failed to fetch wallets" },
       { status: 500 }
     )
   }
@@ -109,7 +109,7 @@ async function fallbackSnapshot(today: string) {
 
   if (upsertErr) {
     return NextResponse.json(
-      { error: "Failed to upsert snapshots", detail: upsertErr.message },
+      { error: "Failed to upsert snapshots" },
       { status: 500 }
     )
   }

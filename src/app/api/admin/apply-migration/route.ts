@@ -39,9 +39,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ exists: true, message: "Table 'notifications' already exists." });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Server error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
