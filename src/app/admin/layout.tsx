@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, memo } from "react";
 import { ui } from "@/lib/ui";
 import SupportTransferModal from "@/components/admin/SupportTransferModal";
 import { useInactivity } from "@/hooks/useInactivity";
@@ -24,7 +24,107 @@ type SearchResult = {
   href: string;
 };
 
-export default function AdminLayout({
+type NavItem = { label: string; href: string; icon: string };
+type NavSection = { title: string; items: NavItem[] };
+
+/**
+ * MoreMenuPanel — isolated component so its open/close state never
+ * causes the parent AdminLayout to re-render (eliminates menu-open jitter).
+ */
+const MoreMenuPanel = memo(function MoreMenuPanel({
+  sections,
+}: {
+  sections: NavSection[];
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Native wheel block — prevents page scroll while the panel is open.
+  // React onWheel+stopPropagation doesn't work because the browser's native
+  // scroll handling fires before React's synthetic event system.
+  useEffect(() => {
+    if (!open) return;
+    const panel = scrollRef.current;
+    const blockScroll = (e: WheelEvent) => {
+      if (panel && panel.contains(e.target as Node)) {
+        const { scrollTop, scrollHeight, clientHeight } = panel;
+        if (scrollTop === 0 && e.deltaY < 0) e.preventDefault();
+        if (scrollTop + clientHeight >= scrollHeight - 1 && e.deltaY > 0) e.preventDefault();
+      } else {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener("wheel", blockScroll, { passive: false });
+    return () => document.removeEventListener("wheel", blockScroll);
+  }, [open]);
+
+  return (
+    <>
+      {/* Hamburger trigger */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="hidden md:block text-white/60 hover:text-white text-lg px-2 py-1 flex-shrink-0"
+        aria-label="More pages"
+      >
+        ☰
+      </button>
+
+      {/* Portal-like fixed layer — completely outside the sticky header stacking context */}
+      <div
+        className="fixed inset-0 z-[199] hidden md:block pointer-events-none"
+        aria-hidden={!open}
+      >
+        {/* Backdrop */}
+        <div
+          className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${open ? "opacity-100 pointer-events-auto" : "opacity-0"}`}
+          onClick={() => setOpen(false)}
+        />
+        {/* Slide panel */}
+        <aside
+          className={`absolute left-0 top-0 h-full w-64 bg-[#0B1220] border-r border-white/10 shadow-[4px_0_40px_rgba(0,0,0,0.7)] flex flex-col pointer-events-auto transition-transform duration-200 ease-out ${open ? "translate-x-0" : "-translate-x-full"}`}
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
+            <div>
+              <p className="text-[10px] text-white/40 uppercase tracking-wider">Admin</p>
+              <p className="text-sm font-semibold">More Pages</p>
+            </div>
+            <button
+              onClick={() => setOpen(false)}
+              className="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center"
+              aria-label="Close"
+            >✕</button>
+          </div>
+          <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain px-2 py-3 space-y-4">
+            {sections.map((section) => (
+              <div key={section.title}>
+                <p className="text-[10px] text-white/30 uppercase tracking-wider px-3 mb-1">{section.title}</p>
+                <div className="space-y-0.5">
+                  {section.items.map((it) => {
+                    const active = pathname === it.href || (it.href !== "/admin" && pathname?.startsWith(it.href));
+                    return (
+                      <button
+                        key={it.href}
+                        onClick={() => { router.push(it.href); setOpen(false); }}
+                        className={`w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${active ? "bg-blue-500/20 text-blue-400 border border-blue-400/20" : "text-white/70 hover:bg-white/5 hover:text-white"}`}
+                      >
+                        <span className="text-base">{it.icon}</span>
+                        <span>{it.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+      </div>
+    </>
+  );
+});
+
+
   children,
 }: {
   children: React.ReactNode;
@@ -42,12 +142,10 @@ export default function AdminLayout({
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [adminDrawerOpen, setAdminDrawerOpen] = useState(false);
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [sessionWarning, setSessionWarning] = useState(false);
   const disciplinary = useDisciplinaryReports();
   const searchRef = useRef<HTMLDivElement>(null);
   const drawerScrollRef = useRef<HTMLDivElement>(null);
-  const moreMenuScrollRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Admin: tighter 5-min timeout, 4-min warning
@@ -266,22 +364,6 @@ export default function AdminLayout({
     };
   }, [adminDrawerOpen]);
 
-  // Native wheel event prevention — fires with { passive: false } so
-  // e.preventDefault() at scroll edges actually blocks page scroll.
-  useEffect(() => {
-    const panel = moreMenuScrollRef.current;
-    if (!panel || !moreMenuOpen) return;
-    const onWheel = (e: WheelEvent) => {
-      e.stopPropagation();
-      const { scrollTop, scrollHeight, clientHeight } = panel;
-      const atTop = scrollTop === 0 && e.deltaY < 0;
-      const atBottom = scrollTop + clientHeight >= scrollHeight - 1 && e.deltaY > 0;
-      if (atTop || atBottom) e.preventDefault();
-    };
-    panel.addEventListener("wheel", onWheel, { passive: false });
-    return () => panel.removeEventListener("wheel", onWheel);
-  }, [moreMenuOpen]);
-
   useEffect(() => {
     const drawer = drawerScrollRef.current;
     if (!drawer || !adminDrawerOpen) return;
@@ -451,7 +533,7 @@ export default function AdminLayout({
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-10 bg-black/60 backdrop-blur-xl border-b border-white/10 [will-change:transform] [transform:translateZ(0)]">
+      <header className="sticky top-0 z-10 bg-black/60 backdrop-blur-xl border-b border-white/10">
         <div className="max-w-7xl mx-auto px-3 md:px-8 h-12 md:h-auto md:py-3 flex items-center justify-between gap-2 md:gap-3">
           <div className="flex items-center gap-2 md:gap-4">
             <button
@@ -467,13 +549,7 @@ export default function AdminLayout({
                 <span className="text-sm md:text-lg font-semibold tracking-wide">ADMIN</span>
               </Link>
 
-              <button
-                onClick={() => setMoreMenuOpen((v) => !v)}
-                className="hidden md:block text-white/60 hover:text-white text-lg px-2 py-1 flex-shrink-0"
-                aria-label="More pages"
-              >
-                ☰
-              </button>
+              <MoreMenuPanel sections={NAV_SECTIONS.slice(1)} />
             </div>
 
             <nav className="hidden md:flex items-center gap-1">
@@ -536,72 +612,6 @@ export default function AdminLayout({
           </div>
         </div>
       </header>
-
-      {/* Desktop more-pages side panel — rendered outside the sticky header to
-          avoid any interaction with the header's backdrop-blur compositing layer. */}
-      <div
-        className={`fixed inset-0 z-[199] hidden md:block transition-none pointer-events-none`}
-        aria-hidden={!moreMenuOpen}
-      >
-        {/* Overlay — stopPropagation on wheel so scroll can't bleed to the page behind */}
-        <div
-          className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
-            moreMenuOpen ? "opacity-100 pointer-events-auto" : "opacity-0"
-          }`}
-          onClick={() => setMoreMenuOpen(false)}
-          onWheel={(e) => e.stopPropagation()}
-        />
-        {/* Slide panel */}
-        <aside
-          className={`absolute left-0 top-0 h-full w-64 bg-[#0B1220] border-r border-white/10 shadow-[4px_0_40px_rgba(0,0,0,0.7)] flex flex-col pointer-events-auto transition-transform duration-200 ease-out ${
-            moreMenuOpen ? "translate-x-0" : "-translate-x-full"
-          }`}
-        >
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
-            <div>
-              <p className="text-[10px] text-white/40 uppercase tracking-wider">Admin</p>
-              <p className="text-sm font-semibold">More Pages</p>
-            </div>
-            <button
-              onClick={() => setMoreMenuOpen(false)}
-              className="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center"
-              aria-label="Close"
-            >
-              ✕
-            </button>
-          </div>
-          <div
-            ref={moreMenuScrollRef}
-            className="flex-1 overflow-y-auto overscroll-contain px-2 py-3 space-y-4"
-            onTouchMove={(e) => e.stopPropagation()}
-          >
-            {NAV_SECTIONS.slice(1).map((section) => (
-              <div key={section.title}>
-                <p className="text-[10px] text-white/30 uppercase tracking-wider px-3 mb-1">{section.title}</p>
-                <div className="space-y-0.5">
-                  {section.items.map((it) => {
-                    const active = pathname === it.href || (it.href !== "/admin" && pathname?.startsWith(it.href));
-                    return (
-                      <button
-                        key={it.href}
-                        onClick={() => { router.push(it.href); setMoreMenuOpen(false); }}
-                        className={`admin-menu-item w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${
-                          active
-                            ? "bg-blue-500/20 text-blue-400 border border-blue-400/20"
-                            : "text-white/70 hover:bg-white/5 hover:text-white"
-                        }`}
-                      >
-                        <span className="text-base">{it.icon}</span>
-                        <span>{it.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </aside>
-      </div>
 
       {/* Admin mobile drawer */}
       {adminDrawerOpen && (
