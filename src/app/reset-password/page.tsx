@@ -15,23 +15,34 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     (async () => {
-      // Session is established by /auth/callback before we land here.
-      // Just check for an active session; if none, the link was invalid/expired.
+      // Check for token_hash from the password recovery email link.
+      // We verify it client-side so the session lands in localStorage.
+      const params = new URLSearchParams(window.location.search);
+      const tokenHash = params.get("token_hash");
+
+      if (tokenHash) {
+        const { error } = await supabase.auth.verifyOtp({
+          type: "recovery",
+          token_hash: tokenHash,
+        });
+        if (error) {
+          setErr("Reset link is invalid or expired. Please request a new one.");
+          return;
+        }
+        // Clean the token from the URL so it can't be reused via back button
+        window.history.replaceState({}, "", "/reset-password");
+        setReady(true);
+        return;
+      }
+
+      // No token in URL — check for an already-established session
       const { data } = await supabase.auth.getSession();
       if (data.session) {
         setReady(true);
         return;
       }
 
-      // Give Supabase a moment to propagate the session cookie then retry once.
-      setTimeout(async () => {
-        const { data: retry } = await supabase.auth.getSession();
-        if (retry.session) {
-          setReady(true);
-        } else {
-          setErr("Reset link is invalid or expired. Please request a new one.");
-        }
-      }, 1500);
+      setErr("Reset link is invalid or expired. Please request a new one.");
     })();
   }, []);
 

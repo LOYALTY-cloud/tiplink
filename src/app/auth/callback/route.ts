@@ -25,9 +25,15 @@ export async function GET(request: Request) {
     | null;
 
   if ((token || token_hash) && type) {
+    // For password recovery, redirect to reset-password with the token so
+    // the client-side verifyOtp call establishes the session in localStorage.
+    if (type === "recovery") {
+      const hash = token_hash || token || "";
+      return NextResponse.redirect(`${baseUrl}/reset-password?token_hash=${encodeURIComponent(hash)}`);
+    }
     const { data } = await supabase.auth.verifyOtp({ type, token_hash: token_hash || token || "" });
     if (data?.user) await syncProfileEmail(data.user.id, data.user.email ?? null);
-    const dest = type === "recovery" ? "/reset-password" : (next ?? "/dashboard");
+    const dest = next ?? "/dashboard";
     return NextResponse.redirect(`${baseUrl}${dest}`);
   }
 
