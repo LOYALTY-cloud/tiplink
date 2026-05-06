@@ -24,3 +24,27 @@ export async function GET(req: Request) {
 
   return NextResponse.json(data);
 }
+
+/**
+ * DELETE /api/admin/applications — permanently deletes all application records.
+ * Restricted to owner only.
+ */
+export async function DELETE(req: Request) {
+  const session = await getAdminFromRequest(req);
+  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  try { requireRole(session.role, ["owner"]); } catch {
+    return NextResponse.json({ error: "Forbidden — owner only" }, { status: 403 });
+  }
+
+  const { error } = await supabaseAdmin
+    .from("applications")
+    .delete()
+    .neq("id", "00000000-0000-0000-0000-000000000000"); // delete all rows
+
+  if (error) {
+    console.error("admin applications DELETE error:", error.message);
+    return NextResponse.json({ error: "Failed to clear applications." }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

@@ -71,6 +71,8 @@ export default function AdminApplicantsPage() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [clearConfirm, setClearConfirm] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("all");
   const [showRejected, setShowRejected] = useState(false);
@@ -108,6 +110,28 @@ export default function AdminApplicantsPage() {
     if (selected.resume_url) loadPreview(selected.id);
     else setPreviewUrl(null);
   }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function clearAllApps() {
+    setClearing(true);
+    try {
+      const res = await fetch("/api/admin/applications", {
+        method: "DELETE",
+        headers: getAdminHeaders(),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || "Failed to clear applications.");
+      } else {
+        setApps([]);
+        setSelected(null);
+      }
+    } catch {
+      setError("Failed to clear applications.");
+    } finally {
+      setClearing(false);
+      setClearConfirm(false);
+    }
+  }
 
   async function loadApps() {
     setLoading(true);
@@ -345,6 +369,31 @@ export default function AdminApplicantsPage() {
           >
             Refresh
           </button>
+          {clearConfirm ? (
+            <span className="flex items-center gap-2 text-xs">
+              <span className="text-red-300">Delete all applications?</span>
+              <button
+                onClick={clearAllApps}
+                disabled={clearing}
+                className="px-3 py-1.5 rounded-lg bg-red-500/30 hover:bg-red-500/50 text-red-200 border border-red-500/40 disabled:opacity-50 transition"
+              >
+                {clearing ? "Clearing…" : "Yes, delete all"}
+              </button>
+              <button
+                onClick={() => setClearConfirm(false)}
+                className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 border border-white/10 transition"
+              >
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setClearConfirm(true)}
+              className="text-xs px-3 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition"
+            >
+              Clear All
+            </button>
+          )}
         </div>
 
         {error && (
