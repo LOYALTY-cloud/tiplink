@@ -1,15 +1,10 @@
 import { NextResponse } from "next/server";
 import { createSupabaseRouteClient } from "@/lib/supabase/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createNotification } from "@/lib/notifications";
 import { logFreezeEvent } from "@/lib/freezeAudit";
 
 export const runtime = "nodejs";
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 /**
  * POST /api/account/unfreeze

@@ -1,16 +1,11 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { ProfileRow } from "@/types/db";
 import { stripe } from "@/lib/stripe/server";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { logCaughtError } from "@/lib/errorLogger";
 
 export const runtime = "nodejs";
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 import { STRIPE_PERCENT, STRIPE_FLAT, PLATFORM_PERCENT, calculateTipFees } from "@/lib/fees";
 import { analyzeTransaction } from "@/lib/fraudEngine";

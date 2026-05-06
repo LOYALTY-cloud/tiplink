@@ -1,14 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe/server";
 import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 
 export const runtime = "nodejs";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function POST(req: Request) {
   try {
@@ -38,7 +33,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const mode = body?.mode; // "manage" for existing accounts
 
-    const { data: profile, error } = await supabase
+    const { data: profile, error } = await supabaseAdmin
       .from("profiles")
       .select("stripe_account_id")
       .eq("user_id", user_id)
@@ -53,7 +48,7 @@ export async function POST(req: Request) {
 
     // Ensure a profiles row exists for this user
     if (!profile) {
-      const { error: insErr } = await supabase.from("profiles").upsert({ user_id, handle: user_id }, { onConflict: "user_id" });
+      const { error: insErr } = await supabaseAdmin.from("profiles").upsert({ user_id, handle: user_id }, { onConflict: "user_id" });
       if (insErr) {
         console.error("stripe/connect/session upsert", insErr);
         return NextResponse.json({ error: "Failed to create profile" }, { status: 500 });
@@ -61,7 +56,7 @@ export async function POST(req: Request) {
     }
 
     // Fetch email from Supabase Auth (admin) — profiles table doesn't store email
-    const { data: authUserRes, error: authUserErr } = await supabase.auth.admin.getUserById(user_id);
+    const { data: authUserRes, error: authUserErr } = await supabaseAdmin.auth.admin.getUserById(user_id);
     if (authUserErr) {
       console.error("stripe/connect/session auth user", authUserErr);
       return NextResponse.json({ error: "Failed to load user" }, { status: 500 });
@@ -81,7 +76,7 @@ export async function POST(req: Request) {
 
       stripeAccountId = acct.id;
 
-      const { error: updateErr } = await supabase
+      const { error: updateErr } = await supabaseAdmin
         .from("profiles")
         .update({ stripe_account_id: stripeAccountId })
         .eq("user_id", user_id);
