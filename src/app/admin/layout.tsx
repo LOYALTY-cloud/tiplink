@@ -441,6 +441,66 @@ export default function AdminLayout({
     setSearchOpen(results.length > 0);
   }
 
+  // useMemo MUST be before any conditional return (Rules of Hooks).
+  // Inline the non-Core sections so no hook is skipped on early returns.
+  const moreSections = useMemo<NavSection[]>(() => [
+    {
+      title: "Risk & Finance",
+      items: [
+        { label: "Refunds", href: "/admin/refunds", icon: "💸" },
+        { label: "Disputes", href: "/admin/disputes", icon: "⚠️" },
+        ...(userRole && ["owner", "super_admin", "finance_admin"].includes(userRole)
+          ? [{ label: "Fraud", href: "/admin/fraud", icon: "🚨" }]
+          : []),
+        { label: "Verifications", href: "/admin/verifications", icon: "🔍" },
+        { label: "Creator Applications", href: "/admin/creator-applications", icon: "🎨" },
+        { label: "Elite Applications", href: "/admin/creators", icon: "⭐" },
+      ],
+    },
+    {
+      title: "Support",
+      items: [
+        { label: "Tickets", href: "/admin/tickets", icon: "🎫" },
+        { label: "Live Chat", href: "/admin/support", icon: "💬" },
+        { label: "Analytics", href: "/admin/support/analytics", icon: "📊" },
+      ],
+    },
+    {
+      title: "System",
+      items: [
+        ...(userRole && ["owner", "super_admin"].includes(userRole)
+          ? [
+              { label: "Staff", href: "/admin/staff", icon: "🛡️" },
+              { label: "Discipline", href: "/admin/staff/tickets", icon: "🧾" },
+              { label: "Payroll", href: "/admin/payroll", icon: "💰" },
+              { label: "Applicants", href: "/admin/applicants", icon: "📝" },
+              { label: "Interview Calendar", href: "/admin/interviews", icon: "📅" },
+            ]
+          : []),
+        { label: "Approvals", href: "/admin/approvals", icon: "✅" },
+        ...(userRole && ["owner", "super_admin", "finance_admin"].includes(userRole)
+          ? [{ label: "Overrides", href: "/admin/overrides", icon: "⚙️" }]
+          : []),
+        ...(userRole && ["owner", "super_admin"].includes(userRole)
+          ? [{ label: "Logs", href: "/admin/logs", icon: "📜" }]
+          : []),
+        ...(userRole && ["owner", "super_admin"].includes(userRole)
+          ? [
+              { label: "Activity", href: "/admin/activity", icon: "📋" },
+              { label: "Activity Calendar", href: "/admin/activity-calendar", icon: "🗓️" },
+            ]
+          : []),
+        ...(userRole && ["owner", "super_admin"].includes(userRole)
+          ? [{ label: "Store Hero Ads", href: "/admin/store-hero", icon: "🎬" }]
+          : []),
+        ...(userRole && ["owner"].includes(userRole)
+          ? [{ label: "Owner AI", href: "/admin/owner-ai", icon: "🧠" }]
+          : []),
+        { label: "Guide", href: "/admin/guide", icon: "📖" },
+      ],
+    },
+  ], [userRole]);
+
   // Login and blocked pages render without admin chrome
   if (pathname === "/admin/login" || pathname === "/admin/blocked") {
     return <>{children}</>;
@@ -538,10 +598,6 @@ export default function AdminLayout({
   ];
 
   const adminNavItems = NAV_SECTIONS[0].items;
-  // Memoize the slice so MoreMenuPanel (memo'd) doesn't re-render every time
-  // AdminLayout re-renders with new state (search typing, etc.)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const moreSections = useMemo(() => NAV_SECTIONS.slice(1), [userRole]);
 
   return (
     <div className="min-h-screen">
