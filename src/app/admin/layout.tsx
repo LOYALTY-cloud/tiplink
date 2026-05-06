@@ -245,43 +245,26 @@ export default function AdminLayout({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Prevent scroll-chaining into the page while admin menus are open.
+  // Prevent scroll-chaining into the page while the MOBILE drawer is open.
+  // Desktop moreMenu uses a fixed overlay that already blocks interaction —
+  // applying position:fixed on desktop causes a visible layout jump (scrollbar
+  // flash + page-top snap) which is the "jitter when menu opens" bug.
   useEffect(() => {
-    const shouldLock = adminDrawerOpen || moreMenuOpen;
-    if (!shouldLock) return;
+    if (!adminDrawerOpen) return;
 
     const body = document.body;
     const scrollY = window.scrollY;
-    const prevPosition = body.style.position;
-    const prevTop = body.style.top;
-    const prevLeft = body.style.left;
-    const prevRight = body.style.right;
-    const prevWidth = body.style.width;
     const prevOverflow = body.style.overflow;
 
-    // Freeze the page at the current scroll position to prevent wheel jitter
-    // from chaining into the document while menus are open.
-    body.style.position = "fixed";
-    body.style.top = `-${scrollY}px`;
-    body.style.left = "0";
-    body.style.right = "0";
-    body.style.width = "100%";
     body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
 
     return () => {
-      const top = body.style.top;
-      const restoreY = top ? Math.abs(parseInt(top, 10)) || 0 : 0;
-      body.style.position = prevPosition;
-      body.style.top = prevTop;
-      body.style.left = prevLeft;
-      body.style.right = prevRight;
-      body.style.width = prevWidth;
       body.style.overflow = prevOverflow;
       document.documentElement.style.overflow = "";
-      window.scrollTo(0, restoreY);
+      window.scrollTo(0, scrollY);
     };
-  }, [adminDrawerOpen, moreMenuOpen]);
+  }, [adminDrawerOpen]);
 
   // Native wheel event prevention — fires with { passive: false } so
   // e.preventDefault() at scroll edges actually blocks page scroll.
@@ -560,12 +543,13 @@ export default function AdminLayout({
         className={`fixed inset-0 z-[199] hidden md:block transition-none pointer-events-none`}
         aria-hidden={!moreMenuOpen}
       >
-        {/* Overlay */}
+        {/* Overlay — stopPropagation on wheel so scroll can't bleed to the page behind */}
         <div
           className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
             moreMenuOpen ? "opacity-100 pointer-events-auto" : "opacity-0"
           }`}
           onClick={() => setMoreMenuOpen(false)}
+          onWheel={(e) => e.stopPropagation()}
         />
         {/* Slide panel */}
         <aside
