@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useRef, memo } from "react";
+import { createPortal } from "react-dom";
 import { ui } from "@/lib/ui";
 import SupportTransferModal from "@/components/admin/SupportTransferModal";
 import { useInactivity } from "@/hooks/useInactivity";
@@ -39,7 +40,11 @@ const MoreMenuPanel = memo(function MoreMenuPanel({
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Wait for hydration before portalling into document.body
+  useEffect(() => { setMounted(true); }, []);
 
   // Native wheel block — prevents page scroll while the panel is open.
   // React onWheel+stopPropagation doesn't work because the browser's native
@@ -60,9 +65,64 @@ const MoreMenuPanel = memo(function MoreMenuPanel({
     return () => document.removeEventListener("wheel", blockScroll);
   }, [open]);
 
+  // backdrop-filter on the sticky header creates a new containing block,
+  // trapping position:fixed children inside it (known CSS quirk).
+  // createPortal renders the panel directly into document.body so it
+  // escapes the header's stacking context entirely.
+  const panel = (
+    <div
+      className="fixed inset-0 z-[199] pointer-events-none"
+      aria-hidden={!open}
+    >
+      {/* Backdrop */}
+      <div
+        className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${open ? "opacity-100 pointer-events-auto" : "opacity-0"}`}
+        onClick={() => setOpen(false)}
+      />
+      {/* Slide panel */}
+      <aside
+        className={`absolute left-0 top-0 h-full w-64 bg-[#0B1220] border-r border-white/10 shadow-[4px_0_40px_rgba(0,0,0,0.7)] flex flex-col pointer-events-auto transition-transform duration-200 ease-out ${open ? "translate-x-0" : "-translate-x-full"}`}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
+          <div>
+            <p className="text-[10px] text-white/40 uppercase tracking-wider">Admin</p>
+            <p className="text-sm font-semibold">More Pages</p>
+          </div>
+          <button
+            onClick={() => setOpen(false)}
+            className="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center"
+            aria-label="Close"
+          >✕</button>
+        </div>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain px-2 py-3 space-y-4">
+          {sections.map((section) => (
+            <div key={section.title}>
+              <p className="text-[10px] text-white/30 uppercase tracking-wider px-3 mb-1">{section.title}</p>
+              <div className="space-y-0.5">
+                {section.items.map((it) => {
+                  const active = pathname === it.href || (it.href !== "/admin" && pathname?.startsWith(it.href));
+                  return (
+                    <button
+                      key={it.href}
+                      onClick={() => { router.push(it.href); setOpen(false); }}
+                      className={`w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${active ? "bg-blue-500/20 text-blue-400 border border-blue-400/20" : "text-white/70 hover:bg-white/5 hover:text-white"}`}
+                    >
+                      <span className="text-base">{it.icon}</span>
+                      <span>{it.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </aside>
+    </div>
+  );
+
   return (
     <>
-      {/* Hamburger trigger */}
+      {/* Hamburger trigger — stays inside the header */}
       <button
         onClick={() => setOpen((v) => !v)}
         className="hidden md:block text-white/60 hover:text-white text-lg px-2 py-1 flex-shrink-0"
@@ -71,55 +131,8 @@ const MoreMenuPanel = memo(function MoreMenuPanel({
         ☰
       </button>
 
-      {/* Portal-like fixed layer — completely outside the sticky header stacking context */}
-      <div
-        className="fixed inset-0 z-[199] hidden md:block pointer-events-none"
-        aria-hidden={!open}
-      >
-        {/* Backdrop */}
-        <div
-          className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${open ? "opacity-100 pointer-events-auto" : "opacity-0"}`}
-          onClick={() => setOpen(false)}
-        />
-        {/* Slide panel */}
-        <aside
-          className={`absolute left-0 top-0 h-full w-64 bg-[#0B1220] border-r border-white/10 shadow-[4px_0_40px_rgba(0,0,0,0.7)] flex flex-col pointer-events-auto transition-transform duration-200 ease-out ${open ? "translate-x-0" : "-translate-x-full"}`}
-        >
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
-            <div>
-              <p className="text-[10px] text-white/40 uppercase tracking-wider">Admin</p>
-              <p className="text-sm font-semibold">More Pages</p>
-            </div>
-            <button
-              onClick={() => setOpen(false)}
-              className="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center"
-              aria-label="Close"
-            >✕</button>
-          </div>
-          <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain px-2 py-3 space-y-4">
-            {sections.map((section) => (
-              <div key={section.title}>
-                <p className="text-[10px] text-white/30 uppercase tracking-wider px-3 mb-1">{section.title}</p>
-                <div className="space-y-0.5">
-                  {section.items.map((it) => {
-                    const active = pathname === it.href || (it.href !== "/admin" && pathname?.startsWith(it.href));
-                    return (
-                      <button
-                        key={it.href}
-                        onClick={() => { router.push(it.href); setOpen(false); }}
-                        className={`w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${active ? "bg-blue-500/20 text-blue-400 border border-blue-400/20" : "text-white/70 hover:bg-white/5 hover:text-white"}`}
-                      >
-                        <span className="text-base">{it.icon}</span>
-                        <span>{it.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </aside>
-      </div>
+      {/* Panel portalled into document.body — escapes backdrop-filter stacking context */}
+      {mounted && createPortal(panel, document.body)}
     </>
   );
 });
