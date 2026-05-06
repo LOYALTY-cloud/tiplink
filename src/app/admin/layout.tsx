@@ -124,7 +124,7 @@ const MoreMenuPanel = memo(function MoreMenuPanel({
   );
 });
 
-
+export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
