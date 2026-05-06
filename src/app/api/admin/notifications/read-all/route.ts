@@ -71,7 +71,7 @@ export async function POST(req: Request) {
       .update({ read: true })
       .in("id", targetIds);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: "Failed to update notifications." }, { status: 500 });
 
     return NextResponse.json({ ok: true });
   } catch {

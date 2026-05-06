@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getAdminFromSession } from "@/lib/auth/getAdminFromSession";
+import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 
 export const runtime = "nodejs";
 
@@ -15,11 +15,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "sessionId required" }, { status: 400 });
     }
 
-    // Admin auth
-    const authHeader = req.headers.get("authorization") ?? "";
-    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    const adminId = req.headers.get("x-admin-id") ?? body.adminId ?? null;
-    const admin = await getAdminFromSession(token, adminId);
+    // Admin auth — header-based only (no body.adminId to prevent spoofing)
+    const admin = await getAdminFromRequest(req);
 
     if (!admin) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });

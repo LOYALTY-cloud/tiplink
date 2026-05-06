@@ -70,7 +70,7 @@ export async function GET(req: Request) {
       recentDisputeCount: recentDisputes.count ?? 0,
       staleRefundCount: staleRefunds.count ?? 0,
     });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message ?? "Internal error" }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

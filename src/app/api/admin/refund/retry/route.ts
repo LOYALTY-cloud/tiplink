@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     .lt("refund_initiated_at", staleCutoff)
     .order("refund_initiated_at", { ascending: true });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: "Failed to fetch stale refunds." }, { status: 500 });
 
   return NextResponse.json({
     stale_refunds: (staleTips ?? []).map((t) => ({

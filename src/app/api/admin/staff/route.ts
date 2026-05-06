@@ -46,7 +46,7 @@ export async function GET(req: Request) {
       .order("created_at", { ascending: false });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: "Failed to fetch staff." }, { status: 500 });
     }
 
     // Enrich each admin with action counts, profile data, last action, risk score

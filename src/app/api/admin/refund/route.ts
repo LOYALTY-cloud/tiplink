@@ -31,7 +31,7 @@ export async function GET(req: Request) {
     }
 
     const { data, error } = await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: "Failed to fetch refunds." }, { status: 500 });
 
     return NextResponse.json({ tips: data ?? [] });
   } catch {

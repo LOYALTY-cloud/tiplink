@@ -65,7 +65,7 @@ export async function POST(req: Request) {
       .in("user_id", ids)
       .not("account_status", "in", '("restricted","suspended","closed","closed_finalized")');
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: "Failed to apply restrictions." }, { status: 500 });
 
     // Log admin action
     await supabaseAdmin.from("admin_actions").insert({

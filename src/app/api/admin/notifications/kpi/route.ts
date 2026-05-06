@@ -56,7 +56,7 @@ export async function GET(req: Request) {
       .order("created_at", { ascending: false })
       .limit(240);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: "Failed to fetch notification stats." }, { status: 500 });
 
     const visible = ((data ?? []) as AdminNotificationRow[])
       .filter((notification) => canViewNotification(notification, session.role, admin.id));

@@ -1,18 +1,21 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getAdminFromSession } from "@/lib/auth/getAdminFromSession";
+import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
+import { requireRole } from "@/lib/auth/requireRole";
 
 export const runtime = "nodejs";
 
 /**
  * GET /api/admin/earnings/export?range=30|90|year|all
- * Admin-only: exports all platform earnings as CSV.
+ * Owner/super_admin only: exports all platform earnings as CSV.
  */
 export async function GET(req: Request) {
-  const token = req.headers.get("authorization")?.replace("Bearer ", "") || null;
-  const admin = await getAdminFromSession(token);
+  const admin = await getAdminFromRequest(req);
   if (!admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  try { requireRole(admin.role, "revenue"); } catch {
+    return NextResponse.json({ error: "Forbidden — insufficient role" }, { status: 403 });
   }
 
   const { searchParams } = new URL(req.url);

@@ -105,7 +105,7 @@ export async function GET(req: Request) {
       .order("created_at", { ascending: false })
       .limit(120);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: "Failed to fetch notifications." }, { status: 500 });
 
     const allNotifications = ((data ?? []) as AdminNotificationQueryRow[]).map((notification) => ({
       ...notification,
@@ -189,7 +189,7 @@ export async function POST(req: Request) {
       .update({ read: true })
       .in("id", targetIds);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: "Failed to update notifications." }, { status: 500 });
 
     return NextResponse.json({ ok: true });
   } catch {
