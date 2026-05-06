@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 export async function POST(req: Request) {
+  // Lazily initialize inside handler so env vars are available at runtime
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
   // Authenticate caller
   const authHeader = req.headers.get("authorization") || "";
   const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;

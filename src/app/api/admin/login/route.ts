@@ -10,10 +10,10 @@ const ADMIN_ROLES = ["owner", "super_admin", "finance_admin", "support_admin"];
 
 export async function POST(req: Request) {
   try {
-    // Rate limit: 5 attempts per 15 minutes per IP
+    // Rate limit: per-IP backstop (high threshold — shared infra)
     const ip = getClientIp(req);
-    const { allowed } = await rateLimit(`admin-login:${ip}`, 5, 900);
-    if (!allowed) {
+    const { allowed: ipAllowed } = await rateLimit(`admin-login-ip:${ip}`, 200, 900);
+    if (!ipAllowed) {
       return NextResponse.json({ error: "Too many login attempts. Try again later." }, { status: 429 });
     }
 
@@ -26,6 +26,12 @@ export async function POST(req: Request) {
     const fn = firstName.trim().toLowerCase();
     const ln = lastName.trim().toLowerCase();
     const code = passcode.trim().toUpperCase();
+
+    // Per-passcode rate limit: 5 attempts / 15 min (brute-force protection)
+    const { allowed: codeAllowed } = await rateLimit(`admin-login-code:${code}`, 5, 900);
+    if (!codeAllowed) {
+      return NextResponse.json({ error: "Too many login attempts for this account. Try again later." }, { status: 429 });
+    }
 
     // Look up profile by admin_passcode
     const { data: profile, error } = await supabaseAdmin

@@ -11,6 +11,10 @@ export const revalidate = 60;
  * Public marketplace feed with ranking, featured stores, and categories.
  */
 export async function GET() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return NextResponse.json({ featured: [], stores: [], categories: ["general"] }, { status: 200 });
+  }
+
   const { data, error } = await supabaseAdmin
     .from("creator_stores")
     .select("id, store_name, slug, description, category, total_sales, total_revenue, followers, featured, avatar_url, banner_url, created_at")

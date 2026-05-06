@@ -17,16 +17,6 @@ export const runtime = "nodejs";
 
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 
-// Hard-fail at module load if the webhook secret is missing in production.
-// An empty secret causes constructEvent to reject every legitimate Stripe
-// request, silently breaking all payment processing.
-if (!endpointSecret && process.env.NODE_ENV === "production") {
-  throw new Error(
-    "CRITICAL: STRIPE_WEBHOOK_SECRET is not set. All Stripe webhooks will be rejected. " +
-    "Set this env var in your deployment configuration before deploying."
-  );
-}
-
 async function isDuplicate(supabaseClient: SupabaseClient, eventId: string) {
   try {
     const { data } = await supabaseClient.from("stripe_webhook_events").select("id").eq("id", eventId).maybeSingle();
@@ -57,6 +47,12 @@ async function markProcessed(supabaseClient: SupabaseClient, eventId: string, ty
 
 export async function POST(req: NextRequest) {
   const { stripe } = await import("@/lib/stripe/server");
+
+  // Guard: if secret missing at runtime in production, reject immediately
+  if (!endpointSecret && process.env.NODE_ENV === "production") {
+    console.error("CRITICAL: STRIPE_WEBHOOK_SECRET is not set.");
+    return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
+  }
 
   const buf = await req.arrayBuffer();
   const sig = req.headers.get("stripe-signature")!;
