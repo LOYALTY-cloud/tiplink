@@ -154,6 +154,14 @@ export async function handleStripeEvent(
         break;
       }
 
+      // Allow failed → succeeded transition (customer retried after a decline).
+      // Any status other than succeeded/pending/created/failed is a terminal admin state — skip.
+      const processableStatuses = ["pending", "created", "failed"];
+      if (!processableStatuses.includes(tipIntent.status)) {
+        console.warn(`Skipping payment_intent.succeeded for tip_intent in terminal status: ${tipIntent.status}`);
+        break;
+      }
+
       // Block tip credits to non-active accounts (closed, suspended, etc.)
       const { data: creatorProfile } = await supabaseClient
         .from("profiles")
@@ -363,7 +371,9 @@ export async function handleStripeEvent(
       console.warn(`Payment failed for PI ${pi.id}: ${failureMessage}`);
 
       if (receiptId) {
-        // Update tip_intents status + failure reason
+        // Update tip_intents status + failure reason.
+        // Never overwrite a succeeded tip — Stripe can fire payment_failed for earlier
+        // declined attempts on a PI that eventually succeeded on retry.
         await supabaseClient
           .from("tip_intents")
           .update({
