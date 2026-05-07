@@ -13,6 +13,7 @@ import {
   OVERLAY_LABELS,
   LIGHTING_LABELS,
 } from "@/lib/animationAccess";
+import CreatorLegalModal from "@/components/marketplace/CreatorLegalModal";
 
 // ─────────────────────────────────────────────
 // Types
@@ -472,6 +473,8 @@ export default function ThemeBuilderDashboard() {
   const [tab, setTab] = useState<Tab>("themes");
   const [creatorGateChecked, setCreatorGateChecked] = useState(false);
   const [creatorProfile, setCreatorProfile] = useState<{ total_sales: number; owner_elite: boolean } | null>(null);
+  const [legalPending, setLegalPending] = useState(false);
+  const [legalAccepting, setLegalAccepting] = useState(false);
 
   // Themes tab
   const [themes, setThemes] = useState<SavedTheme[]>([]);
@@ -514,6 +517,24 @@ export default function ThemeBuilderDashboard() {
   const [publishingTheme, setPublishingTheme] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+
+  // ── Legal acceptance ───────────────────────────────────────────────────────
+
+  async function handleLegalAccept(policyVersion: string) {
+    setLegalAccepting(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await fetch("/api/marketplace/legal-accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ policyVersion }),
+      });
+      setLegalPending(false);
+    } finally {
+      setLegalAccepting(false);
+    }
+  }
 
   // ── Loaders ────────────────────────────────────────────────────────────────
 
@@ -661,6 +682,17 @@ export default function ThemeBuilderDashboard() {
         total_sales: json.total_sales ?? 0,
         owner_elite: json.owner_elite === true,
       });
+
+      // ── Check legal acceptance ──────────────────────────────────────────
+      const legalRes = await fetch("/api/marketplace/legal-check", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (legalRes.ok) {
+        const legalJson = await legalRes.json();
+        if (!legalJson.accepted) {
+          setLegalPending(true);
+        }
+      }
 
       // ── Subscribe to real-time profile updates ──
       if (userId) {
@@ -1882,6 +1914,15 @@ export default function ThemeBuilderDashboard() {
             </>
           )}
         </div>
+      )}
+
+      {/* Creator Legal Agreement — shown on first visit */}
+      {legalPending && (
+        <CreatorLegalModal
+          onAccept={handleLegalAccept}
+          onDecline={() => router.replace("/dashboard")}
+          loading={legalAccepting}
+        />
       )}
 
       {/* Preview modal */}
