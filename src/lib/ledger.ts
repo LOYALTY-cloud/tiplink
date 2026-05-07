@@ -43,8 +43,13 @@ export async function addLedgerEntry(entry: LedgerEntry) {
   const { data, error } = await supabaseAdmin.rpc("add_ledger_entry_atomic", payload);
 
   if (error) {
-    // If RPC doesn't exist yet (e.g. migration not applied), fall back to legacy two-step
-    if (error.message.includes("function") && error.message.includes("does not exist")) {
+    // If RPC doesn't exist yet (e.g. migration not applied), fall back to legacy two-step.
+    // PostgREST may return "does not exist" or "Could not find the function" depending on version.
+    const isNotFound =
+      error.message.includes("does not exist") ||
+      error.message.includes("Could not find the function") ||
+      (error as any).code === "PGRST202";
+    if (isNotFound) {
       return addLedgerEntryLegacy(entry);
     }
     throw new Error(`Ledger insert failed: ${error.message}`);
