@@ -127,18 +127,10 @@ export default async function ReceiptPage({
             </span>
           </div>
 
-          {/* Payment breakdown */}
-          <div className="flex items-center justify-between">
-            <span className={`text-sm ${theme.muted}`}>Platform Fee</span>
-            <span className="text-sm font-semibold">
-              {formatMoney(Number(row.platform_fee || 0))}
-            </span>
-          </div>
-
           <div className={`flex items-center justify-between border-t ${theme.border} pt-2 mt-2`}>
             <span className={`text-sm ${theme.muted}`}>Total Paid</span>
             <span className="text-sm font-semibold">
-              {formatMoney(Number(row.amount) + Number(row.platform_fee || 0))}
+              {formatMoney(Number(row.amount))}
             </span>
           </div>
 
