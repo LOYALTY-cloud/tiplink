@@ -156,7 +156,10 @@ async function readDurationSeconds(inputPath: string): Promise<number | null> {
 }
 
 function getVideoScaleFilter(): string {
-  return `scale=${THEME_VIDEO_RULES.maxLongestEdgePx}:${THEME_VIDEO_RULES.maxLongestEdgePx}:force_original_aspect_ratio=decrease`;
+  const max = THEME_VIDEO_RULES.maxLongestEdgePx;
+  // force_original_aspect_ratio=decrease can produce odd dimensions; trunc to
+  // nearest even pixel so libx264 (which requires even width+height) never fails.
+  return `scale='trunc(iw*min(${max}/iw\\,${max}/ih)/2)*2':'trunc(ih*min(${max}/iw\\,${max}/ih)/2)*2'`;
 }
 
 export async function POST(req: Request) {
