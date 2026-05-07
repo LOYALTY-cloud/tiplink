@@ -15,8 +15,6 @@ import { createNotification } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
-const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
-
 async function isDuplicate(supabaseClient: SupabaseClient, eventId: string) {
   try {
     const { data } = await supabaseClient.from("stripe_webhook_events").select("id").eq("id", eventId).maybeSingle();
@@ -48,14 +46,19 @@ async function markProcessed(supabaseClient: SupabaseClient, eventId: string, ty
 export async function POST(req: NextRequest) {
   const { stripe } = await import("@/lib/stripe/server");
 
-  // Guard: if secret missing at runtime in production, reject immediately
-  if (!endpointSecret && process.env.NODE_ENV === "production") {
+  // Read secret lazily so module-level init never captures an empty string
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+
+  if (!endpointSecret) {
     console.error("CRITICAL: STRIPE_WEBHOOK_SECRET is not set.");
     return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
   }
 
   const buf = await req.arrayBuffer();
-  const sig = req.headers.get("stripe-signature")!;
+  const sig = req.headers.get("stripe-signature");
+  if (!sig) {
+    return NextResponse.json({ error: "Missing stripe-signature header" }, { status: 400 });
+  }
   let event: StripeWebhookEvent;
 
   try {
