@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseRouteClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getClientIp, rateLimit } from "@/lib/rateLimit";
+import { rateLimit } from "@/lib/rateLimit";
 import { getCreatorLimits } from "@/lib/creatorLimits";
 import ffmpegPath from "ffmpeg-static";
 import { spawn, spawnSync } from "node:child_process";
@@ -157,9 +157,9 @@ async function readDurationSeconds(inputPath: string): Promise<number | null> {
 
 function getVideoScaleFilter(): string {
   const max = THEME_VIDEO_RULES.maxLongestEdgePx;
-  // force_original_aspect_ratio=decrease can produce odd dimensions; trunc to
-  // nearest even pixel so libx264 (which requires even width+height) never fails.
-  return `scale='trunc(iw*min(${max}/iw\\,${max}/ih)/2)*2':'trunc(ih*min(${max}/iw\\,${max}/ih)/2)*2'`;
+  // Two-pass chain: first scale to fit within maxLongestEdgePx with aspect ratio
+  // preserved, then round both dimensions to even pixels (libx264 requirement).
+  return `scale=${max}:${max}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2`;
 }
 
 export async function POST(req: Request) {
@@ -185,13 +185,6 @@ export async function POST(req: Request) {
           { status: 429 }
         );
       }
-    }
-
-    // IP-level hard cap to prevent abuse from unauthenticated or shared accounts
-    const ip = getClientIp(req);
-    const { allowed: ipAllowed } = await rateLimit(`theme-video-upload-ip:${ip}`, 20, 3600);
-    if (!ipAllowed) {
-      return NextResponse.json({ error: "Too many uploads from this network. Try again later." }, { status: 429 });
     }
 
     const formData = await req.formData();
