@@ -240,7 +240,7 @@ export async function handleStripeEvent(
         await supabaseClient
           .from("tip_intents")
           .update({ status: "succeeded", stripe_payment_intent_id: pi.id })
-          .eq("id", tipIntent.id);
+          .eq("receipt_id", tipIntent.receipt_id);
 
         // Auto-offset owed_balance if creator had a negative obligation
         const { data: creatorProf } = await supabaseClient
