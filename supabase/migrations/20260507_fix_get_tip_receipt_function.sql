@@ -1,6 +1,8 @@
 -- Fix get_tip_receipt: was querying 'tips' but data lives in 'tip_intents'.
 -- Replaces the function to return all fields needed by /r/[receiptId] page.
 
+DROP FUNCTION IF EXISTS public.get_tip_receipt(text);
+
 CREATE OR REPLACE FUNCTION public.get_tip_receipt(rid text)
 RETURNS TABLE (
   receipt_id        text,
