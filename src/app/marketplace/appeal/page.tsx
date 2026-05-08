@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ui } from "@/lib/ui";
 
-export default function AppealPage() {
+function AppealPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const themeId = searchParams.get("themeId");
@@ -127,5 +127,21 @@ export default function AppealPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function AppealPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className={`${ui.page} flex items-center justify-center p-6`}>
+          <div className={`${ui.card} max-w-md w-full p-8 text-center`}>
+            <p className={ui.muted2}>Loading appeal form…</p>
+          </div>
+        </div>
+      }
+    >
+      <AppealPageContent />
+    </Suspense>
   );
 }
