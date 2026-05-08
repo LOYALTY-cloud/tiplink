@@ -9,6 +9,7 @@ import {
 } from "@/lib/marketplace/riskScore";
 import { detectLogosWithAI } from "@/lib/marketplace/logoDetection";
 import { computeAverageHash, isNearDuplicate } from "@/lib/marketplace/perceptualHash";
+import { rateLimit } from "@/lib/rateLimit";
 
 // Mass-upload threshold: more than 5 themes in the last hour
 const MASS_UPLOAD_THRESHOLD = 5;
@@ -164,10 +165,16 @@ export async function POST(req: Request) {
     console.error("[upload] perceptual hash error (failing open):", err);
   }
 
-  // 3. AI logo detection on first preview image (runs only if we have a public URL)
+  // 3. AI logo detection on first preview image
+  // Rate-limited to 10 AI calls per hour per user to prevent cost abuse.
   let logoDetection = false;
   if (previewUrls[0]) {
-    logoDetection = await detectLogosWithAI(previewUrls[0]);
+    const aiLimit = await rateLimit(`logo_detect:${user.id}`, 10, 3600);
+    if (aiLimit.allowed) {
+      logoDetection = await detectLogosWithAI(previewUrls[0]);
+    }
+    // If rate limit exceeded, skip AI check — risk score will be lower but
+    // mass-upload signal will be elevated anyway.
   }
 
   // 4. Keyword check
