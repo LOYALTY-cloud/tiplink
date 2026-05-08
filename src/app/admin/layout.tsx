@@ -455,6 +455,8 @@ export default function AdminLayout({
         { label: "Verifications", href: "/admin/verifications", icon: "🔍" },
         { label: "Creator Applications", href: "/admin/creator-applications", icon: "🎨" },
         { label: "Elite Applications", href: "/admin/creators", icon: "⭐" },
+        { label: "Marketplace Queue", href: "/admin/marketplace", icon: "🛒" },
+        { label: "Theme Appeals", href: "/admin/marketplace/appeals", icon: "📬" },
       ],
     },
     {

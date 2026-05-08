@@ -7,6 +7,12 @@ import {
   generateThemeHash,
   hasSuspiciousKeywords,
 } from "@/lib/marketplace/riskScore";
+import { detectLogosWithAI } from "@/lib/marketplace/logoDetection";
+import { computeAverageHash, isNearDuplicate } from "@/lib/marketplace/perceptualHash";
+
+// Mass-upload threshold: more than 5 themes in the last hour
+const MASS_UPLOAD_THRESHOLD = 5;
+const MASS_UPLOAD_WINDOW_MS = 60 * 60 * 1000;
 
 export const runtime = "nodejs";
 
@@ -114,7 +120,7 @@ export async function POST(req: Request) {
   // Compute theme hash (name + description + category as fingerprint)
   const themeHash = generateThemeHash(`${user.id}:${name}:${description}:${category}`);
 
-  // Check for duplicate hash
+  // Check for exact text-hash duplicate
   const { data: existing } = await supabaseAdmin
     .from("themes")
     .select("id")
@@ -122,16 +128,67 @@ export async function POST(req: Request) {
     .maybeSingle();
   const duplicateWarning = !!existing;
 
-  // Run basic risk analysis (logo detection is a stub here)
+  // ── Risk pipeline ────────────────────────────────────────────────────────────
+
+  // 1. Mass-upload detection: count uploads in the last hour
+  const windowStart = new Date(Date.now() - MASS_UPLOAD_WINDOW_MS).toISOString();
+  const { count: recentUploads } = await supabaseAdmin
+    .from("themes")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .gte("created_at", windowStart);
+  const massUploads = (recentUploads ?? 0) >= MASS_UPLOAD_THRESHOLD;
+
+  // 2. Perceptual hash of the first preview image (for visual duplicate detection)
+  let imageHash: string | null = null;
+  let visualDuplicate = false;
+  try {
+    const firstBuf = Buffer.from(await previews[0].arrayBuffer());
+    imageHash = await computeAverageHash(firstBuf);
+
+    // Compare against existing image hashes in DB
+    const { data: existingHashes } = await supabaseAdmin
+      .from("themes")
+      .select("image_hash")
+      .not("image_hash", "is", null)
+      .neq("user_id", user.id); // only flag cross-creator visual duplicates
+    if (existingHashes) {
+      for (const row of existingHashes) {
+        if (row.image_hash && isNearDuplicate(imageHash, row.image_hash)) {
+          visualDuplicate = true;
+          break;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[upload] perceptual hash error (failing open):", err);
+  }
+
+  // 3. AI logo detection on first preview image (runs only if we have a public URL)
+  let logoDetection = false;
+  if (previewUrls[0]) {
+    logoDetection = await detectLogosWithAI(previewUrls[0]);
+  }
+
+  // 4. Keyword check
   const suspiciousKw = hasSuspiciousKeywords(`${name} ${description}`);
+
+  // 5. Compute final risk score + status
   const riskScore = calculateRiskScore({
-    logoDetection: false, // Real logo detection is an async AI job
-    duplicateSimilarity: duplicateWarning ? 100 : 0,
+    logoDetection,
+    duplicateSimilarity: (duplicateWarning || visualDuplicate) ? 100 : 0,
     creatorStrikes: profile?.active_strikes ?? 0,
     suspiciousKeywords: suspiciousKw,
-    massUploads: false,
+    massUploads,
   });
   const status = determineThemeStatus(riskScore);
+
+  const moderationReasons: string[] = [];
+  if (logoDetection) moderationReasons.push("AI detected brand logo");
+  if (visualDuplicate) moderationReasons.push("Visual near-duplicate detected");
+  if (duplicateWarning) moderationReasons.push("Exact duplicate hash");
+  if (suspiciousKw) moderationReasons.push("Suspicious keywords");
+  if (massUploads) moderationReasons.push("Mass upload activity");
 
   const tags = tagsRaw
     .split(",")
@@ -151,9 +208,10 @@ export async function POST(req: Request) {
       is_public: false, // Becomes public only after approval
       status,
       risk_score: riskScore,
-      moderation_reason: suspiciousKw ? "Suspicious keywords detected" : null,
-      duplicate_warning: duplicateWarning,
+      moderation_reason: moderationReasons.length > 0 ? moderationReasons.join("; ") : null,
+      duplicate_warning: duplicateWarning || visualDuplicate,
       theme_hash: themeHash,
+      image_hash: imageHash,
       preview_images: previewUrls,
       theme_file_url: themeFileUrl,
     })
