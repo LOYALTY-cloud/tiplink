@@ -64,14 +64,20 @@ export async function POST(req: NextRequest) {
   try {
     event = stripe.webhooks.constructEvent(Buffer.from(buf), sig, endpointSecret) as unknown as StripeWebhookEvent;
   } catch (err: unknown) {
-    console.error("⚠️ Webhook signature verification failed:", err instanceof Error ? err.message : err);
-    logCaughtError("stripe/webhook", err, { severity: "critical", metadata: { reason: "signature_verification_failed" } });
-    sendAdminAlert({
-      subject: "Stripe webhook signature failed",
-      body: "A Stripe webhook event could not be verified. This may indicate a misconfigured secret or a spoofed request.",
-      severity: "critical",
-      meta: { error: err instanceof Error ? err.message : String(err) },
-    });
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error("⚠️ Webhook signature verification failed:", errMsg);
+    // "No signatures found" typically means a replayed event signed with a rotated/old secret.
+    // Only send a critical alert for genuinely unexpected failures, not routine old-secret replays.
+    const isOldSecretReplay = errMsg.includes("No signatures found");
+    if (!isOldSecretReplay) {
+      logCaughtError("stripe/webhook", err, { severity: "critical", metadata: { reason: "signature_verification_failed" } });
+      sendAdminAlert({
+        subject: "Stripe webhook signature failed",
+        body: "A Stripe webhook event could not be verified. This may indicate a misconfigured secret or a spoofed request.",
+        severity: "critical",
+        meta: { error: errMsg },
+      });
+    }
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
@@ -240,7 +246,7 @@ export async function handleStripeEvent(
         await supabaseClient
           .from("tip_intents")
           .update({ status: "succeeded", stripe_payment_intent_id: pi.id })
-          .eq("id", tipIntent.id);
+          .eq("receipt_id", tipIntent.receipt_id);
 
         // Auto-offset owed_balance if creator had a negative obligation
         const { data: creatorProf } = await supabaseClient
