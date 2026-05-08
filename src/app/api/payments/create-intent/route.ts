@@ -420,6 +420,10 @@ export async function POST(req: Request) {
         // Ensure correct dispute routing and tax/reporting
         on_behalf_of: profile.stripe_account_id,
 
+        // Shown on supporter's bank/card statement instead of the
+        // connected account name. Max 22 chars, no special characters.
+        statement_descriptor: "1NELINK TIP",
+
         metadata: {
           receipt_id,
           creator_user_id,
