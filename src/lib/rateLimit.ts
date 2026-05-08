@@ -21,12 +21,10 @@ export async function rateLimit(
   });
 
   if (error) {
-    // Fail open in development, fail closed in production
-    console.error("rateLimit RPC error:", error.message);
-    if (process.env.NODE_ENV === "development") {
-      return { allowed: true };
-    }
-    return { allowed: false };
+    // Fail open — rate limiting is a secondary control; if the RPC is
+    // unavailable (e.g. function not yet deployed), logins must still work.
+    console.error("rateLimit RPC error (failing open):", error.message);
+    return { allowed: true };
   }
 
   return { allowed: Boolean(data) };
