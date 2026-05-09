@@ -59,7 +59,7 @@ export async function POST(req: Request) {
         p_user_id: themeRow.user_id,
         p_col: "total_reports",
         p_amount: 1,
-      }).catch(() => {
+      }).then(null, () => {
         // Non-critical — ignore if RPC doesn't exist yet
       });
     }
