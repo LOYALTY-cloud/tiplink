@@ -113,7 +113,7 @@ function AppealPageContent() {
             <ul className="list-disc list-inside space-y-1">
               <li>Remove all brand logos, trademarks, or copyrighted characters</li>
               <li>Ensure your theme name and description have no misleading keywords</li>
-                  <li>Repeated or abusive appeals may result in an upload ban from the Theme Store</li>
+              <li>Repeated or abusive appeals may result in an upload ban from the Theme Store</li>
             </ul>
           </div>
 

@@ -161,6 +161,7 @@ export async function POST(req: Request) {
     creatorProfile?.active_strikes ?? 0,
   );
 
+
   // 1. Mass-upload detection: count uploads in the last hour
   const windowStart = new Date(Date.now() - MASS_UPLOAD_WINDOW_MS).toISOString();
   const { count: recentUploads } = await supabaseAdmin
@@ -249,6 +250,13 @@ export async function POST(req: Request) {
   if (suspiciousKw) moderationReasons.push("Suspicious keywords");
   if (massUploads) moderationReasons.push("Mass upload activity");
   if (creatorIsProtected && !hardEvidence) moderationReasons.push("Protected creator — downgraded from auto-flag");
+
+  const moderationReasons: string[] = [];
+  if (logoDetection) moderationReasons.push("AI detected brand logo");
+  if (visualDuplicate) moderationReasons.push("Visual near-duplicate detected");
+  if (duplicateWarning) moderationReasons.push("Exact duplicate hash");
+  if (suspiciousKw) moderationReasons.push("Suspicious keywords");
+  if (massUploads) moderationReasons.push("Mass upload activity");
 
   const tags = tagsRaw
     .split(",")
