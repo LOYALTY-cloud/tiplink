@@ -46,10 +46,16 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (profile?.upload_ban_until && new Date(profile.upload_ban_until) > new Date()) {
-    return NextResponse.json({ error: "Your upload access is currently suspended." }, { status: 403 });
+    const isPermanent = new Date(profile.upload_ban_until).getFullYear() >= 9999;
+    return NextResponse.json({
+      error: isPermanent
+        ? "Your Theme Store access has been permanently revoked due to repeated violations."
+        : "Your upload access is currently suspended.",
+    }, { status: 403 });
   }
+  // Redundant safety check — active_strikes >= 3 should always have ban set, but guard anyway
   if (profile && profile.active_strikes >= 3) {
-    return NextResponse.json({ error: "Your creator account has been permanently banned from the marketplace." }, { status: 403 });
+    return NextResponse.json({ error: "Your Theme Store access has been permanently revoked due to repeated violations." }, { status: 403 });
   }
 
   // Parse multipart form

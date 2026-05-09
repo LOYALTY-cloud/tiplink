@@ -79,8 +79,9 @@ export async function applyStrike(
   };
 
   if (strikes >= 3) {
-    // Permanent upload ban
-    update.upload_ban_until = null;
+    // Permanent upload ban — set far-future date so upload_ban_until > now() check works
+    // (null = no ban, so we use year 9999 as "permanent")
+    update.upload_ban_until = "9999-12-31T23:59:59Z";
     // Mark all of their themes as banned_creator
     await supabaseAdmin
       .from("themes")
