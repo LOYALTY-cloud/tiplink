@@ -181,7 +181,7 @@ export default function MarketplaceModerationPage() {
 
       <div className="max-w-7xl mx-auto">
         <div className="mb-6">
-          <h1 className={ui.h1}>Theme Marketplace Moderation</h1>
+          <h1 className={ui.h1}>Theme Store Moderation</h1>
           <p className={`${ui.muted2} text-sm mt-1`}>Review, approve, flag, and action creator themes.</p>
         </div>
 
