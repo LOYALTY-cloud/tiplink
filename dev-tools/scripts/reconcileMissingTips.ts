@@ -36,7 +36,7 @@ if (!STRIPE_SECRET_KEY) {
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
+const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2026-02-25.clover" });
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
