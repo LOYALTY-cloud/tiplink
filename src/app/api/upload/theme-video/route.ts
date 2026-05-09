@@ -296,8 +296,14 @@ export async function POST(req: Request) {
     }
 
     let supabase: unknown;
-    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (serviceRoleKey) {
+      if (!supabaseUrl) {
+        throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+      }
+
+      supabase = createClient(supabaseUrl, serviceRoleKey);
     } else {
       supabase = await createSupabaseRouteClient();
     }
