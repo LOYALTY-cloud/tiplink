@@ -340,7 +340,16 @@ function ThemePreviewModal({
               {applying ? "Removing…" : "Remove Theme"}
             </button>
           )}
-          <Link href={`/dashboard/themebuilder/edit/${theme.id}`} className="block w-full py-2.5 text-center rounded-xl bg-white/10 hover:bg-white/15 transition text-sm font-semibold text-white/70">Edit Theme</Link>
+          {theme.is_public ? (
+            <span
+              title="Remove from store to edit"
+              className="block w-full py-2.5 text-center rounded-xl bg-white/5 text-white/25 text-sm font-semibold cursor-not-allowed"
+            >
+              Edit Theme
+            </span>
+          ) : (
+            <Link href={`/dashboard/themebuilder/edit/${theme.id}`} className="block w-full py-2.5 text-center rounded-xl bg-white/10 hover:bg-white/15 transition text-sm font-semibold text-white/70">Edit Theme</Link>
+          )}
           <button onClick={onClose} className="w-full text-sm text-white/55 hover:text-white/70 transition">Cancel</button>
         </div>
       </div>
@@ -395,7 +404,16 @@ function ThemeCard({
       </div>
       <div className="flex flex-col gap-2">
         <button onClick={() => onPreview(theme)} className="w-full py-2 rounded-xl bg-white/[0.07] hover:bg-white/15 transition text-xs font-medium">Preview</button>
-        <Link href={`/dashboard/themebuilder/edit/${theme.id}`} className="w-full py-2 text-center rounded-xl bg-white/10 hover:bg-white/15 transition text-xs font-medium">Edit Theme</Link>
+        {theme.is_public ? (
+          <span
+            title="Remove from store to edit"
+            className="w-full py-2 text-center rounded-xl bg-white/5 text-white/25 text-xs font-medium cursor-not-allowed block"
+          >
+            Edit Theme
+          </span>
+        ) : (
+          <Link href={`/dashboard/themebuilder/edit/${theme.id}`} className="w-full py-2 text-center rounded-xl bg-white/10 hover:bg-white/15 transition text-xs font-medium">Edit Theme</Link>
+        )}
         <button
           onClick={async () => {
             setTogglingMarket(true);
