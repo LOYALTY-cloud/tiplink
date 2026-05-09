@@ -1,19 +1,56 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseRouteClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+const EMAIL_CHANGE_LOCK_MS = 14 * 24 * 60 * 60 * 1000;
+
 export async function POST(req: Request) {
   try {
-    const supabase = await createSupabaseRouteClient();
+    let authUser: { user: { id: string; email?: string | null; app_metadata?: unknown } } | null = null;
 
-    // Get current user
-    const { data: authUser, error: authErr } = await supabase.auth.getUser();
-    if (authErr || !authUser?.user?.id) {
+    const authHeader = req.headers.get("authorization") ?? "";
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : null;
+
+    if (bearerToken) {
+      const { data, error } = await supabaseAdmin.auth.getUser(bearerToken);
+      if (!error && data?.user) {
+        authUser = { user: data.user };
+      }
+    }
+
+    if (!authUser) {
+      const supabase = await createSupabaseRouteClient();
+      const { data, error } = await supabase.auth.getUser();
+      if (!error && data?.user) {
+        authUser = { user: data.user };
+      }
+    }
+
+    if (!authUser?.user?.id) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
     const userId = authUser.user.id;
     const userEmail = authUser.user.email;
+    const existingAppMetadata = (authUser.user.app_metadata ?? {}) as Record<string, unknown>;
+    const emailChangeLockedUntil = typeof existingAppMetadata.email_change_locked_until === "string"
+      ? existingAppMetadata.email_change_locked_until
+      : null;
+
+    if (emailChangeLockedUntil) {
+      const lockEnd = new Date(emailChangeLockedUntil);
+      if (lockEnd.getTime() > Date.now()) {
+        const daysLeft = Math.ceil((lockEnd.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+        return NextResponse.json(
+          {
+            error: `You can change your email again in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}.`,
+            lockedUntil: lockEnd.toISOString(),
+          },
+          { status: 403 }
+        );
+      }
+    }
 
     // Parse request body
     const { newEmail, password } = await req.json();
@@ -33,8 +70,21 @@ export async function POST(req: Request) {
       );
     }
 
-    // Verify password by attempting sign in
-    const { error: signInErr } = await supabaseAdmin.auth.signInWithPassword({
+    if (newEmail.toLowerCase() === (userEmail || "").toLowerCase()) {
+      return NextResponse.json(
+        { error: "New email must be different from your current email" },
+        { status: 400 }
+      );
+    }
+
+    // Verify password using a separate anon client so we don't mutate the current session
+    const verifyClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false } }
+    );
+
+    const { error: signInErr } = await verifyClient.auth.signInWithPassword({
       email: userEmail || "",
       password,
     });
@@ -47,7 +97,18 @@ export async function POST(req: Request) {
     }
 
     // Check if new email is already in use
-    const { data: existingUser } = await supabaseAdmin.auth.admin.getUserByEmail(newEmail);
+    const { data: listedUsers, error: listUsersErr } = await supabaseAdmin.auth.admin.listUsers();
+    if (listUsersErr) {
+      return NextResponse.json(
+        { error: "Failed to validate email availability" },
+        { status: 500 }
+      );
+    }
+
+    const existingUser = listedUsers.users.find(
+      (user) => user.email?.toLowerCase() === newEmail.toLowerCase() && user.id !== userId
+    );
+
     if (existingUser) {
       return NextResponse.json(
         { error: "Email already in use" },
@@ -55,10 +116,19 @@ export async function POST(req: Request) {
       );
     }
 
+    const nextLockedUntil = new Date(Date.now() + EMAIL_CHANGE_LOCK_MS).toISOString();
+
     // Update email in auth
     const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
       userId,
-      { email: newEmail, email_confirm: false }
+      {
+        email: newEmail,
+        email_confirm: false,
+        app_metadata: {
+          ...existingAppMetadata,
+          email_change_locked_until: nextLockedUntil,
+        },
+      }
     );
 
     if (updateErr) {
@@ -78,6 +148,7 @@ export async function POST(req: Request) {
       success: true,
       message: "Email changed successfully. Please verify your new email address.",
       newEmail,
+      lockedUntil: nextLockedUntil,
     });
   } catch (err) {
     console.error("Email change error:", err);

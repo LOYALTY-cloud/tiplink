@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ui } from "@/lib/ui";
 import { showGlobalToast } from "@/components/GlobalToast";
+import { supabase } from "@/lib/supabase/client";
 
 interface EmailChangeCardProps {
   currentEmail: string | null;
@@ -14,21 +15,68 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [lockedUntil, setLockedUntil] = useState<string | null>(null);
+  const [showLockedModal, setShowLockedModal] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!mounted) return;
+      const lock = data.user?.app_metadata?.email_change_locked_until;
+      setLockedUntil(typeof lock === "string" ? lock : null);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const resetForm = () => {
+    setNewEmail("");
+    setPassword("");
+    setShowPassword(false);
+  };
+
+  const lockEnd = lockedUntil ? new Date(lockedUntil) : null;
+  const isLocked = Boolean(lockEnd && lockEnd.getTime() > Date.now());
+  const lockMessage = isLocked && lockEnd
+    ? `You can change your email again after ${lockEnd.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })}.`
+    : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        throw new Error("Not signed in");
+      }
+
       const res = await fetch("/api/account/change-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ newEmail, password }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
+        if (typeof data.lockedUntil === "string") {
+          setLockedUntil(data.lockedUntil);
+          setIsOpen(false);
+          resetForm();
+        }
         showGlobalToast({
           type: "error",
           title: "Email change failed",
@@ -43,8 +91,8 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
         message: data.message || `Email changed to ${newEmail}. Please verify it.`,
       });
 
-      setNewEmail("");
-      setPassword("");
+      setLockedUntil(typeof data.lockedUntil === "string" ? data.lockedUntil : null);
+      resetForm();
       setIsOpen(false);
     } catch (err) {
       showGlobalToast({
@@ -65,12 +113,22 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
           <div>
             <p className="text-sm text-white font-semibold">{currentEmail}</p>
             <p className="text-xs text-white/50 mt-1">Your account email</p>
+            {lockMessage ? (
+              <p className="text-xs text-amber-300 mt-2">{lockMessage}</p>
+            ) : null}
           </div>
           <button
-            onClick={() => setIsOpen(true)}
+            onClick={() => {
+              if (isLocked) {
+                setShowLockedModal(true);
+                return;
+              }
+              resetForm();
+              setIsOpen(true);
+            }}
             className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition active:scale-[0.97]"
           >
-            Change
+            {isLocked ? "Locked" : "Change"}
           </button>
         </div>
       </div>
@@ -84,8 +142,7 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
         <button
           onClick={() => {
             setIsOpen(false);
-            setNewEmail("");
-            setPassword("");
+            resetForm();
           }}
           className="text-white/50 hover:text-white transition"
         >
@@ -93,7 +150,7 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
         {/* Current Email (Read-only) */}
         <div>
           <label className="text-xs font-medium text-white/70 block mb-2">Current Email</label>
@@ -110,6 +167,8 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
           <input
             id="newEmail"
             type="email"
+            name="account-new-email"
+            autoComplete="off"
             value={newEmail}
             onChange={(e) => setNewEmail(e.target.value)}
             placeholder="your.new.email@example.com"
@@ -131,6 +190,8 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
             <input
               id="password"
               type={showPassword ? "text" : "password"}
+              name="account-email-change-password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
@@ -172,8 +233,7 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
             type="button"
             onClick={() => {
               setIsOpen(false);
-              setNewEmail("");
-              setPassword("");
+              resetForm();
             }}
             disabled={isLoading}
             className="flex-1 px-4 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition active:scale-[0.97] disabled:opacity-50"
@@ -182,6 +242,44 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
           </button>
         </div>
       </form>
+
+      {showLockedModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-[#0f172a] p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-wider text-amber-300">Email Change Locked</p>
+                <h3 className="mt-2 text-xl font-semibold text-white">You&apos;re not eligible to change your email yet</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLockedModal(false)}
+                className="text-white/50 hover:text-white transition"
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="mt-4 text-sm text-white/70">
+              For account security, email changes are locked for 2 weeks after a successful update.
+            </p>
+            {lockMessage ? (
+              <p className="mt-3 text-sm font-medium text-amber-300">{lockMessage}</p>
+            ) : null}
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowLockedModal(false)}
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-400 active:scale-[0.98]"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
