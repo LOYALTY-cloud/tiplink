@@ -4,8 +4,15 @@ import { useEffect, useState, useCallback } from "react";
 
 type GlobalToastItem = {
   id: number;
+  title?: string;
   message: string;
   type: "success" | "error" | "info";
+};
+
+type GlobalToastPayload = {
+  title?: string;
+  message: string;
+  type?: "success" | "error" | "info";
 };
 
 let _id = 0;
@@ -20,11 +27,11 @@ export function GlobalToastProvider() {
 
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { message?: string; type?: string };
+      const detail = (e as CustomEvent).detail as GlobalToastPayload;
       if (!detail?.message) return;
       const id = ++_id;
       const type = (detail.type === "success" || detail.type === "error" || detail.type === "info") ? detail.type : "error";
-      setToasts((prev) => [...prev.slice(-4), { id, message: detail.message!, type }]);
+      setToasts((prev) => [...prev.slice(-4), { id, title: detail.title, message: detail.message, type }]);
       setTimeout(() => dismiss(id), 4000);
     };
     window.addEventListener("global-toast", handler);
@@ -51,6 +58,7 @@ export function GlobalToastProvider() {
         >
           {t.type === "error" && <span className="mr-1.5">⚠️</span>}
           {t.type === "success" && <span className="mr-1.5">✓</span>}
+          {t.title ? <span className="mr-1.5 font-semibold">{t.title}:</span> : null}
           {t.message}
         </div>
       ))}
@@ -59,8 +67,14 @@ export function GlobalToastProvider() {
 }
 
 /** Convenience function — call from anywhere in client code */
-export function showGlobalToast(message: string, type: "success" | "error" | "info" = "error") {
+export function showGlobalToast(
+  payload: string | GlobalToastPayload,
+  type: "success" | "error" | "info" = "error",
+) {
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("global-toast", { detail: { message, type } }));
+    const detail = typeof payload === "string"
+      ? { message: payload, type }
+      : { message: payload.message, title: payload.title, type: payload.type ?? type };
+    window.dispatchEvent(new CustomEvent("global-toast", { detail }));
   }
 }
