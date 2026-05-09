@@ -47,8 +47,44 @@ async function markProcessed(supabaseClient: SupabaseClient, eventId: string, ty
  * Email template for Stripe verification requirements notification.
  * Alerts creator that additional documents/info are needed for payouts.
  */
-function buildVerificationRequiredEmail(requirementsList: string, count: number): string {
+function humanizeRequirement(requirement: string): string {
+  const explicitMap: Record<string, string> = {
+    "individual.address.line1": "Home address",
+    "individual.address.city": "City",
+    "individual.address.state": "State/Province",
+    "individual.address.postal_code": "Postal code",
+    "individual.phone": "Phone number",
+    "individual.dob.day": "Date of birth",
+    "individual.dob.month": "Date of birth",
+    "individual.dob.year": "Date of birth",
+    "individual.id_number": "Government ID number",
+    "individual.verification.document": "Identity document",
+    "individual.verification.document.front": "Identity document (front)",
+    "individual.verification.document.back": "Identity document (back)",
+    "individual.verification.additional_document": "Additional identity document",
+    "business_profile.mcc": "Business category",
+    "business_profile.url": "Business website",
+    "external_account": "Bank account details",
+  };
+
+  if (explicitMap[requirement]) return explicitMap[requirement];
+
+  // Fallback: convert dot/underscore keys to readable words.
+  return requirement
+    .split(".")
+    .map((segment) => segment.replace(/_/g, " "))
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" - ");
+}
+
+function buildVerificationRequiredEmail(requirements: string[]): string {
   const dashboardUrl = "https://1nelink.com/dashboard/onboarding";
+  const count = requirements.length;
+  const labels = requirements.map(humanizeRequirement);
+  const uniqueLabels = Array.from(new Set(labels));
+  const requirementsListHtml = uniqueLabels
+    .map((label) => `<li style="margin: 0 0 8px;">${label}</li>`)
+    .join("");
   
   return `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #060B18; padding: 40px 20px;">
@@ -70,9 +106,9 @@ function buildVerificationRequiredEmail(requirementsList: string, count: number)
       <p style="margin: 0 0 12px; color: #fca5a5; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">
         Required Information (${count} item${count !== 1 ? 's' : ''})
       </p>
-      <p style="margin: 0; color: #fed7d7; font-size: 14px; line-height: 1.6;">
-        ${requirementsList}
-      </p>
+      <ul style="margin: 0; padding-left: 18px; color: #fed7d7; font-size: 14px; line-height: 1.6;">
+        ${requirementsListHtml}
+      </ul>
     </div>
 
     <!-- Details -->
@@ -913,7 +949,7 @@ export async function handleStripeEvent(
             type: "verification_needed",
             title: "Action needed: Complete verification",
             body: `Your payout account needs additional verification (${currentlyDueRequirements.length} item(s)) to continue receiving payouts.`,
-            category: "account",
+            category: "security",
             meta: {
               requirements: requirementsList,
               future_requirements: futureRequirements.join(", "),
@@ -930,10 +966,7 @@ export async function handleStripeEvent(
                 type: "NOTIFICATION",
                 to: authUser.user.email,
                 subject: "Action needed: Complete your payout verification",
-                html: buildVerificationRequiredEmail(
-                  requirementsList,
-                  currentlyDueRequirements.length,
-                ),
+                html: buildVerificationRequiredEmail(currentlyDueRequirements),
                 categoryOverride: "security",
               });
             }
