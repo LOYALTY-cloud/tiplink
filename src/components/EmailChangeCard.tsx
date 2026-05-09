@@ -16,6 +16,7 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [lockedUntil, setLockedUntil] = useState<string | null>(null);
+  const [showLockedModal, setShowLockedModal] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -109,11 +110,14 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
           </div>
           <button
             onClick={() => {
+              if (isLocked) {
+                setShowLockedModal(true);
+                return;
+              }
               resetForm();
               setIsOpen(true);
             }}
-            disabled={isLocked}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition active:scale-[0.97]"
           >
             {isLocked ? "Locked" : "Change"}
           </button>
@@ -229,6 +233,44 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
           </button>
         </div>
       </form>
+
+      {showLockedModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-[#0f172a] p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-wider text-amber-300">Email Change Locked</p>
+                <h3 className="mt-2 text-xl font-semibold text-white">You&apos;re not eligible to change your email yet</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLockedModal(false)}
+                className="text-white/50 hover:text-white transition"
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="mt-4 text-sm text-white/70">
+              For account security, email changes are locked for 2 weeks after a successful update.
+            </p>
+            {lockMessage ? (
+              <p className="mt-3 text-sm font-medium text-amber-300">{lockMessage}</p>
+            ) : null}
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowLockedModal(false)}
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-400 active:scale-[0.98]"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
