@@ -66,7 +66,7 @@ export async function PATCH(
 
   const { data: existingTheme, error: existingErr } = await supabaseAdmin
     .from("themes")
-    .select("id, user_id, is_active, is_market_active, version, category_id, store_id")
+    .select("id, user_id, is_active, is_market_active, version, category_id, store_id, is_public")
     .eq("id", id)
     .eq("user_id", userId)
     .maybeSingle();
@@ -78,6 +78,14 @@ export async function PATCH(
 
   if (!existingTheme) {
     return NextResponse.json({ error: "Theme not found" }, { status: 404 });
+  }
+
+  // Themes listed for sale cannot be edited — they must be unpublished first.
+  if (existingTheme.is_public) {
+    return NextResponse.json(
+      { error: "This theme is currently for sale and cannot be edited. Remove it from your store first." },
+      { status: 403 }
+    );
   }
 
   const name = typeof body.name === "string" && body.name.trim()
@@ -311,12 +319,10 @@ export async function PATCH(
     }
   }
 
-  const nextVersion = (existingTheme.version ?? 1) + 1;
-
+  // UPDATE the existing row in-place (theme is not for sale, so no buyers to protect)
   const { data: created, error: createErr } = await supabaseAdmin
     .from("themes")
-    .insert({
-      user_id: userId,
+    .update({
       name,
       config,
       price: basePrice,
@@ -326,29 +332,16 @@ export async function PATCH(
       store_id: linkedStoreId,
       category_id: finalCategoryId,
       is_verified: false,
-      is_active: existingTheme.is_active === true,
-      is_market_active: existingTheme.is_market_active !== false,
-      version: nextVersion,
-      parent_theme_id: existingTheme.id,
     })
+    .eq("id", existingTheme.id)
+    .eq("user_id", userId)
     .select("id, name, config, is_active, created_at, price, base_price, upgrade_price, is_public, unlock_count, is_market_active, version, parent_theme_id, category_id, is_verified")
     .single();
 
   if (createErr) {
-    console.error("themes/[id] PATCH create version:", createErr);
-    return NextResponse.json({ error: "Failed to create updated theme version" }, { status: 500 });
+    console.error("themes/[id] PATCH update:", createErr);
+    return NextResponse.json({ error: "Failed to update theme" }, { status: 500 });
   }
 
-  // Old version remains owned by buyers but is de-listed from market.
-  await supabaseAdmin
-    .from("themes")
-    .update({
-      is_active: false,
-      is_market_active: false,
-      is_public: false,
-    })
-    .eq("id", existingTheme.id)
-    .eq("user_id", userId);
-
-  return NextResponse.json({ theme: created, replaced_theme_id: existingTheme.id, versioned: true });
+  return NextResponse.json({ theme: created, versioned: false });
 }
