@@ -34,7 +34,17 @@ export async function POST(req: Request) {
       target_user: theme.user_id,
       metadata: { theme_id: themeId, reason, total_strikes: strikes },
       severity: strikes >= 3 ? "critical" : "high",
-    }).catch(() => {});
+    }).then(null, () => {});
+
+    // Write moderation log for audit trail
+    void supabaseAdmin.from("moderation_logs").insert({
+      theme_id: themeId,
+      creator_id: theme.user_id,
+      event_type: "human_strike",
+      ai_reason: String(reason).slice(0, 300),
+      reviewed_by: session.userId,
+      metadata: { total_strikes: strikes },
+    });
 
     return NextResponse.json({ ok: true, strikes });
   } catch (err: unknown) {

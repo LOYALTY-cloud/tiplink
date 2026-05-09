@@ -15,14 +15,16 @@ export async function POST(req: Request) {
     const { themeId, reason } = body;
     if (!themeId) return NextResponse.json({ error: "themeId required" }, { status: 400 });
 
-    const { error } = await supabaseAdmin
+    const { data: updatedTheme, error } = await supabaseAdmin
       .from("themes")
       .update({
         status: "flagged",
         is_public: false,
         moderation_reason: reason ? String(reason).slice(0, 300) : "Flagged by admin",
       })
-      .eq("id", themeId);
+      .eq("id", themeId)
+      .select("user_id")
+      .single();
 
     if (error) return NextResponse.json({ error: "Failed to flag theme." }, { status: 500 });
 
@@ -31,7 +33,16 @@ export async function POST(req: Request) {
       action: "marketplace_theme_flag",
       metadata: { theme_id: themeId, reason },
       severity: "medium",
-    }).catch(() => {});
+    }).then(null, () => {});
+
+    // Write moderation log for audit trail
+    void supabaseAdmin.from("moderation_logs").insert({
+      theme_id: themeId,
+      creator_id: updatedTheme?.user_id ?? null,
+      event_type: "human_flag",
+      ai_reason: reason ? String(reason).slice(0, 300) : "Flagged by admin",
+      reviewed_by: session.userId,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {

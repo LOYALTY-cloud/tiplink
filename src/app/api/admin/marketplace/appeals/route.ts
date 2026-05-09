@@ -74,12 +74,21 @@ export async function PATCH(req: Request) {
     .update({
       status: newStatus,
       admin_note: adminNote?.trim().slice(0, 1000) ?? null,
-      reviewed_by: admin.userId,
+      reviewed_by: session.userId,
       reviewed_at: new Date().toISOString(),
     })
     .eq("id", appealId);
 
   if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+
+  // Write moderation log for audit trail
+  void supabaseAdmin.from("moderation_logs").insert({
+    theme_id: appeal.theme_id,
+    creator_id: appeal.user_id,
+    event_type: action === "approve" ? "appeal_approved" : "appeal_rejected",
+    ai_reason: adminNote?.trim().slice(0, 300) ?? (action === "approve" ? "Appeal approved" : "Appeal rejected"),
+    reviewed_by: session.userId,
+  });
 
   // If approved, restore the theme to pending_review so it goes through moderation
   // and remove the associated strike to keep active_strikes accurate.

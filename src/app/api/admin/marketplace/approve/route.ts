@@ -14,10 +14,12 @@ export async function POST(req: Request) {
     const { themeId } = await req.json();
     if (!themeId) return NextResponse.json({ error: "themeId required" }, { status: 400 });
 
-    const { error } = await supabaseAdmin
+    const { data: updatedTheme, error } = await supabaseAdmin
       .from("themes")
       .update({ status: "approved", is_public: true, moderation_reason: null })
-      .eq("id", themeId);
+      .eq("id", themeId)
+      .select("user_id")
+      .single();
 
     if (error) return NextResponse.json({ error: "Failed to approve theme." }, { status: 500 });
 
@@ -27,7 +29,16 @@ export async function POST(req: Request) {
       action: "marketplace_theme_approve",
       metadata: { theme_id: themeId },
       severity: "low",
-    }).catch(() => {});
+    }).then(null, () => {});
+
+    // Write moderation log for audit trail
+    void supabaseAdmin.from("moderation_logs").insert({
+      theme_id: themeId,
+      creator_id: updatedTheme?.user_id ?? null,
+      event_type: "human_approve",
+      ai_reason: "Approved by admin",
+      reviewed_by: session.userId,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
