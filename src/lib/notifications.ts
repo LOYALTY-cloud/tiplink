@@ -10,6 +10,7 @@ type NotificationType =
   | "payout_processing"
   | "payout_paid"
   | "payout_failed"
+  | "verification_needed"
   | "theme_sold"
   | "theme_unlocked"
   | "creator_approved"
@@ -21,6 +22,7 @@ type NotificationCategory = "payouts" | "sales" | "tips" | "security" | "support
 function deriveCategory(type: NotificationType): NotificationCategory {
   if (type === "tip") return "tips";
   if (type === "payout" || type.startsWith("payout_")) return "payouts";
+  if (type === "verification_needed") return "security";
   if (type === "theme_sold" || type === "theme_unlocked") return "sales";
   if (type === "creator_approved") return "system";
   if (type === "security") return "security";
@@ -123,6 +125,7 @@ export async function createNotification({
     const allowed =
       (type === "tip" && prefs.notify_tips !== false) ||
       (isPayoutType && prefs.notify_payouts !== false) ||
+      (type === "verification_needed" && prefs.notify_security !== false) ||
       (type === "security" && prefs.notify_security !== false) ||
       isThemeSalesType || // theme purchase notifications always sent
       type === "support"; // support notifications are always sent

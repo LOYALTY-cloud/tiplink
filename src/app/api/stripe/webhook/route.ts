@@ -913,7 +913,7 @@ export async function handleStripeEvent(
             type: "verification_needed",
             title: "Action needed: Complete verification",
             body: `Your payout account needs additional verification (${currentlyDueRequirements.length} item(s)) to continue receiving payouts.`,
-            category: "account",
+            category: "security",
             meta: {
               requirements: requirementsList,
               future_requirements: futureRequirements.join(", "),
