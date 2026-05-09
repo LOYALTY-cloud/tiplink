@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
 import { ui } from "@/lib/ui";
+import EmailChangeCard from "@/components/EmailChangeCard";
 
 type ProfileData = {
   account_status: string | null;
@@ -299,6 +300,9 @@ function AccountContent() {
           <span className="text-white/45">→</span>
         </Link>
       </div>
+
+      {/* Email Change Card */}
+      <EmailChangeCard currentEmail={profile.email} />
 
       {/* Account Info */}
       <div className={`${ui.card} account-card rounded-2xl backdrop-blur-xl border border-white/[0.12] p-5`}>
