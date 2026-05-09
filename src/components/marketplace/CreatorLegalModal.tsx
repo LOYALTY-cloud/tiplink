@@ -32,7 +32,7 @@ const CHECKS = [
   },
   {
     key: "terms",
-    label: "I agree to the Creator Marketplace Terms & Policies.",
+    label: "I agree to the Creator Theme Store Terms & Policies.",
   },
 ] as const;
 
@@ -58,7 +58,7 @@ export default function CreatorLegalModal({ onAccept, onDecline, loading }: Prop
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 sm:p-6">
       <div className={`${ui.card} w-full max-w-2xl p-6 sm:p-8 max-h-[90vh] overflow-y-auto`}>
-        <h1 className={`${ui.h1} mb-2`}>Creator Marketplace Agreement</h1>
+        <h1 className={`${ui.h1} mb-2`}>Creator Theme Store Agreement</h1>
         <p className={`${ui.muted2} text-sm mb-6`}>
           Before uploading or selling themes, you must read and accept all of the following.
         </p>

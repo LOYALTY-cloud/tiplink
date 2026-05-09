@@ -15,6 +15,17 @@ import { rateLimit } from "@/lib/rateLimit";
 const MASS_UPLOAD_THRESHOLD = 5;
 const MASS_UPLOAD_WINDOW_MS = 60 * 60 * 1000;
 
+// Kill switch — set AI_MODERATION_ENABLED=false in Vercel env to disable auto-flagging
+const AI_MODERATION_ENABLED = process.env.AI_MODERATION_ENABLED !== "false";
+
+// Max themes auto-flagged per hour across all users. If exceeded, route to pending_review only.
+const MAX_AUTO_FLAGS_PER_HOUR = 50;
+
+// Protected creator: high-trust creators skip auto-flagging for low-risk signals
+function isProtectedCreator(trustScore: number, verified: boolean, strikes: number): boolean {
+  return trustScore >= 85 && verified && strikes === 0;
+}
+
 export const runtime = "nodejs";
 
 const MAX_PREVIEWS = 5;
@@ -46,10 +57,16 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (profile?.upload_ban_until && new Date(profile.upload_ban_until) > new Date()) {
-    return NextResponse.json({ error: "Your upload access is currently suspended." }, { status: 403 });
+    const isPermanent = new Date(profile.upload_ban_until).getFullYear() >= 9999;
+    return NextResponse.json({
+      error: isPermanent
+        ? "Your Theme Store access has been permanently revoked due to repeated violations."
+        : "Your upload access is currently suspended.",
+    }, { status: 403 });
   }
+  // Redundant safety check — active_strikes >= 3 should always have ban set, but guard anyway
   if (profile && profile.active_strikes >= 3) {
-    return NextResponse.json({ error: "Your creator account has been permanently banned from the marketplace." }, { status: 403 });
+    return NextResponse.json({ error: "Your Theme Store access has been permanently revoked due to repeated violations." }, { status: 403 });
   }
 
   // Parse multipart form
@@ -131,6 +148,20 @@ export async function POST(req: Request) {
 
   // ── Risk pipeline ────────────────────────────────────────────────────────────
 
+  // Fetch full creator profile for protected-creator check
+  const { data: creatorProfile } = await supabaseAdmin
+    .from("creator_marketplace_profiles")
+    .select("trust_score, verified_identity, active_strikes")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const creatorIsProtected = isProtectedCreator(
+    creatorProfile?.trust_score ?? 0,
+    creatorProfile?.verified_identity ?? false,
+    creatorProfile?.active_strikes ?? 0,
+  );
+
+
   // 1. Mass-upload detection: count uploads in the last hour
   const windowStart = new Date(Date.now() - MASS_UPLOAD_WINDOW_MS).toISOString();
   const { count: recentUploads } = await supabaseAdmin
@@ -182,20 +213,43 @@ export async function POST(req: Request) {
 
   // 5. Compute final risk score + status
   const riskScore = calculateRiskScore({
-    logoDetection,
+    logoDetection: AI_MODERATION_ENABLED ? logoDetection : false,
     duplicateSimilarity: (duplicateWarning || visualDuplicate) ? 100 : 0,
     creatorStrikes: profile?.active_strikes ?? 0,
-    suspiciousKeywords: suspiciousKw,
+    suspiciousKeywords: AI_MODERATION_ENABLED ? suspiciousKw : false,
     massUploads,
   });
-  const status = determineThemeStatus(riskScore);
+
+  // Protected creators skip auto-flagging for borderline risk (≤60);
+  // only hard evidence (logo detection, exact duplicate) can still flag them.
+  const hardEvidence = logoDetection || duplicateWarning;
+  let status = determineThemeStatus(riskScore);
+  if (creatorIsProtected && status === "flagged" && !hardEvidence) {
+    status = "pending_review"; // downgrade to human review, not auto-flag
+  }
+
+  // Kill switch: if AI moderation is disabled, cap at pending_review
+  if (!AI_MODERATION_ENABLED && status === "flagged") {
+    status = "pending_review";
+  }
+
+  // Auto-flag rate limiter: if platform has already auto-flagged too many
+  // themes this hour, switch to pending_review to prevent mass-flag bugs.
+  if (status === "flagged") {
+    const flagLimit = await rateLimit("auto_flag_global", MAX_AUTO_FLAGS_PER_HOUR, 3600);
+    if (!flagLimit.allowed) {
+      status = "pending_review";
+    }
+  }
 
   const moderationReasons: string[] = [];
+  if (!AI_MODERATION_ENABLED) moderationReasons.push("AI moderation disabled (kill switch)");
   if (logoDetection) moderationReasons.push("AI detected brand logo");
   if (visualDuplicate) moderationReasons.push("Visual near-duplicate detected");
   if (duplicateWarning) moderationReasons.push("Exact duplicate hash");
   if (suspiciousKw) moderationReasons.push("Suspicious keywords");
   if (massUploads) moderationReasons.push("Mass upload activity");
+  if (creatorIsProtected && !hardEvidence) moderationReasons.push("Protected creator — downgraded from auto-flag");
 
   const tags = tagsRaw
     .split(",")
@@ -227,6 +281,24 @@ export async function POST(req: Request) {
 
   if (insertErr || !theme) {
     return NextResponse.json({ error: "Failed to save theme." }, { status: 500 });
+  }
+
+  // Write moderation log (non-blocking)
+  if (moderationReasons.length > 0 || riskScore > 0) {
+    supabaseAdmin
+      .from("moderation_logs")
+      .insert({
+        theme_id: theme.id,
+        creator_id: user.id,
+        event_type: status === "flagged" ? "auto_flag" : "ai_scan",
+        ai_reason: moderationReasons.join("; ") || "passed",
+        risk_score: riskScore,
+        metadata: {
+          ai_enabled: AI_MODERATION_ENABLED,
+          creator_protected: creatorIsProtected,
+        },
+      })
+      .then(() => {/* fire and forget */});
   }
 
   return NextResponse.json({ id: theme.id, status: theme.status });

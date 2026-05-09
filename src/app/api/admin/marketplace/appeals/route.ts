@@ -59,7 +59,7 @@ export async function PATCH(req: Request) {
 
   const { data: appeal, error: fetchErr } = await supabaseAdmin
     .from("theme_appeals")
-    .select("id, theme_id, status")
+    .select("id, theme_id, status, user_id")
     .eq("id", appealId)
     .maybeSingle();
 
@@ -82,11 +82,41 @@ export async function PATCH(req: Request) {
   if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
 
   // If approved, restore the theme to pending_review so it goes through moderation
+  // and remove the associated strike to keep active_strikes accurate.
   if (action === "approve") {
     await supabaseAdmin
       .from("themes")
       .update({ status: "pending_review", moderation_reason: null })
       .eq("id", appeal.theme_id);
+
+    // Delete the strike for this specific theme
+    await supabaseAdmin
+      .from("creator_strikes")
+      .delete()
+      .eq("creator_id", appeal.user_id)
+      .eq("theme_id", appeal.theme_id);
+
+    // Recount active strikes and sync the profile
+    const { count: activeStrikes } = await supabaseAdmin
+      .from("creator_strikes")
+      .select("*", { count: "exact", head: true })
+      .eq("creator_id", appeal.user_id)
+      .or("expires_at.is.null,expires_at.gt." + new Date().toISOString());
+
+    const strikes = activeStrikes ?? 0;
+    const banUpdate: Record<string, unknown> = { active_strikes: strikes };
+
+    // Clear the upload ban if strikes dropped below the threshold
+    if (strikes < 3) {
+      banUpdate.upload_ban_until = strikes >= 2
+        ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+        : null;
+    }
+
+    await supabaseAdmin
+      .from("creator_marketplace_profiles")
+      .update(banUpdate)
+      .eq("user_id", appeal.user_id);
   }
 
   return NextResponse.json({ success: true });

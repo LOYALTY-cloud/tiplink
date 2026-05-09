@@ -37,6 +37,18 @@ export async function POST(req: Request) {
     .eq("user_id", userId)
     .maybeSingle();
 
+  // Check upload ban before allowing any publish action
+  if (publish) {
+    const { data: cmp } = await supabaseAdmin
+      .from("creator_marketplace_profiles")
+      .select("upload_ban_until")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (cmp?.upload_ban_until && new Date(cmp.upload_ban_until) > new Date()) {
+      return NextResponse.json({ error: "Your Theme Store access is currently suspended." }, { status: 403 });
+    }
+  }
+
   if (publish && !store?.is_active) {
     return NextResponse.json(
       { error: "Active store subscription required to publish themes." },

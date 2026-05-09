@@ -36,13 +36,37 @@ export function generateThemeHash(data: string): string {
   return crypto.createHash("sha256").update(data).digest("hex");
 }
 
-export const SUSPICIOUS_KEYWORDS = [
-  "official", "verified", "authentic", "licensed",
-  "nike", "apple", "gucci", "disney", "supreme",
-  "adidas", "louis vuitton", "chanel", "rolex",
+/**
+ * Centralized protected brand database.
+ * Covers major trademark holders across fashion, tech, entertainment, sports, gaming.
+ * Matching against this list triggers the keyword risk signal.
+ */
+export const PROTECTED_BRANDS: string[] = [
+  // Tech
+  "apple", "google", "microsoft", "samsung", "meta", "facebook", "instagram",
+  "twitter", "x.com", "amazon", "netflix", "spotify", "tiktok", "snapchat",
+  "youtube", "tesla", "openai",
+  // Fashion / Luxury
+  "nike", "adidas", "gucci", "louis vuitton", "chanel", "prada", "versace",
+  "supreme", "off-white", "balenciaga", "rolex", "dior", "hermes", "burberry",
+  "fendi", "yves saint laurent", "givenchy", "alexander mcqueen",
+  // Entertainment
+  "disney", "marvel", "dc comics", "warner bros", "universal", "paramount",
+  "dreamworks", "pixar", "star wars", "harry potter", "pokemon", "nintendo",
+  "playstation", "xbox", "fortnite", "roblox",
+  // Sports
+  "nba", "nfl", "nhl", "mlb", "fifa", "uefa", "olympic", "espn",
+  // Banking / Finance
+  "visa", "mastercard", "paypal", "stripe", "coinbase",
+  // Generic fraud signals
+  "official", "verified", "authentic", "licensed", "certified", "authorized",
+  "government", "irs", "fbi", "nsa",
 ];
+
+/** @deprecated use PROTECTED_BRANDS */
+export const SUSPICIOUS_KEYWORDS = PROTECTED_BRANDS;
 
 export function hasSuspiciousKeywords(text: string): boolean {
   const lower = text.toLowerCase();
-  return SUSPICIOUS_KEYWORDS.some((kw) => lower.includes(kw));
+  return PROTECTED_BRANDS.some((brand) => lower.includes(brand));
 }

@@ -93,7 +93,7 @@ function AppealPageContent() {
             <label className={`${ui.label} block mb-2`}>Your Appeal *</label>
             <textarea
               className={`${ui.input} min-h-[180px] resize-none`}
-              placeholder="Describe why this theme complies with marketplace rules, that it does not contain copyrighted logos or brand marks, and any other relevant context…"
+              placeholder="Describe why this theme complies with Theme Store rules, that it does not contain copyrighted logos or brand marks, and any other relevant context…"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               maxLength={2000}
@@ -113,7 +113,7 @@ function AppealPageContent() {
             <ul className="list-disc list-inside space-y-1">
               <li>Remove all brand logos, trademarks, or copyrighted characters</li>
               <li>Ensure your theme name and description have no misleading keywords</li>
-              <li>Repeated or abusive appeals may result in an upload ban</li>
+              <li>Repeated or abusive appeals may result in an upload ban from the Theme Store</li>
             </ul>
           </div>
 
