@@ -15,6 +15,12 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  const resetForm = () => {
+    setNewEmail("");
+    setPassword("");
+    setShowPassword(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -43,8 +49,7 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
         message: data.message || `Email changed to ${newEmail}. Please verify it.`,
       });
 
-      setNewEmail("");
-      setPassword("");
+      resetForm();
       setIsOpen(false);
     } catch (err) {
       showGlobalToast({
@@ -67,7 +72,10 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
             <p className="text-xs text-white/50 mt-1">Your account email</p>
           </div>
           <button
-            onClick={() => setIsOpen(true)}
+            onClick={() => {
+              resetForm();
+              setIsOpen(true);
+            }}
             className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition active:scale-[0.97]"
           >
             Change
@@ -84,8 +92,7 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
         <button
           onClick={() => {
             setIsOpen(false);
-            setNewEmail("");
-            setPassword("");
+            resetForm();
           }}
           className="text-white/50 hover:text-white transition"
         >
@@ -93,7 +100,7 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
         {/* Current Email (Read-only) */}
         <div>
           <label className="text-xs font-medium text-white/70 block mb-2">Current Email</label>
@@ -110,6 +117,8 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
           <input
             id="newEmail"
             type="email"
+            name="account-new-email"
+            autoComplete="off"
             value={newEmail}
             onChange={(e) => setNewEmail(e.target.value)}
             placeholder="your.new.email@example.com"
@@ -131,6 +140,8 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
             <input
               id="password"
               type={showPassword ? "text" : "password"}
+              name="account-email-change-password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
@@ -172,8 +183,7 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
             type="button"
             onClick={() => {
               setIsOpen(false);
-              setNewEmail("");
-              setPassword("");
+              resetForm();
             }}
             disabled={isLoading}
             className="flex-1 px-4 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition active:scale-[0.97] disabled:opacity-50"
