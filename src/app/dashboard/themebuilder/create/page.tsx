@@ -201,6 +201,11 @@ export default function CreateThemePage() {
         router.replace("/dashboard/onboarding?themebuilder_gate=1");
         return;
       }
+      // Block access if upload-banned
+      if (json.upload_ban_until && new Date(json.upload_ban_until) > new Date()) {
+        router.replace("/dashboard/themebuilder?suspended=1");
+        return;
+      }
       setIsCreator(true);
       setHasActiveStore(json.has_active_store === true);
       setCreatorGateChecked(true);
