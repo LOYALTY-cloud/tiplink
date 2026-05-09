@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseRouteClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -33,8 +34,21 @@ export async function POST(req: Request) {
       );
     }
 
-    // Verify password by attempting sign in
-    const { error: signInErr } = await supabaseAdmin.auth.signInWithPassword({
+    if (newEmail.toLowerCase() === (userEmail || "").toLowerCase()) {
+      return NextResponse.json(
+        { error: "New email must be different from your current email" },
+        { status: 400 }
+      );
+    }
+
+    // Verify password using a separate anon client so we don't mutate the current session
+    const verifyClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false } }
+    );
+
+    const { error: signInErr } = await verifyClient.auth.signInWithPassword({
       email: userEmail || "",
       password,
     });
@@ -47,7 +61,18 @@ export async function POST(req: Request) {
     }
 
     // Check if new email is already in use
-    const { data: existingUser } = await supabaseAdmin.auth.admin.getUserByEmail(newEmail);
+    const { data: listedUsers, error: listUsersErr } = await supabaseAdmin.auth.admin.listUsers();
+    if (listUsersErr) {
+      return NextResponse.json(
+        { error: "Failed to validate email availability" },
+        { status: 500 }
+      );
+    }
+
+    const existingUser = listedUsers.users.find(
+      (user) => user.email?.toLowerCase() === newEmail.toLowerCase() && user.id !== userId
+    );
+
     if (existingUser) {
       return NextResponse.json(
         { error: "Email already in use" },
