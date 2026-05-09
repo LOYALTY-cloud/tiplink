@@ -251,13 +251,6 @@ export async function POST(req: Request) {
   if (massUploads) moderationReasons.push("Mass upload activity");
   if (creatorIsProtected && !hardEvidence) moderationReasons.push("Protected creator — downgraded from auto-flag");
 
-  const moderationReasons: string[] = [];
-  if (logoDetection) moderationReasons.push("AI detected brand logo");
-  if (visualDuplicate) moderationReasons.push("Visual near-duplicate detected");
-  if (duplicateWarning) moderationReasons.push("Exact duplicate hash");
-  if (suspiciousKw) moderationReasons.push("Suspicious keywords");
-  if (massUploads) moderationReasons.push("Mass upload activity");
-
   const tags = tagsRaw
     .split(",")
     .map((t) => t.trim().toLowerCase())
