@@ -9,6 +9,7 @@ import { EnablePayoutsModal } from "@/components/EnablePayoutsModal";
 import WithdrawalTimer from "@/components/WithdrawalTimer";
 import AnimatedBalance from "@/components/AnimatedBalance";
 import FreezeBanner from "@/components/FreezeBanner";
+import StripeVerificationCard from "@/components/StripeVerificationCard";
 import { useToast } from "@/lib/useToast";
 import { showGlobalToast } from "@/components/GlobalToast";
 import { ToastStack } from "@/components/ToastStack";
@@ -714,6 +715,9 @@ export default function WalletPage() {
           />
         </div>
       )}
+
+      {/* Stripe verification alert (if requirements detected) */}
+      {!walletLocked && <StripeVerificationCard />}
 
       {/* Hero balance */}
       <div className="text-center py-8 space-y-2">

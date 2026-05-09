@@ -43,6 +43,59 @@ async function markProcessed(supabaseClient: SupabaseClient, eventId: string, ty
   }
 }
 
+/**
+ * Email template for Stripe verification requirements notification.
+ * Alerts creator that additional documents/info are needed for payouts.
+ */
+function buildVerificationRequiredEmail(requirementsList: string, count: number): string {
+  const dashboardUrl = "https://1nelink.com/dashboard/onboarding";
+  
+  return `
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #060B18; padding: 40px 20px;">
+  <div style="max-width: 520px; margin: 0 auto; background: #0f172a; border-radius: 16px; padding: 32px; border: 1px solid rgba(255,255,255,0.08);">
+    
+    <!-- Header -->
+    <div style="margin-bottom: 24px;">
+      <div style="font-size: 28px; font-weight: 700; color: #ffffff; margin-bottom: 8px;">Action Needed</div>
+      <div style="width: 48px; height: 3px; background: linear-gradient(90deg, #ef4444, #f97316); border-radius: 2px;"></div>
+    </div>
+
+    <!-- Main message -->
+    <p style="margin: 0 0 24px; color: #e5e7eb; font-size: 15px; line-height: 1.6;">
+      Your 1neLink payout account needs additional verification to continue receiving payouts.
+    </p>
+
+    <!-- Requirements box -->
+    <div style="background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); border-radius: 12px; padding: 16px; margin: 24px 0;">
+      <p style="margin: 0 0 12px; color: #fca5a5; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">
+        Required Information (${count} item${count !== 1 ? 's' : ''})
+      </p>
+      <p style="margin: 0; color: #fed7d7; font-size: 14px; line-height: 1.6;">
+        ${requirementsList}
+      </p>
+    </div>
+
+    <!-- Details -->
+    <p style="margin: 0 0 20px; color: #d1d5db; font-size: 14px; line-height: 1.6;">
+      Without this verification, you won't be able to receive payouts from tips and sales. This usually takes just a few minutes to complete.
+    </p>
+
+    <!-- CTA Button -->
+    <a href="${dashboardUrl}" style="display: inline-block; padding: 12px 28px; background: linear-gradient(90deg, #ef4444, #f97316); color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 14px;">
+      Complete Verification →
+    </a>
+
+    <!-- Footer -->
+    <hr style="margin: 28px 0; border: none; border-top: 1px solid rgba(255,255,255,0.08);" />
+    <p style="margin: 0; color: #9ca3af; font-size: 12px; line-height: 1.6;">
+      Need help? Reply to this email or visit our support center. This is an automated notification from Stripe's verification system.
+    </p>
+
+  </div>
+</div>
+  `.trim();
+}
+
 export async function POST(req: NextRequest) {
   const { stripe } = await import("@/lib/stripe/server");
 
@@ -829,6 +882,19 @@ export async function handleStripeEvent(
     // ACCOUNT STATUS / CONNECT
     case "account.updated": {
       const account = event.data.object as Stripe.Account;
+      
+      // Monitor requirements to notify user proactively instead of Stripe surprising them
+      const currentlyDueRequirements = account.requirements?.currently_due || [];
+      const futureRequirements = account.future_requirements?.currently_due || [];
+      const disabledReason = account.requirements?.disabled_reason;
+      
+      const { data: profile } = await supabaseClient
+        .from("profiles")
+        .select("user_id")
+        .eq("stripe_account_id", account.id)
+        .maybeSingle();
+
+      // Update profile with latest Stripe status
       await supabaseClient.from("profiles").update({
         stripe_account_status: account.details_submitted ? "verified" : "incomplete",
         stripe_charges_enabled: account.charges_enabled,
@@ -836,21 +902,65 @@ export async function handleStripeEvent(
         stripe_onboarding_complete: Boolean(account.charges_enabled && account.payouts_enabled),
       }).eq("stripe_account_id", account.id);
 
-      // Sync external accounts (cards/bank accounts) to payout_methods
-      if (account.charges_enabled && account.payouts_enabled) {
-        const { data: profile } = await supabaseClient
-          .from("profiles")
-          .select("user_id")
-          .eq("stripe_account_id", account.id)
-          .maybeSingle();
+      // Notify user if additional verification is required
+      if (profile?.user_id && currentlyDueRequirements.length > 0) {
+        try {
+          // 1. In-app notification
+          const { createNotification } = await import("@/lib/notifications");
+          const requirementsList = currentlyDueRequirements.join(", ");
+          await createNotification({
+            userId: profile.user_id,
+            type: "verification_needed",
+            title: "Action needed: Complete verification",
+            body: `Your payout account needs additional verification (${currentlyDueRequirements.length} item(s)) to continue receiving payouts.`,
+            category: "account",
+            meta: {
+              requirements: requirementsList,
+              future_requirements: futureRequirements.join(", "),
+              disabled_reason: disabledReason,
+            },
+          });
 
-        if (profile?.user_id) {
+          // 2. Email notification (non-blocking, fire-and-forget)
           try {
-            const { syncExternalAccounts } = await import("@/lib/syncExternalAccounts");
-            await syncExternalAccounts(profile.user_id, account.id);
+            const { data: authUser } = await supabaseClient.auth.admin.getUserById(profile.user_id);
+            if (authUser?.user?.email) {
+              const { sendEmailAsync } = await import("@/lib/emailService");
+              sendEmailAsync({
+                type: "NOTIFICATION",
+                to: authUser.user.email,
+                subject: "Action needed: Complete your payout verification",
+                html: buildVerificationRequiredEmail(
+                  requirementsList,
+                  currentlyDueRequirements.length,
+                ),
+                categoryOverride: "security",
+              });
+            }
           } catch (e) {
-            console.log("External account sync error in webhook:", e);
+            console.log("Failed to send verification email:", e instanceof Error ? e.message : e);
           }
+        } catch (e) {
+          console.log("Failed to create verification notification:", e instanceof Error ? e.message : e);
+        }
+      }
+
+      // Log requirements for debugging
+      if (currentlyDueRequirements.length > 0 || disabledReason) {
+        console.log(`Account ${account.id} requires verification:`, {
+          currently_due: currentlyDueRequirements,
+          future_requirements: futureRequirements,
+          disabled_reason: disabledReason,
+        });
+      }
+
+      // Sync external accounts (cards/bank accounts) to payout_methods
+      if (account.charges_enabled && account.payouts_enabled && profile?.user_id) {
+        try {
+          const { syncExternalAccounts } = await import("@/lib/syncExternalAccounts");
+          await syncExternalAccounts(profile.user_id, account.id);
+        } catch (e) {
+          console.log("External account sync error in webhook:", e instanceof Error ? e.message : e);
         }
       }
 
