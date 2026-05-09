@@ -350,6 +350,7 @@ function ThemePreviewModal({
 
 function ThemeCard({
   theme,
+  isBanned,
   onApply,
   onRemove,
   onDelete,
@@ -357,6 +358,7 @@ function ThemeCard({
   onPreview,
 }: {
   theme: SavedTheme;
+  isBanned?: boolean;
   onApply: (id: string) => Promise<void>;
   onRemove: () => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -403,11 +405,14 @@ function ThemeCard({
               setTogglingMarket(false);
             }
           }}
-          disabled={togglingMarket}
+          disabled={togglingMarket || (isBanned && !isMarketActive)}
+          title={isBanned && !isMarketActive ? "Suspended — cannot activate themes for sale" : undefined}
           className={`w-full py-2 rounded-xl text-xs font-medium transition disabled:opacity-50 ${
-            isMarketActive
-              ? "bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300"
-              : "bg-white/10 hover:bg-white/20 text-white/70"
+            isBanned && !isMarketActive
+              ? "bg-white/5 text-white/25 cursor-not-allowed"
+              : isMarketActive
+                ? "bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300"
+                : "bg-white/10 hover:bg-white/20 text-white/70"
           }`}
         >
           {togglingMarket ? "Updating…" : isMarketActive ? "Deactivate" : "Activate for Sale"}
@@ -473,6 +478,7 @@ export default function ThemeBuilderDashboard() {
   const [tab, setTab] = useState<Tab>("themes");
   const [creatorGateChecked, setCreatorGateChecked] = useState(false);
   const [creatorProfile, setCreatorProfile] = useState<{ total_sales: number; owner_elite: boolean } | null>(null);
+  const [uploadBanUntil, setUploadBanUntil] = useState<string | null>(null);
   const [legalPending, setLegalPending] = useState(false);
   const [legalAccepting, setLegalAccepting] = useState(false);
 
@@ -682,6 +688,7 @@ export default function ThemeBuilderDashboard() {
         total_sales: json.total_sales ?? 0,
         owner_elite: json.owner_elite === true,
       });
+      if (json.upload_ban_until) setUploadBanUntil(json.upload_ban_until);
 
       // ── Check legal acceptance ──────────────────────────────────────────
       const legalRes = await fetch("/api/marketplace/legal-check", {
@@ -880,6 +887,12 @@ export default function ThemeBuilderDashboard() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  const isBanned = !!uploadBanUntil && new Date(uploadBanUntil) > new Date();
+  const isPermanentBan = isBanned && new Date(uploadBanUntil!).getFullYear() >= 9999;
+  const banUntilFormatted = isBanned && !isPermanentBan
+    ? new Date(uploadBanUntil!).toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })
+    : null;
+
   return (
     <div className="space-y-6">
 
@@ -897,12 +910,22 @@ export default function ThemeBuilderDashboard() {
           <h1 className="text-2xl font-semibold tracking-tight">Theme Builder</h1>
           <p className="text-sm text-white/40 mt-1">Build · monetize · distribute</p>
         </div>
-        <Link
-          href="/dashboard/themebuilder/create"
-          className="bg-white text-black px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-white/90 transition shadow-sm"
-        >
-          + Create Theme
-        </Link>
+        {isBanned ? (
+          <button
+            disabled
+            title={isPermanentBan ? "Permanently banned from Theme Store" : `Suspended until ${banUntilFormatted}`}
+            className="bg-white/10 text-white/30 px-5 py-2.5 rounded-xl text-sm font-semibold cursor-not-allowed shadow-sm"
+          >
+            + Create Theme
+          </button>
+        ) : (
+          <Link
+            href="/dashboard/themebuilder/create"
+            className="bg-white text-black px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-white/90 transition shadow-sm"
+          >
+            + Create Theme
+          </Link>
+        )}
       </div>
 
       {/* Tab nav */}
@@ -927,6 +950,19 @@ export default function ThemeBuilderDashboard() {
       ═══════════════════════════════════════ */}
       {tab === "themes" && (
         <div className="space-y-6">
+
+          {/* Upload suspension banner */}
+          {isBanned && (
+            <div className="flex items-start gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-300">
+              <span className="mt-0.5">🚫</span>
+              <div>
+                <p className="font-semibold">
+                  {isPermanentBan ? "Your Theme Store access has been permanently revoked." : `Your Theme Store access is suspended until ${banUntilFormatted}.`}
+                </p>
+                <p className="text-red-300/70 text-xs mt-0.5">You cannot upload or list new themes during this period. Existing themes remain visible but cannot be activated for sale.</p>
+              </div>
+            </div>
+          )}
 
           {/* Stats strip */}
           {!themesLoading && !themesError && themes.length > 0 && (
@@ -958,9 +994,15 @@ export default function ThemeBuilderDashboard() {
               <p className="text-5xl mb-4">🎨</p>
               <p className="text-base font-medium">No themes yet</p>
               <p className="text-sm mt-1 mb-5">Create your first custom theme</p>
-              <Link href="/dashboard/themebuilder/create" className="inline-block bg-white text-black px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-white/90 transition">
-                Create Theme
-              </Link>
+              {isBanned ? (
+                <span className="inline-block bg-white/10 text-white/30 px-6 py-2.5 rounded-xl text-sm font-semibold cursor-not-allowed">
+                  Create Theme
+                </span>
+              ) : (
+                <Link href="/dashboard/themebuilder/create" className="inline-block bg-white text-black px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-white/90 transition">
+                  Create Theme
+                </Link>
+              )}
             </div>
           )}
 
@@ -971,6 +1013,7 @@ export default function ThemeBuilderDashboard() {
                 <ThemeCard
                   key={t.id}
                   theme={t}
+                  isBanned={isBanned}
                   onApply={applyTheme}
                   onRemove={removeTheme}
                   onDelete={deleteTheme}
@@ -1818,8 +1861,10 @@ export default function ThemeBuilderDashboard() {
                                   </div>
                                 </div>
                                 <button
-                                  disabled={publishingTheme === t.id || t.is_market_active === false}
+                                  disabled={publishingTheme === t.id || t.is_market_active === false || isBanned}
+                                  title={isBanned ? (isPermanentBan ? "Permanently banned from Theme Store" : `Suspended until ${banUntilFormatted}`) : undefined}
                                   onClick={async () => {
+                                    if (isBanned) return;
                                     setPublishingTheme(t.id);
                                     try {
                                       const token = await getToken();
@@ -1838,7 +1883,9 @@ export default function ThemeBuilderDashboard() {
                                     }
                                   }}
                                   className={`text-xs font-semibold px-3.5 py-1.5 rounded-lg transition disabled:opacity-40 shrink-0 ${
-                                    t.is_market_active === false
+                                    isBanned
+                                      ? "bg-white/5 text-white/25 cursor-not-allowed"
+                                      : t.is_market_active === false
                                       ? "bg-white/5 text-white/25 cursor-not-allowed"
                                       : t.is_public
                                       ? "bg-green-500/15 text-green-400 border border-green-400/20 hover:bg-red-500/10 hover:text-red-400 hover:border-red-400/20"
@@ -1847,6 +1894,8 @@ export default function ThemeBuilderDashboard() {
                                 >
                                   {publishingTheme === t.id
                                     ? "…"
+                                    : isBanned
+                                    ? "Suspended"
                                     : t.is_market_active === false
                                     ? "Inactive"
                                     : t.is_public
