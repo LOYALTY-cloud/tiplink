@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseRouteClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+const EMAIL_CHANGE_LOCK_MS = 14 * 24 * 60 * 60 * 1000;
+
 export async function POST(req: Request) {
   try {
     const supabase = await createSupabaseRouteClient();
@@ -15,6 +17,24 @@ export async function POST(req: Request) {
 
     const userId = authUser.user.id;
     const userEmail = authUser.user.email;
+    const existingAppMetadata = (authUser.user.app_metadata ?? {}) as Record<string, unknown>;
+    const emailChangeLockedUntil = typeof existingAppMetadata.email_change_locked_until === "string"
+      ? existingAppMetadata.email_change_locked_until
+      : null;
+
+    if (emailChangeLockedUntil) {
+      const lockEnd = new Date(emailChangeLockedUntil);
+      if (lockEnd.getTime() > Date.now()) {
+        const daysLeft = Math.ceil((lockEnd.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+        return NextResponse.json(
+          {
+            error: `You can change your email again in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}.`,
+            lockedUntil: lockEnd.toISOString(),
+          },
+          { status: 403 }
+        );
+      }
+    }
 
     // Parse request body
     const { newEmail, password } = await req.json();
@@ -80,10 +100,19 @@ export async function POST(req: Request) {
       );
     }
 
+    const nextLockedUntil = new Date(Date.now() + EMAIL_CHANGE_LOCK_MS).toISOString();
+
     // Update email in auth
     const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
       userId,
-      { email: newEmail, email_confirm: false }
+      {
+        email: newEmail,
+        email_confirm: false,
+        app_metadata: {
+          ...existingAppMetadata,
+          email_change_locked_until: nextLockedUntil,
+        },
+      }
     );
 
     if (updateErr) {
@@ -103,6 +132,7 @@ export async function POST(req: Request) {
       success: true,
       message: "Email changed successfully. Please verify your new email address.",
       newEmail,
+      lockedUntil: nextLockedUntil,
     });
   } catch (err) {
     console.error("Email change error:", err);

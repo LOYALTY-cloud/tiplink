@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ui } from "@/lib/ui";
 import { showGlobalToast } from "@/components/GlobalToast";
+import { supabase } from "@/lib/supabase/client";
 
 interface EmailChangeCardProps {
   currentEmail: string | null;
@@ -14,12 +15,38 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [lockedUntil, setLockedUntil] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!mounted) return;
+      const lock = data.user?.app_metadata?.email_change_locked_until;
+      setLockedUntil(typeof lock === "string" ? lock : null);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const resetForm = () => {
     setNewEmail("");
     setPassword("");
     setShowPassword(false);
   };
+
+  const lockEnd = lockedUntil ? new Date(lockedUntil) : null;
+  const isLocked = Boolean(lockEnd && lockEnd.getTime() > Date.now());
+  const lockMessage = isLocked && lockEnd
+    ? `You can change your email again after ${lockEnd.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })}.`
+    : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,6 +62,11 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
       const data = await res.json();
 
       if (!res.ok) {
+        if (typeof data.lockedUntil === "string") {
+          setLockedUntil(data.lockedUntil);
+          setIsOpen(false);
+          resetForm();
+        }
         showGlobalToast({
           type: "error",
           title: "Email change failed",
@@ -49,6 +81,7 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
         message: data.message || `Email changed to ${newEmail}. Please verify it.`,
       });
 
+      setLockedUntil(typeof data.lockedUntil === "string" ? data.lockedUntil : null);
       resetForm();
       setIsOpen(false);
     } catch (err) {
@@ -70,15 +103,19 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
           <div>
             <p className="text-sm text-white font-semibold">{currentEmail}</p>
             <p className="text-xs text-white/50 mt-1">Your account email</p>
+            {lockMessage ? (
+              <p className="text-xs text-amber-300 mt-2">{lockMessage}</p>
+            ) : null}
           </div>
           <button
             onClick={() => {
               resetForm();
               setIsOpen(true);
             }}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition active:scale-[0.97]"
+            disabled={isLocked}
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
           >
-            Change
+            {isLocked ? "Locked" : "Change"}
           </button>
         </div>
       </div>
