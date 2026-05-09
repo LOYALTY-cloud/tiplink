@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { determineCreatorBadge, calculateTrustScore } from "./trustScore";
+import { sendEmailAsync } from "@/lib/emailService";
 
 export const REPORT_REASONS = [
   "Copyright infringement",
@@ -97,6 +98,52 @@ export async function applyStrike(
   await supabaseAdmin
     .from("creator_marketplace_profiles")
     .upsert({ user_id: creatorId, ...update }, { onConflict: "user_id" });
+
+  // Send warning email to the creator (non-blocking)
+  const { data: creatorData } = await supabaseAdmin
+    .from("profiles")
+    .select("email, display_name")
+    .eq("user_id", creatorId)
+    .maybeSingle();
+
+  if (creatorData?.email) {
+    if (strikes === 1) {
+      sendEmailAsync({
+        type: "MARKETPLACE_STRIKE",
+        to: creatorData.email,
+        subject: "Warning: Your theme was removed from the Theme Store",
+        html: `<p>Hi ${creatorData.display_name ?? "Creator"},</p>
+<p>Your theme has been removed from the 1neLink Theme Store for the following reason:</p>
+<blockquote>${reason}</blockquote>
+<p>This is strike <strong>1 of 3</strong>. Two more strikes will result in a permanent ban from the Theme Store.</p>
+<p>If you believe this was a mistake, you can appeal via your creator dashboard.</p>
+<p>— The 1neLink Team</p>`,
+      });
+    } else if (strikes === 2) {
+      sendEmailAsync({
+        type: "MARKETPLACE_STRIKE",
+        to: creatorData.email,
+        subject: "Final Warning: 30-day Theme Store upload suspension",
+        html: `<p>Hi ${creatorData.display_name ?? "Creator"},</p>
+<p>Your theme has been removed and you have received strike <strong>2 of 3</strong>.</p>
+<p>Reason: <em>${reason}</em></p>
+<p>You are now suspended from uploading to the Theme Store for <strong>30 days</strong>. One more violation will result in a permanent ban.</p>
+<p>To appeal, visit your creator dashboard.</p>
+<p>— The 1neLink Team</p>`,
+      });
+    } else if (strikes >= 3) {
+      sendEmailAsync({
+        type: "MARKETPLACE_STRIKE",
+        to: creatorData.email,
+        subject: "Account banned from the Theme Store",
+        html: `<p>Hi ${creatorData.display_name ?? "Creator"},</p>
+<p>Due to repeated violations, your account has been <strong>permanently banned</strong> from the 1neLink Theme Store.</p>
+<p>Reason for final strike: <em>${reason}</em></p>
+<p>All of your themes have been removed. If you believe this is an error, please contact support.</p>
+<p>— The 1neLink Team</p>`,
+      });
+    }
+  }
 
   return { strikes };
 }
