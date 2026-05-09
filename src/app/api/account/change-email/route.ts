@@ -7,11 +7,27 @@ const EMAIL_CHANGE_LOCK_MS = 14 * 24 * 60 * 60 * 1000;
 
 export async function POST(req: Request) {
   try {
-    const supabase = await createSupabaseRouteClient();
+    let authUser: { user: { id: string; email?: string | null; app_metadata?: unknown } } | null = null;
 
-    // Get current user
-    const { data: authUser, error: authErr } = await supabase.auth.getUser();
-    if (authErr || !authUser?.user?.id) {
+    const authHeader = req.headers.get("authorization") ?? "";
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : null;
+
+    if (bearerToken) {
+      const { data, error } = await supabaseAdmin.auth.getUser(bearerToken);
+      if (!error && data?.user) {
+        authUser = { user: data.user };
+      }
+    }
+
+    if (!authUser) {
+      const supabase = await createSupabaseRouteClient();
+      const { data, error } = await supabase.auth.getUser();
+      if (!error && data?.user) {
+        authUser = { user: data.user };
+      }
+    }
+
+    if (!authUser?.user?.id) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 

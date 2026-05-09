@@ -54,9 +54,18 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
     setIsLoading(true);
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        throw new Error("Not signed in");
+      }
+
       const res = await fetch("/api/account/change-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ newEmail, password }),
       });
 
