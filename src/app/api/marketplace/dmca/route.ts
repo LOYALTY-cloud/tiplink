@@ -56,11 +56,21 @@ export async function POST(req: Request) {
 
   // If we could identify the theme, auto-flag it as pending review
   if (themeId) {
-    await supabaseAdmin
+    const { data: flaggedTheme } = await supabaseAdmin
       .from("themes")
       .update({ status: "flagged", moderation_reason: "DMCA claim filed" })
       .eq("id", themeId)
-      .in("status", ["approved", "pending_review", "draft"]);
+      .in("status", ["approved", "pending_review", "draft"])
+      .select("user_id")
+      .maybeSingle();
+
+    // Write moderation log for audit trail
+    void supabaseAdmin.from("moderation_logs").insert({
+      theme_id: themeId,
+      creator_id: flaggedTheme?.user_id ?? null,
+      event_type: "auto_flag",
+      ai_reason: "DMCA claim filed",
+    });
   }
 
   return NextResponse.json({ ok: true });

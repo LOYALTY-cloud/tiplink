@@ -445,18 +445,55 @@ export default function AdminLayout({
   // Inline the non-Core sections so no hook is skipped on early returns.
   const moreSections = useMemo<NavSection[]>(() => [
     {
-      title: "Risk & Finance",
+      title: "Core Dashboard",
       items: [
-        { label: "Refunds", href: "/admin/refunds", icon: "💸" },
-        { label: "Disputes", href: "/admin/disputes", icon: "⚠️" },
+        { label: "Overview", href: "/admin", icon: "🏠" },
+        ...(userRole && ["owner", "super_admin"].includes(userRole)
+          ? [
+              { label: "Activity", href: "/admin/activity", icon: "📋" },
+              { label: "Activity Calendar", href: "/admin/activity-calendar", icon: "🗓️" },
+            ]
+          : []),
+      ],
+    },
+    {
+      title: "User Management",
+      items: [
+        { label: "Users", href: "/admin/users", icon: "👤" },
+        { label: "Verifications", href: "/admin/verifications", icon: "🔍" },
         ...(userRole && ["owner", "super_admin", "finance_admin"].includes(userRole)
           ? [{ label: "Fraud", href: "/admin/fraud", icon: "🚨" }]
           : []),
-        { label: "Verifications", href: "/admin/verifications", icon: "🔍" },
+        ...(userRole && ["owner", "super_admin", "finance_admin"].includes(userRole)
+          ? [{ label: "Overrides", href: "/admin/overrides", icon: "⚙️" }]
+          : []),
+      ],
+    },
+    {
+      title: "Creator / Store",
+      items: [
         { label: "Creator Applications", href: "/admin/creator-applications", icon: "🎨" },
         { label: "Elite Applications", href: "/admin/creators", icon: "⭐" },
         { label: "Theme Store Queue", href: "/admin/marketplace", icon: "🛒" },
         { label: "Theme Appeals", href: "/admin/marketplace/appeals", icon: "📬" },
+        ...(userRole && ["owner", "super_admin"].includes(userRole)
+          ? [{ label: "Store Hero Ads", href: "/admin/store-hero", icon: "🎬" }]
+          : []),
+      ],
+    },
+    {
+      title: "Finance",
+      items: [
+        { label: "Transactions", href: "/admin/transactions", icon: "💳" },
+        ...(userRole && ["owner", "super_admin"].includes(userRole)
+          ? [{ label: "Revenue", href: "/admin/revenue", icon: "💰" }]
+          : []),
+        { label: "Refunds", href: "/admin/refunds", icon: "💸" },
+        { label: "Disputes", href: "/admin/disputes", icon: "⚠️" },
+        { label: "Approvals", href: "/admin/approvals", icon: "✅" },
+        ...(userRole && ["owner", "super_admin"].includes(userRole)
+          ? [{ label: "Payroll", href: "/admin/payroll", icon: "💰" }]
+          : []),
       ],
     },
     {
@@ -465,35 +502,25 @@ export default function AdminLayout({
         { label: "Tickets", href: "/admin/tickets", icon: "🎫" },
         { label: "Live Chat", href: "/admin/support", icon: "💬" },
         { label: "Analytics", href: "/admin/support/analytics", icon: "📊" },
+        { label: "Notifications", href: "/admin/notifications", icon: "🔔" },
       ],
     },
+    ...(userRole && ["owner", "super_admin"].includes(userRole)
+      ? [{
+          title: "Staff / HR",
+          items: [
+            { label: "Staff", href: "/admin/staff", icon: "🛡️" },
+            { label: "Discipline", href: "/admin/staff/tickets", icon: "🧾" },
+            { label: "Applicants", href: "/admin/applicants", icon: "📝" },
+            { label: "Interviews", href: "/admin/interviews", icon: "📅" },
+          ],
+        }]
+      : []),
     {
-      title: "System",
+      title: "Tools",
       items: [
         ...(userRole && ["owner", "super_admin"].includes(userRole)
-          ? [
-              { label: "Staff", href: "/admin/staff", icon: "🛡️" },
-              { label: "Discipline", href: "/admin/staff/tickets", icon: "🧾" },
-              { label: "Payroll", href: "/admin/payroll", icon: "💰" },
-              { label: "Applicants", href: "/admin/applicants", icon: "📝" },
-              { label: "Interview Calendar", href: "/admin/interviews", icon: "📅" },
-            ]
-          : []),
-        { label: "Approvals", href: "/admin/approvals", icon: "✅" },
-        ...(userRole && ["owner", "super_admin", "finance_admin"].includes(userRole)
-          ? [{ label: "Overrides", href: "/admin/overrides", icon: "⚙️" }]
-          : []),
-        ...(userRole && ["owner", "super_admin"].includes(userRole)
           ? [{ label: "Logs", href: "/admin/logs", icon: "📜" }]
-          : []),
-        ...(userRole && ["owner", "super_admin"].includes(userRole)
-          ? [
-              { label: "Activity", href: "/admin/activity", icon: "📋" },
-              { label: "Activity Calendar", href: "/admin/activity-calendar", icon: "🗓️" },
-            ]
-          : []),
-        ...(userRole && ["owner", "super_admin"].includes(userRole)
-          ? [{ label: "Store Hero Ads", href: "/admin/store-hero", icon: "🎬" }]
           : []),
         ...(userRole && ["owner"].includes(userRole)
           ? [{ label: "Owner AI", href: "/admin/owner-ai", icon: "🧠" }]
@@ -532,7 +559,7 @@ export default function AdminLayout({
 
   const NAV_SECTIONS = [
     {
-      title: "Core",
+      title: "Core Dashboard",
       items: [
         { label: "Overview", href: "/admin", icon: "🏠" },
         { label: "Users", href: "/admin/users", icon: "👤" },
@@ -543,16 +570,38 @@ export default function AdminLayout({
       ],
     },
     {
-      title: "Risk & Finance",
+      title: "User Management",
       items: [
-        { label: "Refunds", href: "/admin/refunds", icon: "💸" },
-        { label: "Disputes", href: "/admin/disputes", icon: "⚠️" },
+        { label: "Verifications", href: "/admin/verifications", icon: "🔍" },
         ...(userRole && fraudRoles.includes(userRole)
           ? [{ label: "Fraud", href: "/admin/fraud", icon: "🚨" }]
           : []),
-        { label: "Verifications", href: "/admin/verifications", icon: "🔍" },
+        ...(userRole && overrideRoles.includes(userRole)
+          ? [{ label: "Overrides", href: "/admin/overrides", icon: "⚙️" }]
+          : []),
+      ],
+    },
+    {
+      title: "Creator / Store",
+      items: [
         { label: "Creator Applications", href: "/admin/creator-applications", icon: "🎨" },
         { label: "Elite Applications", href: "/admin/creators", icon: "⭐" },
+        { label: "Theme Store Queue", href: "/admin/marketplace", icon: "🛒" },
+        { label: "Theme Appeals", href: "/admin/marketplace/appeals", icon: "📬" },
+        ...(userRole && storeHeroRoles.includes(userRole)
+          ? [{ label: "Store Hero Ads", href: "/admin/store-hero", icon: "🎬" }]
+          : []),
+      ],
+    },
+    {
+      title: "Finance",
+      items: [
+        { label: "Refunds", href: "/admin/refunds", icon: "💸" },
+        { label: "Disputes", href: "/admin/disputes", icon: "⚠️" },
+        { label: "Approvals", href: "/admin/approvals", icon: "✅" },
+        ...(userRole && staffRoles.includes(userRole)
+          ? [{ label: "Payroll", href: "/admin/payroll", icon: "💰" }]
+          : []),
       ],
     },
     {
@@ -561,35 +610,31 @@ export default function AdminLayout({
         { label: "Tickets", href: "/admin/tickets", icon: "🎫" },
         { label: "Live Chat", href: "/admin/support", icon: "💬" },
         { label: "Analytics", href: "/admin/support/analytics", icon: "📊" },
+        { label: "Notifications", href: "/admin/notifications", icon: "🔔" },
       ],
     },
+    ...(userRole && staffRoles.includes(userRole)
+      ? [{
+          title: "Staff / HR",
+          items: [
+            { label: "Staff", href: "/admin/staff", icon: "🛡️" },
+            { label: "Discipline", href: "/admin/staff/tickets", icon: "🧾" },
+            { label: "Applicants", href: "/admin/applicants", icon: "📝" },
+            { label: "Interviews", href: "/admin/interviews", icon: "📅" },
+          ],
+        }]
+      : []),
     {
-      title: "System",
+      title: "Tools",
       items: [
-        ...(userRole && staffRoles.includes(userRole)
-          ? [
-              { label: "Staff", href: "/admin/staff", icon: "🛡️" },
-              { label: "Discipline", href: "/admin/staff/tickets", icon: "🧾" },
-              { label: "Payroll", href: "/admin/payroll", icon: "💰" },
-              { label: "Applicants", href: "/admin/applicants", icon: "📝" },
-              { label: "Interview Calendar", href: "/admin/interviews", icon: "📅" },
-            ]
-          : []),
-        { label: "Approvals", href: "/admin/approvals", icon: "✅" },
-        ...(userRole && overrideRoles.includes(userRole)
-          ? [{ label: "Overrides", href: "/admin/overrides", icon: "⚙️" }]
-          : []),
-        ...(userRole && logRoles.includes(userRole)
-          ? [{ label: "Logs", href: "/admin/logs", icon: "📜" }]
-          : []),
         ...(userRole && activityRoles.includes(userRole)
           ? [
               { label: "Activity", href: "/admin/activity", icon: "📋" },
               { label: "Activity Calendar", href: "/admin/activity-calendar", icon: "🗓️" },
             ]
           : []),
-        ...(userRole && storeHeroRoles.includes(userRole)
-          ? [{ label: "Store Hero Ads", href: "/admin/store-hero", icon: "🎬" }]
+        ...(userRole && logRoles.includes(userRole)
+          ? [{ label: "Logs", href: "/admin/logs", icon: "📜" }]
           : []),
         ...(userRole && ownerOnlyRoles.includes(userRole)
           ? [{ label: "Owner AI", href: "/admin/owner-ai", icon: "🧠" }]

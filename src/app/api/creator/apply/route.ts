@@ -130,6 +130,12 @@ export async function GET(req: Request) {
     isCreator: (profile as { is_creator?: boolean } | null)?.is_creator ?? false,
   });
 
+  const { data: marketplaceProfile } = await supabaseAdmin
+    .from("creator_marketplace_profiles")
+    .select("upload_ban_until")
+    .eq("user_id", userId)
+    .maybeSingle();
+
   return NextResponse.json({
     application: application ?? null,
     is_creator: access.isCreator,
@@ -138,5 +144,6 @@ export async function GET(req: Request) {
     total_revenue: (profile as { total_revenue?: number | null } | null)?.total_revenue ?? 0,
     has_active_store: creatorStore?.is_active === true,
     charges_enabled: Boolean((profile as { stripe_charges_enabled?: boolean | null } | null)?.stripe_charges_enabled),
+    upload_ban_until: marketplaceProfile?.upload_ban_until ?? null,
   });
 }
