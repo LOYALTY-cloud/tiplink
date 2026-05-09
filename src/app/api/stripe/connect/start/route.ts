@@ -64,6 +64,26 @@ export async function POST(req: Request) {
       if (upErr) return NextResponse.json({ error: "Failed to start Stripe setup" }, { status: 500 });
     }
 
+    // Prefill account data with business info to reduce verification requests
+    const emailParts = (userRes.user.email || "").split("@");
+    const firstName = emailParts[0]?.split(".")[0] || "Creator";
+    const lastName = emailParts[0]?.split(".")[1] || userId.slice(0, 8);
+
+    await stripe.accounts.update(accountId, {
+      business_profile: {
+        product_description: "Seller provides downloadable digital themes and creator assets through the 1neLink marketplace.",
+        mcc: "5815", // Digital goods merchant code
+        url: "https://1nelink.com",
+      },
+      individual: {
+        email: userRes.user.email || undefined,
+        first_name: firstName,
+        last_name: lastName,
+      },
+    }).catch((e) => {
+      console.log("Failed to prefill account data (non-blocking):", e instanceof Error ? e.message : e);
+    });
+
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
     const accountLink = await stripe.accountLinks.create({
@@ -71,6 +91,9 @@ export async function POST(req: Request) {
       type: "account_onboarding",
       return_url: `${baseUrl}/dashboard/stripe/return`,
       refresh_url: `${baseUrl}/dashboard/stripe/refresh`,
+      collection_options: {
+        fields: "eventually_due",
+      },
     });
 
     return NextResponse.json({ url: accountLink.url, accountId });

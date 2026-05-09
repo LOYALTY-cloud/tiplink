@@ -95,7 +95,27 @@ export async function POST(req: Request) {
         .eq("user_id", user.id);
     }
 
-    // 4) Create onboarding link
+    // 4) Prefill account data with business info to reduce verification requests
+    const emailParts = user.email?.split("@") || ["creator"];
+    const firstName = emailParts[0]?.split(".")[0] || "Creator";
+    const lastName = emailParts[0]?.split(".")[1] || user.id.slice(0, 8);
+
+    await stripe.accounts.update(stripeAccountId, {
+      business_profile: {
+        product_description: "Seller provides downloadable digital themes and creator assets through the 1neLink marketplace.",
+        mcc: "5815", // Digital goods merchant code
+        url: "https://1nelink.com",
+      },
+      individual: {
+        email: user.email || undefined,
+        first_name: firstName,
+        last_name: lastName,
+      },
+    }).catch((e) => {
+      console.log("Failed to prefill account data (non-blocking):", e instanceof Error ? e.message : e);
+    });
+
+    // 5) Create onboarding link with eventually_due to collect more info upfront
     const refresh_url = siteUrl("/dashboard?stripe=refresh");
     const return_url = siteUrl("/dashboard?stripe=return");
 
@@ -104,6 +124,9 @@ export async function POST(req: Request) {
       refresh_url,
       return_url,
       type: "account_onboarding",
+      collection_options: {
+        fields: "eventually_due",
+      },
     });
 
     return NextResponse.json({
