@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { handleStripeEvent } from "../src/app/api/stripe/webhook/route";
+import { handleStripeEvent } from "../../src/app/api/stripe/webhook/route";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

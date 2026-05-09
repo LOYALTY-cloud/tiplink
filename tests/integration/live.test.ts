@@ -13,6 +13,8 @@
  * 6. GET non-existent route        → 404 Not Found
  */
 
+export {};
+
 const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:3000";
 const ANON_TOKEN = process.env.TEST_ANON_TOKEN || "";  // optional Supabase JWT for authed test
 

@@ -1,3 +1,5 @@
+export {};
+
 type RefundRequest = {
   id: string;
   status: "pending" | "approved" | "rejected";
