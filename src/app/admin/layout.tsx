@@ -553,6 +553,8 @@ export default function AdminLayout({
         { label: "Verifications", href: "/admin/verifications", icon: "🔍" },
         { label: "Creator Applications", href: "/admin/creator-applications", icon: "🎨" },
         { label: "Elite Applications", href: "/admin/creators", icon: "⭐" },
+        { label: "Theme Store Queue", href: "/admin/marketplace", icon: "🛒" },
+        { label: "Theme Appeals", href: "/admin/marketplace/appeals", icon: "📬" },
       ],
     },
     {
@@ -560,7 +562,7 @@ export default function AdminLayout({
       items: [
         { label: "Tickets", href: "/admin/tickets", icon: "🎫" },
         { label: "Live Chat", href: "/admin/support", icon: "💬" },
-        { label: "Analytics", href: "/admin/support/analytics", icon: "📊" },
+        { label: "Analytics", href: "/admin/support/analytics", icon: "📊" },        { label: "Notifications", href: "/admin/notifications", icon: "🔔" },        { label: "Notifications", href: "/admin/notifications", icon: "🔔" },
       ],
     },
     {
