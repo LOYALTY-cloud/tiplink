@@ -4,6 +4,8 @@ import { createSupabaseRouteClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sendEmailAsync } from "@/lib/emailService";
 
+const EMAIL_CHANGE_LOCK_MS = 14 * 24 * 60 * 60 * 1000;
+
 function buildEmailChangedAlertHtml(oldEmail: string, newEmail: string, changedAt: Date): string {
   const dashboardUrl = "https://1nelink.com/dashboard/account";
   const supportUrl = "https://1nelink.com/support";
@@ -103,8 +105,6 @@ function buildEmailChangedConfirmationHtml(newEmail: string): string {
 </div>
   `.trim();
 }
-
-const EMAIL_CHANGE_LOCK_MS = 14 * 24 * 60 * 60 * 1000;
 
 export async function POST(req: Request) {
   try {
