@@ -34,7 +34,9 @@ export default function StripeVerificationModal({
         const res = await fetch("/api/stripe/connect/session", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ mode: "manage" }),
+          // Use onboarding mode so the account_onboarding component is rendered.
+          // account_management does NOT surface tos_acceptance or other missing requirements.
+          body: JSON.stringify({}),
           signal: controller.signal,
         });
 
@@ -109,7 +111,7 @@ export default function StripeVerificationModal({
 
           {clientSecret && (
             <div className="bg-white rounded-xl p-4">
-              <StripeEmbeddedOnboarding clientSecret={clientSecret} mode="manage" />
+              <StripeEmbeddedOnboarding clientSecret={clientSecret} mode="onboarding" />
             </div>
           )}
         </div>

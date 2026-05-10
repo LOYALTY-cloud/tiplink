@@ -110,6 +110,7 @@ export default function StripeRequirementsCenter() {
   const pendingLabels = (data.pending_verification_labels?.length ? data.pending_verification_labels : data.pending_verification ?? []).slice(0, 3);
   const payoutsRestricted = Boolean(data.disabled_reason) || !data.payouts_enabled;
   const hasSupportReviewPending = pendingLabels.some((item) => item.includes("Stripe Support review"));
+  const hasTosRequirement = data.currently_due.some((f) => f.startsWith("tos_acceptance"));
 
   return (
     <>
@@ -156,6 +157,11 @@ export default function StripeRequirementsCenter() {
                 <li key={`current-${item}`} className="text-sm text-amber-100/90">• {item}</li>
               ))}
             </ul>
+            {hasTosRequirement && (
+              <p className="text-xs text-amber-200/80 mt-2">
+                To accept Stripe&apos;s Terms of Service, click <strong className="text-amber-100">Complete verification</strong> below and follow the steps in the form.
+              </p>
+            )}
           </div>
         )}
 
