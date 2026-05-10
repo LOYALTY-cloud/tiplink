@@ -64,11 +64,9 @@ export default function StripeRequirementsCenter() {
   if (loading) return null;
 
   if (error) {
-    return (
-      <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 mb-4">
-        <p className="text-sm text-red-200">{error}</p>
-      </div>
-    );
+    // Silently suppress errors when the user has no Stripe account yet
+    // (e.g. requirements endpoint fails for unconnected users)
+    return null;
   }
 
   if (!data?.connected || !data.needs_verification) {
