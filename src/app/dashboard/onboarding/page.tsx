@@ -49,10 +49,12 @@ function OnboardingContent() {
     return true;
   };
 
-  const createStripeSession = async (opts?: { token?: string; retryOnCategoryError?: boolean }) => {
+  const createStripeSession = async (opts?: { token?: string; retryOnCategoryError?: boolean; categoryOverride?: string }) => {
     try {
-      if (!isManage && !creatorCategory) {
-        setError("Please choose a creator category first.");
+      // Use categoryOverride when calling from useEffect to bypass stale state
+      const effectiveCategory = opts?.categoryOverride ?? creatorCategory;
+      if (!isManage && !effectiveCategory) {
+        // Silently skip — user just hasn't chosen yet, don't show an error on mount
         return false;
       }
 
@@ -65,7 +67,7 @@ function OnboardingContent() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           mode: isManage ? "manage" : "onboarding",
-          creator_activity_category: isManage ? undefined : creatorCategory,
+          creator_activity_category: isManage ? undefined : (opts?.categoryOverride ?? creatorCategory),
         }),
       });
 
@@ -150,9 +152,11 @@ function OnboardingContent() {
         }
 
         // Only auto-create Stripe session when onboarding can proceed.
-        const canStartOnboarding = isManage || Boolean(profile?.creator_activity_category);
+        // Pass the resolved category directly to avoid reading stale state.
+        const resolvedCategory = profile?.creator_activity_category || null;
+        const canStartOnboarding = isManage || Boolean(resolvedCategory);
         if (canStartOnboarding && mounted) {
-          await createStripeSession({ token });
+          await createStripeSession({ token, categoryOverride: resolvedCategory ?? undefined });
         }
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
@@ -256,7 +260,7 @@ function OnboardingContent() {
       <h1 className="text-2xl font-semibold text-white mb-2">{isManage ? "Payout Settings" : "Activate Your Payouts"}</h1>
       <p className="text-sm text-white/70 mb-6">{isManage ? "Manage your connected bank account and payout preferences." : "Connect your bank account to start receiving tips and withdrawals."}</p>
 
-      {error ? <p className="text-red-400 font-medium mb-4">Error: {error}</p> : null}
+      {error ? <p className="text-red-400 font-medium mb-4">{error}</p> : null}
 
       <StripeRequirementsCenter />
 
@@ -373,25 +377,29 @@ function OnboardingContent() {
       {clientSecret ? (
         <StripeEmbeddedOnboarding clientSecret={clientSecret} mode={isManage ? "manage" : "onboarding"} />
       ) : (
-        <div className="rounded-xl border border-white/[0.12] bg-white/[0.03] p-4 mt-6 space-y-3">
-          <p className="text-sm text-white/75">
-            Save your creator category, then continue to Stripe onboarding.
+        <div className="rounded-xl border border-white/[0.12] bg-white/[0.03] p-5 mt-6 space-y-3">
+          <p className="text-sm font-medium text-white/80">
+            {creatorCategory
+              ? "Ready to connect your payout account."
+              : "Choose a creator category above to continue."}
           </p>
-          <button
-            type="button"
-            onClick={async () => {
-              setContinuingToStripe(true);
-              try {
-                await createStripeSession();
-              } finally {
-                setContinuingToStripe(false);
-              }
-            }}
-            disabled={continuingToStripe || (!isManage && !creatorCategory)}
-            className="px-4 py-2 text-sm font-semibold rounded-xl bg-gradient-to-b from-blue-500 to-blue-700 text-white hover:from-blue-400 hover:to-blue-600 transition disabled:opacity-50"
-          >
-            {continuingToStripe ? "Continuing..." : "Continue to Stripe"}
-          </button>
+          {creatorCategory && (
+            <button
+              type="button"
+              onClick={async () => {
+                setContinuingToStripe(true);
+                try {
+                  await createStripeSession();
+                } finally {
+                  setContinuingToStripe(false);
+                }
+              }}
+              disabled={continuingToStripe}
+              className="px-4 py-2 text-sm font-semibold rounded-xl bg-gradient-to-b from-blue-500 to-blue-700 text-white hover:from-blue-400 hover:to-blue-600 transition disabled:opacity-50"
+            >
+              {continuingToStripe ? "Continuing..." : "Continue to Stripe"}
+            </button>
+          )}
         </div>
       )}
     </div>
