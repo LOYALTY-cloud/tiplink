@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import StripeVerificationModal from "@/components/StripeVerificationModal";
 
@@ -23,19 +23,25 @@ type RequirementsPayload = {
 
 export default function StripeRequirementsCenter() {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<RequirementsPayload | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [submittedAt, setSubmittedAt] = useState<Date | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const aggressivePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     void loadRequirements();
-    const interval = setInterval(() => {
-      void loadRequirements();
-    }, 30000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => void loadRequirements(), 30000);
+    return () => {
+      clearInterval(interval);
+      if (aggressivePollRef.current) clearInterval(aggressivePollRef.current);
+    };
   }, []);
 
-  async function loadRequirements() {
+  async function loadRequirements(manual = false) {
+    if (manual) setRefreshing(true);
     try {
       setError(null);
       const { data: sess } = await supabase.auth.getSession();
@@ -54,19 +60,45 @@ export default function StripeRequirementsCenter() {
       if (!res.ok) throw new Error(json.error || "Failed to load requirements");
 
       setData(json as RequirementsPayload);
+      setLastRefreshed(new Date());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load requirements");
     } finally {
       setLoading(false);
+      if (manual) setRefreshing(false);
     }
   }
 
-  if (loading) return null;
+  function handleVerificationComplete() {
+    setSubmittedAt(new Date());
+    setModalOpen(false);
+    void loadRequirements();
+    // Poll every 10s for 90s so users see updates as Stripe processes their submission
+    if (aggressivePollRef.current) clearInterval(aggressivePollRef.current);
+    let count = 0;
+    aggressivePollRef.current = setInterval(() => {
+      count++;
+      void loadRequirements();
+      if (count >= 9) {
+        clearInterval(aggressivePollRef.current!);
+        aggressivePollRef.current = null;
+      }
+    }, 10000);
+  }
 
-  if (error) {
-    // Silently suppress errors when the user has no Stripe account yet
-    // (e.g. requirements endpoint fails for unconnected users)
-    return null;
+  if (loading) return null;
+  if (error) return null;
+
+  // After submission, if requirements are now clear show a success card
+  if (submittedAt && (!data?.connected || !data.needs_verification)) {
+    return (
+      <div className="rounded-2xl border border-green-400/25 bg-green-500/10 p-4 mb-4 space-y-2">
+        <h3 className="font-semibold text-green-100">Verification complete</h3>
+        <p className="text-sm text-green-100/80">
+          Your information was submitted and your Stripe account is now verified. Payouts are enabled.
+        </p>
+      </div>
+    );
   }
 
   if (!data?.connected || !data.needs_verification) {
@@ -89,10 +121,20 @@ export default function StripeRequirementsCenter() {
               Your payout account needs updates before payouts can continue normally.
             </p>
           </div>
-          <div className="text-xs text-amber-200/80">
+          <div className="text-xs text-amber-200/80 shrink-0">
             {payoutsRestricted ? "Payouts limited" : "Payouts active"}
           </div>
         </div>
+
+        {/* Post-submission processing banner */}
+        {submittedAt && (
+          <div className="rounded-lg border border-blue-300/30 bg-blue-500/10 px-3 py-2">
+            <p className="text-sm text-blue-200 font-medium">Information submitted — Stripe is reviewing it</p>
+            <p className="text-xs text-blue-200/80 mt-1">
+              This can take a few minutes. The status below will update automatically as Stripe processes your submission.
+            </p>
+          </div>
+        )}
 
         {data.disabled_reason && (
           <div className="rounded-lg border border-amber-300/30 bg-amber-500/10 px-3 py-2">
@@ -144,7 +186,7 @@ export default function StripeRequirementsCenter() {
           </div>
         )}
 
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="flex flex-wrap items-center gap-2 pt-1">
           <button
             onClick={() => setModalOpen(true)}
             className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition"
@@ -152,20 +194,24 @@ export default function StripeRequirementsCenter() {
             Complete verification
           </button>
           <button
-            onClick={() => void loadRequirements()}
-            className="px-4 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 text-sm font-semibold transition"
+            onClick={() => void loadRequirements(true)}
+            disabled={refreshing}
+            className="px-4 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-50 text-amber-100 text-sm font-semibold transition"
           >
-            Refresh
+            {refreshing ? "Checking..." : "Refresh status"}
           </button>
+          {lastRefreshed && (
+            <span className="text-xs text-amber-200/60 ml-auto">
+              Updated {lastRefreshed.toLocaleTimeString()}
+            </span>
+          )}
         </div>
       </div>
 
       <StripeVerificationModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        onComplete={() => {
-          void loadRequirements();
-        }}
+        onComplete={handleVerificationComplete}
       />
     </>
   );
