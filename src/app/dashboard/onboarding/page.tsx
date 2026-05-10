@@ -26,11 +26,9 @@ function OnboardingContent() {
   const [continuingToStripe, setContinuingToStripe] = useState(false);
   const [categorySaved, setCategorySaved] = useState(false);
 
-  const persistCreatorCategory = async () => {
-    if (!creatorCategory) {
-      setError("Please choose a creator category first.");
-      return false;
-    }
+  const persistCreatorCategory = async (categoryValue?: string) => {
+    const category = categoryValue ?? creatorCategory;
+    if (!category) return false;
 
     const { data: userRes } = await supabase.auth.getUser();
     if (!userRes.user) throw new Error("Not authenticated");
@@ -39,7 +37,7 @@ function OnboardingContent() {
     // The session API endpoint saves the category server-side via admin client anyway.
     const { error: updateErr } = await supabase
       .from("profiles")
-      .update({ creator_activity_category: creatorCategory })
+      .update({ creator_activity_category: category })
       .eq("user_id", userRes.user.id);
 
     // Ignore RLS/update errors — the server endpoint will persist it
@@ -85,9 +83,9 @@ function OnboardingContent() {
           message.toLowerCase().includes("creator activity category")
         ) {
           try {
-            const saved = await persistCreatorCategory();
+            const saved = await persistCreatorCategory(effectiveCategory);
             if (saved) {
-              return await createStripeSession({ token, retryOnCategoryError: false });
+              return await createStripeSession({ token, categoryOverride: effectiveCategory, retryOnCategoryError: false });
             }
           } catch {
             // fall through to original error handling below
@@ -219,10 +217,7 @@ function OnboardingContent() {
   };
 
   const saveCreatorCategory = async () => {
-    if (!creatorCategory) {
-      setError("Please choose a creator category first.");
-      return;
-    }
+    if (!creatorCategory) return;
 
     setSavingCreatorCategory(true);
     setCategorySaved(false);
