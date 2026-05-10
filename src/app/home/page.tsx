@@ -881,7 +881,7 @@ export default function HomePage() {
         <div className="max-w-4xl mx-auto px-4 py-24 text-center">
           <FadeUp>
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-14">
-            { quote: "Finally a tipping platform that looks professional. My audience supports me faster with a clean page.", name: "Derek L.", role: "Streamer", avatar: "D" },
+              Three Steps to
               <span className="text-cyan-400">Start Earning</span>
             </h2>
           </FadeUp>
