@@ -17,6 +17,7 @@ type RequirementsPayload = {
   pending_verification?: string[];
   pending_verification_labels?: string[];
   disabled_reason?: string | null;
+  disabled_reason_label?: string | null;
   last_notified_at?: string | null;
 };
 
@@ -77,6 +78,8 @@ export default function StripeRequirementsCenter() {
   const currentLabels = (data.currently_due_labels?.length ? data.currently_due_labels : data.currently_due).slice(0, 5);
   const futureLabels = (data.future_due_labels?.length ? data.future_due_labels : data.future_due).slice(0, 3);
   const pendingLabels = (data.pending_verification_labels?.length ? data.pending_verification_labels : data.pending_verification ?? []).slice(0, 3);
+  const payoutsRestricted = Boolean(data.disabled_reason) || !data.payouts_enabled;
+  const hasSupportReviewPending = pendingLabels.some((item) => item.includes("Stripe Support review"));
 
   return (
     <>
@@ -89,14 +92,19 @@ export default function StripeRequirementsCenter() {
             </p>
           </div>
           <div className="text-xs text-amber-200/80">
-            {data.payouts_enabled ? "Payouts active" : "Payouts limited"}
+            {payoutsRestricted ? "Payouts limited" : "Payouts active"}
           </div>
         </div>
 
         {data.disabled_reason && (
           <div className="rounded-lg border border-amber-300/30 bg-amber-500/10 px-3 py-2">
             <p className="text-xs uppercase tracking-wide text-amber-200/80">Disabled reason</p>
-            <p className="text-sm text-amber-100 mt-1">{data.disabled_reason}</p>
+            <p className="text-sm text-amber-100 mt-1">{data.disabled_reason_label || data.disabled_reason}</p>
+            {data.disabled_reason === "rejected.terms_of_service" ? (
+              <p className="text-xs text-amber-200/85 mt-2">
+                This status is usually resolved through Stripe Support review. Keep your onboarding details accurate and contact support if this status does not clear.
+              </p>
+            ) : null}
           </div>
         )}
 
@@ -130,6 +138,11 @@ export default function StripeRequirementsCenter() {
                 <li key={`pending-${item}`} className="text-sm text-amber-100/90">• {item}</li>
               ))}
             </ul>
+            {hasSupportReviewPending ? (
+              <p className="text-xs text-amber-200/85 mt-2">
+                One or more items are under Stripe Support review and may require waiting for Stripe's decision.
+              </p>
+            ) : null}
           </div>
         )}
 

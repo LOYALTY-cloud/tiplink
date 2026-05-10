@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import StripeEmbeddedOnboarding from "@/components/StripeEmbeddedOnboarding";
 import StripeRequirementsCenter from "@/components/StripeRequirementsCenter";
 import { supabase } from "@/lib/supabase/client";
-import type { CreatorCategory } from "@/lib/creatorCategories";
+import { DEFAULT_CREATOR_CATEGORIES, type CreatorCategory } from "@/lib/creatorCategories";
 
 type CreatorCategoriesResponse = {
   categories?: CreatorCategory[];
@@ -23,12 +23,90 @@ function OnboardingContent() {
   const [availableCategories, setAvailableCategories] = useState<CreatorCategory[]>([]);
   const [creatorCategory, setCreatorCategory] = useState<string>("");
   const [savingCreatorCategory, setSavingCreatorCategory] = useState(false);
+  const [continuingToStripe, setContinuingToStripe] = useState(false);
   const [categorySaved, setCategorySaved] = useState(false);
+
+  const persistCreatorCategory = async () => {
+    if (!creatorCategory) {
+      setError("Please choose a creator category first.");
+      return false;
+    }
+
+    const { data: userRes } = await supabase.auth.getUser();
+    if (!userRes.user) throw new Error("Not authenticated");
+
+    // Use UPDATE only (RLS allows users to update their own row; INSERT requires service role)
+    // The session API endpoint saves the category server-side via admin client anyway.
+    const { error: updateErr } = await supabase
+      .from("profiles")
+      .update({ creator_activity_category: creatorCategory })
+      .eq("user_id", userRes.user.id);
+
+    // Ignore RLS/update errors — the server endpoint will persist it
+    if (updateErr) {
+      console.warn("Client-side category save failed (server will retry):", updateErr.message);
+    }
+    return true;
+  };
+
+  const createStripeSession = async (opts?: { token?: string; retryOnCategoryError?: boolean }) => {
+    try {
+      if (!isManage && !creatorCategory) {
+        setError("Please choose a creator category first.");
+        return false;
+      }
+
+      const token = opts?.token || (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) throw new Error("Not authenticated");
+
+      setError(null);
+      const res = await fetch("/api/stripe/connect/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          mode: isManage ? "manage" : "onboarding",
+          creator_activity_category: isManage ? undefined : creatorCategory,
+        }),
+      });
+
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const checkpoint = j._checkpoint || "unknown";
+        const detail = j._detail || "";
+        const message = `[${res.status} @ ${checkpoint}] ${j.error || "Could not create session"}${detail ? ` — ${detail}` : ""}`;
+
+        // Safety retry: if category wasn't persisted yet, save and retry once.
+        if (
+          !isManage &&
+          opts?.retryOnCategoryError !== false &&
+          typeof message === "string" &&
+          message.toLowerCase().includes("creator activity category")
+        ) {
+          try {
+            const saved = await persistCreatorCategory();
+            if (saved) {
+              return await createStripeSession({ token, retryOnCategoryError: false });
+            }
+          } catch {
+            // fall through to original error handling below
+          }
+        }
+
+        throw new Error(message);
+      }
+
+      setClientSecret(j.client_secret || "");
+      return true;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      return false;
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
     async function loadSession() {
-      let timeout: ReturnType<typeof setTimeout> | null = null;
       try {
         // Single auth call — getSession() returns both user and token.
         const { data: sess } = await supabase.auth.getSession();
@@ -46,7 +124,8 @@ function OnboardingContent() {
         ]);
 
         const categoryJson = (await categoriesRes.json().catch(() => ({}))) as CreatorCategoriesResponse;
-        const categories = Array.isArray(categoryJson.categories) ? categoryJson.categories : [];
+        const fetchedCategories = Array.isArray(categoryJson.categories) ? categoryJson.categories : [];
+        const categories = fetchedCategories.length > 0 ? fetchedCategories : DEFAULT_CREATOR_CATEGORIES;
         if (mounted) setAvailableCategories(categories);
 
         const profile = profileRes.data;
@@ -70,33 +149,15 @@ function OnboardingContent() {
             });
         }
 
-        const controller = new AbortController();
-        timeout = setTimeout(() => controller.abort(), 15000);
-
-        const res = await fetch("/api/stripe/connect/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ mode: isManage ? "manage" : "onboarding" }),
-          signal: controller.signal,
-        });
-        if (timeout) {
-          clearTimeout(timeout);
-          timeout = null;
+        // Only auto-create Stripe session when onboarding can proceed.
+        const canStartOnboarding = isManage || Boolean(profile?.creator_activity_category);
+        if (canStartOnboarding && mounted) {
+          await createStripeSession({ token });
         }
-
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j.error || "Could not create session");
-        if (!mounted) return;
-        setClientSecret(j.client_secret || "");
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : String(e);
-        if (message.includes("aborted")) {
-          setError("Onboarding request timed out. Please try again.");
-        } else {
-          setError(message);
-        }
+        setError(message);
       } finally {
-        if (timeout) clearTimeout(timeout);
         setLoading(false);
       }
     }
@@ -162,18 +223,14 @@ function OnboardingContent() {
     setSavingCreatorCategory(true);
     setCategorySaved(false);
     try {
-      const { data: userRes } = await supabase.auth.getUser();
-      if (!userRes.user) throw new Error("Not authenticated");
-
-      const { error: updateErr } = await supabase
-        .from("profiles")
-        .update({ creator_activity_category: creatorCategory })
-        .eq("user_id", userRes.user.id);
-
-      if (updateErr) throw updateErr;
+      const saved = await persistCreatorCategory();
+      if (!saved) return;
 
       setCategorySaved(true);
       setTimeout(() => setCategorySaved(false), 2000);
+
+      // Immediately continue by creating Stripe session once category is saved.
+      await createStripeSession({ retryOnCategoryError: false });
     } catch {
       setError("Could not save creator activity. Please try again.");
     } finally {
@@ -186,8 +243,6 @@ function OnboardingContent() {
       <div className="h-6 w-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
     </div>
   );
-  if (error) return <p className="text-red-400 font-medium">Error: {error}</p>;
-  if (!clientSecret) return <p className="text-white/70">No onboarding session available.</p>;
 
   const groupedCategories = availableCategories.reduce<Record<string, CreatorCategory[]>>((acc, category) => {
     const key = category.group_name || "Other";
@@ -200,6 +255,8 @@ function OnboardingContent() {
     <div className="max-w-3xl mx-auto p-6">
       <h1 className="text-2xl font-semibold text-white mb-2">{isManage ? "Payout Settings" : "Activate Your Payouts"}</h1>
       <p className="text-sm text-white/70 mb-6">{isManage ? "Manage your connected bank account and payout preferences." : "Connect your bank account to start receiving tips and withdrawals."}</p>
+
+      {error ? <p className="text-red-400 font-medium mb-4">Error: {error}</p> : null}
 
       <StripeRequirementsCenter />
 
@@ -313,7 +370,30 @@ function OnboardingContent() {
         </div>
       </div>
 
-      <StripeEmbeddedOnboarding clientSecret={clientSecret} mode={isManage ? "manage" : "onboarding"} />
+      {clientSecret ? (
+        <StripeEmbeddedOnboarding clientSecret={clientSecret} mode={isManage ? "manage" : "onboarding"} />
+      ) : (
+        <div className="rounded-xl border border-white/[0.12] bg-white/[0.03] p-4 mt-6 space-y-3">
+          <p className="text-sm text-white/75">
+            Save your creator category, then continue to Stripe onboarding.
+          </p>
+          <button
+            type="button"
+            onClick={async () => {
+              setContinuingToStripe(true);
+              try {
+                await createStripeSession();
+              } finally {
+                setContinuingToStripe(false);
+              }
+            }}
+            disabled={continuingToStripe || (!isManage && !creatorCategory)}
+            className="px-4 py-2 text-sm font-semibold rounded-xl bg-gradient-to-b from-blue-500 to-blue-700 text-white hover:from-blue-400 hover:to-blue-600 transition disabled:opacity-50"
+          >
+            {continuingToStripe ? "Continuing..." : "Continue to Stripe"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
