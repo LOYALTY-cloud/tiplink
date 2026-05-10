@@ -112,14 +112,16 @@ export async function POST(req: Request) {
     const email = authUserRes?.user?.email ?? undefined;
 
     const isManageMode = mode === "manage";
-    if (!isManageMode && !creatorActivityCategory) {
-      return NextResponse.json(
-        { error: "Please select your creator activity category before starting Stripe onboarding.", _checkpoint: "category_missing_after_upsert", _detail: `requestedCreatorCategory was: ${JSON.stringify(requestedCreatorCategory)}` },
-        { status: 400 }
-      );
-    }
 
     if (!stripeAccountId) {
+      // Category is required only when creating a brand-new account.
+      // Existing accounts already had the category applied at creation time.
+      if (!isManageMode && !creatorActivityCategory) {
+        return NextResponse.json(
+          { error: "Please select your creator activity category before starting Stripe onboarding.", _checkpoint: "category_missing_after_upsert", _detail: `requestedCreatorCategory was: ${JSON.stringify(requestedCreatorCategory)}` },
+          { status: 400 }
+        );
+      }
       let acct;
       try {
         acct = await stripe.accounts.create({
