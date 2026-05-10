@@ -6,6 +6,16 @@ import { stripe } from "@/lib/stripe/server";
 export const runtime = "nodejs";
 
 function toLabel(requirement: string): string {
+  if (/^interv_[A-Za-z0-9]+(\.|$)/.test(requirement)) {
+    if (requirement.includes("supportability_rejection_appeal")) {
+      return "Supportability rejection appeal (Stripe Support review)";
+    }
+    if (requirement.includes("business_model_verification")) {
+      return "Business model verification (Stripe Support review)";
+    }
+    return "Stripe Support review in progress";
+  }
+
   const explicitMap: Record<string, string> = {
     "individual.address.line1": "Home address",
     "individual.address.city": "City",
@@ -28,6 +38,25 @@ function toLabel(requirement: string): string {
   if (explicitMap[requirement]) return explicitMap[requirement];
 
   return requirement
+    .split(".")
+    .map((segment) => segment.replace(/_/g, " "))
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" - ");
+}
+
+function formatDisabledReason(reason: string | null): string | null {
+  if (!reason) return null;
+
+  const map: Record<string, string> = {
+    "rejected.terms_of_service": "Rejected by Stripe due to Terms of Service restrictions. This usually requires a Stripe Support review or appeal.",
+    "requirements.past_due": "Your Stripe account has overdue verification requirements.",
+    "requirements.pending_verification": "Stripe is still reviewing previously submitted verification details.",
+    "listed": "Your account is currently restricted by Stripe and requires support review.",
+  };
+
+  if (map[reason]) return map[reason];
+
+  return reason
     .split(".")
     .map((segment) => segment.replace(/_/g, " "))
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
@@ -77,6 +106,7 @@ export async function GET(req: Request) {
     const futureDue = acct.future_requirements?.currently_due ?? [];
     const pendingVerification = acct.requirements?.pending_verification ?? [];
     const disabledReason = acct.requirements?.disabled_reason ?? null;
+    const disabledReasonLabel = formatDisabledReason(disabledReason);
 
     const needsVerification = currentlyDue.length > 0 || !!disabledReason || !acct.payouts_enabled;
 
@@ -93,6 +123,7 @@ export async function GET(req: Request) {
       pending_verification: pendingVerification,
       pending_verification_labels: pendingVerification.map(toLabel),
       disabled_reason: disabledReason,
+      disabled_reason_label: disabledReasonLabel,
       last_notified_at: profile.last_stripe_requirements_notified_at ?? null,
     });
   } catch (e) {
