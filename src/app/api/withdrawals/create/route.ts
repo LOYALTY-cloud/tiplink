@@ -229,9 +229,40 @@ export async function POST(req: Request) {
     const reqCents = toCents(amt);
 
     if (reqCents > availableUsdCents) {
+      // Check if funds exist but are still pending settlement in Stripe
+      const pendingUsdCents =
+        (bal.pending || [])
+          .filter((b) => b.currency === "usd")
+          .reduce((sum, b) => sum + (b.amount || 0), 0);
+
       try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
+
+      if (pendingUsdCents >= reqCents) {
+        // Funds are in Stripe but not yet settled — give a specific time-based message
+        return NextResponse.json(
+          {
+            error: `Your $${fromCents(pendingUsdCents).toFixed(2)} in earnings is still processing with our payment provider. Funds typically settle within 2–3 business days of receiving a tip. Please try again in 1–2 days.`,
+            pending_cents: pendingUsdCents,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (pendingUsdCents > 0) {
+        // Partial pending — some funds not yet settled
+        return NextResponse.json(
+          {
+            error: `Only $${fromCents(availableUsdCents).toFixed(2)} of your balance is currently available for withdrawal. $${fromCents(pendingUsdCents).toFixed(2)} is still processing and should be available within 1–2 business days.`,
+            available_cents: availableUsdCents,
+            pending_cents: pendingUsdCents,
+          },
+          { status: 400 }
+        );
+      }
+
+      // No pending balance either — rare, could be a reconciliation issue
       return NextResponse.json(
-        { error: "Payout temporarily unavailable. Our payment processor is settling funds. Please try again in a few minutes." },
+        { error: "Payout temporarily unavailable. Please contact support if this persists." },
         { status: 400 }
       );
     }

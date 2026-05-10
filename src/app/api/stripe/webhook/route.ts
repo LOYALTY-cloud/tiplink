@@ -412,10 +412,10 @@ export async function handleStripeEvent(
 
         const payouts = creatorProfile?.successful_payouts ?? 0;
         let holdHours: number;
-        if (payouts >= 20) holdHours = 0;       // instant eligibility
-        else if (payouts >= 6) holdHours = 2;   // 2h hold
-        else if (payouts >= 3) holdHours = 12;  // 12h hold
-        else holdHours = 24;                    // 24h hold for new users
+        if (payouts >= 20) holdHours = 0;        // instant eligibility
+        else if (payouts >= 6) holdHours = 2;    // 2h hold
+        else if (payouts >= 3) holdHours = 12;   // 12h hold
+        else holdHours = 96;                     // 4-day hold for new users (matches Stripe's ~2-4 day settlement window)
 
         if (holdHours > 0) {
           const newHold = new Date(Date.now() + holdHours * 60 * 60 * 1000).toISOString();
