@@ -3,7 +3,6 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import StripeEmbeddedOnboarding from "@/components/StripeEmbeddedOnboarding";
-import StripeRequirementsCenter from "@/components/StripeRequirementsCenter";
 import { supabase } from "@/lib/supabase/client";
 import { DEFAULT_CREATOR_CATEGORIES, type CreatorCategory } from "@/lib/creatorCategories";
 
@@ -256,8 +255,6 @@ function OnboardingContent() {
       <p className="text-sm text-white/70 mb-6">{isManage ? "Manage your connected bank account and payout preferences." : "Connect your bank account to start receiving tips and withdrawals."}</p>
 
       {error ? <p className="text-red-400 font-medium mb-4">{error}</p> : null}
-
-      <StripeRequirementsCenter />
 
       <div className="space-y-3 mb-8">
         <label className="text-xs text-white/70 font-medium">

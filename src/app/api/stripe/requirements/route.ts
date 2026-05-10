@@ -33,6 +33,8 @@ function toLabel(requirement: string): string {
     "business_profile.mcc": "Business category",
     "business_profile.url": "Business website",
     "external_account": "Bank account details",
+    "tos_acceptance.date": "Accept Stripe Terms of Service",
+    "tos_acceptance.ip": "Accept Stripe Terms of Service",
   };
 
   if (explicitMap[requirement]) return explicitMap[requirement];
@@ -110,6 +112,9 @@ export async function GET(req: Request) {
 
     const needsVerification = currentlyDue.length > 0 || !!disabledReason || !acct.payouts_enabled;
 
+    // Deduplicate labels (e.g. tos_acceptance.date + tos_acceptance.ip both map to the same label)
+    const deduped = (fields: string[]) => [...new Set(fields.map(toLabel))];
+
     return NextResponse.json({
       connected: true,
       charges_enabled: !!acct.charges_enabled,
@@ -117,11 +122,11 @@ export async function GET(req: Request) {
       details_submitted: !!acct.details_submitted,
       needs_verification: needsVerification,
       currently_due: currentlyDue,
-      currently_due_labels: currentlyDue.map(toLabel),
+      currently_due_labels: deduped(currentlyDue),
       future_due: futureDue,
-      future_due_labels: futureDue.map(toLabel),
+      future_due_labels: deduped(futureDue),
       pending_verification: pendingVerification,
-      pending_verification_labels: pendingVerification.map(toLabel),
+      pending_verification_labels: deduped(pendingVerification),
       disabled_reason: disabledReason,
       disabled_reason_label: disabledReasonLabel,
       last_notified_at: profile.last_stripe_requirements_notified_at ?? null,
