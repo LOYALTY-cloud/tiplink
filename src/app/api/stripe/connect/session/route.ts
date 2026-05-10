@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe/server";
 import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
+import { getCreatorCategoryByName } from "@/lib/creatorCategoriesServer";
 
 export const runtime = "nodejs";
 
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
 
     const { data: profile, error } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_account_id")
+      .select("stripe_account_id, creator_activity_category, first_name, last_name")
       .eq("user_id", user_id)
       .maybeSingle();
 
@@ -64,10 +65,19 @@ export async function POST(req: Request) {
 
     const email = authUserRes?.user?.email ?? undefined;
 
+    const isManageMode = mode === "manage";
+    if (!isManageMode && !profile?.creator_activity_category) {
+      return NextResponse.json(
+        { error: "Please select your creator activity category before starting Stripe onboarding." },
+        { status: 400 }
+      );
+    }
+
     if (!stripeAccountId) {
       const acct = await stripe.accounts.create({
         type: "express",
         email: email,
+        business_type: "individual",
         capabilities: {
           transfers: { requested: true },
           card_payments: { requested: true },
@@ -87,7 +97,38 @@ export async function POST(req: Request) {
       }
     }
 
-    const components = mode === "manage"
+    // Keep account profile data aligned with selected creator activity for cleaner underwriting.
+    if (profile?.creator_activity_category) {
+      const creatorCategory = await getCreatorCategoryByName(profile.creator_activity_category);
+      if (!creatorCategory) {
+        return NextResponse.json(
+          { error: "Please select your creator activity category before starting Stripe onboarding." },
+          { status: 400 }
+        );
+      }
+
+      const emailParts = (email || "").split("@");
+      const firstName = profile?.first_name || emailParts[0]?.split(".")[0] || "Creator";
+      const lastName = profile?.last_name || emailParts[0]?.split(".")[1] || user_id.slice(0, 8);
+
+      await stripe.accounts.update(stripeAccountId, {
+        business_type: "individual",
+        business_profile: {
+          product_description: creatorCategory.stripe_description,
+          mcc: "5815",
+          url: "https://1nelink.com",
+        },
+        individual: {
+          email,
+          first_name: firstName,
+          last_name: lastName,
+        },
+      }).catch((e) => {
+        console.log("Failed to prefill connect session account data (non-blocking):", e instanceof Error ? e.message : e);
+      });
+    }
+
+    const components = isManageMode
       ? { account_management: { enabled: true as const } }
       : { account_onboarding: { enabled: true as const } };
 

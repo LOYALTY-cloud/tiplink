@@ -584,6 +584,12 @@ export default function HomePage() {
           </h1>
         </FadeUp>
 
+        <FadeUp delay={0.14}>
+          <p className="mt-3 text-xs sm:text-sm text-white/55 max-w-2xl mx-auto leading-relaxed px-2 sm:px-0">
+            Platform purpose: 1neLink is a creator monetization and fan support platform. Profile customization and digital offerings are optional secondary tools.
+          </p>
+        </FadeUp>
+
         {/* Key conversion line */}
         <FadeUp delay={0.18}>
           <p className="mt-4 text-base sm:text-lg md:text-xl text-white/60 max-w-xl mx-auto leading-relaxed">
@@ -808,10 +814,10 @@ export default function HomePage() {
       <section className="max-w-5xl mx-auto px-4 py-24">
         <FadeUp>
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center mb-3">
-            14 Premium <span className="text-purple-400">Themes</span>
+            Creator Page <span className="text-purple-400">Customization</span>
           </h2>
           <p className="text-center text-white/50 max-w-md mx-auto mb-10">
-            Customize your tip page to match your brand. Switch themes instantly.
+            Fan support and tipping come first. Themes are optional customization tools to match your creator brand.
           </p>
         </FadeUp>
         <FadeUp delay={0.1}>
@@ -836,7 +842,7 @@ export default function HomePage() {
           {[
             { icon: <Zap size={22} />, title: "Instant Payouts", desc: "Withdraw tips to your bank or debit card in minutes — not days.", accent: "text-yellow-400 bg-yellow-400/10 border-yellow-400/20" },
             { icon: <Shield size={22} />, title: "Bank-Grade Security", desc: "256-bit encryption, Stripe-powered payments, fraud detection built in.", accent: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" },
-            { icon: <Palette size={22} />, title: "Custom Themes", desc: "14 premium themes to match your brand — Aurora, Glitter, Army & more.", accent: "text-purple-400 bg-purple-400/10 border-purple-400/20" },
+            { icon: <Palette size={22} />, title: "Profile Customization", desc: "Optional themes and styling so your creator page matches your brand.", accent: "text-purple-400 bg-purple-400/10 border-purple-400/20" },
             { icon: <CreditCard size={22} />, title: "No App Required", desc: "Supporters tip via any browser — no account or download needed.", accent: "text-blue-400 bg-blue-400/10 border-blue-400/20" },
             { icon: <TrendingUp size={22} />, title: "Earnings Dashboard", desc: "Track every tip, view analytics, and set earning goals in real time.", accent: "text-cyan-400 bg-cyan-400/10 border-cyan-400/20" },
             { icon: <Globe size={22} />, title: "Public Tip Page", desc: "Get your own 1nelink.com/handle — share it anywhere, get tipped everywhere.", accent: "text-pink-400 bg-pink-400/10 border-pink-400/20" },
@@ -875,7 +881,7 @@ export default function HomePage() {
         <div className="max-w-4xl mx-auto px-4 py-24 text-center">
           <FadeUp>
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-14">
-              Three Steps to{" "}
+            { quote: "Finally a tipping platform that looks professional. My audience supports me faster with a clean page.", name: "Derek L.", role: "Streamer", avatar: "D" },
               <span className="text-cyan-400">Start Earning</span>
             </h2>
           </FadeUp>
@@ -968,7 +974,7 @@ export default function HomePage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
             {[
               { quote: "I made $200 in tips my first week. The instant payout is a game changer.", name: "Mia T.", role: "Barista", avatar: "M" },
-              { quote: "Finally a tipping platform that looks professional. My audience loves the themes.", name: "Derek L.", role: "Streamer", avatar: "D" },
+              { quote: "Finally a tipping platform that looks professional. My audience supports me faster with a clean page.", name: "Derek L.", role: "Streamer", avatar: "D" },
               { quote: "Setup took 2 minutes. I put my link on my register and tips just started rolling in.", name: "Priya K.", role: "Tattoo Artist", avatar: "P" },
             ].map((t, i) => (
               <FadeUp key={t.name} delay={i * 0.1}>

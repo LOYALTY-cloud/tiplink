@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe/server";
 import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
+import { getCreatorCategoryByName } from "@/lib/creatorCategoriesServer";
 
 export const runtime = "nodejs";
 
@@ -49,13 +50,20 @@ export async function POST(req: Request) {
     // 2) Load creator profile
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
-      .select("user_id, stripe_account_id, payouts_enabled")
+      .select("user_id, stripe_account_id, payouts_enabled, creator_activity_category, first_name, last_name")
       .eq("user_id", user.id)
       .maybeSingle();
 
     if (profileErr) {
       console.error("stripe/connect/onboard profile", profileErr);
       return NextResponse.json({ error: "Failed to load profile" }, { status: 500 });
+    }
+
+    if (!profile?.creator_activity_category) {
+      return NextResponse.json(
+        { error: "Please select your creator activity category before starting Stripe onboarding." },
+        { status: 400 }
+      );
     }
 
     // If profile row doesn't exist, create it (safe)
@@ -97,12 +105,22 @@ export async function POST(req: Request) {
 
     // 4) Prefill account data with business info to reduce verification requests
     const emailParts = user.email?.split("@") || ["creator"];
-    const firstName = emailParts[0]?.split(".")[0] || "Creator";
-    const lastName = emailParts[0]?.split(".")[1] || user.id.slice(0, 8);
+    const firstName = profile?.first_name || emailParts[0]?.split(".")[0] || "Creator";
+    const lastName = profile?.last_name || emailParts[0]?.split(".")[1] || user.id.slice(0, 8);
+    const creatorCategory = await getCreatorCategoryByName(profile?.creator_activity_category);
+    if (!creatorCategory) {
+      return NextResponse.json(
+        { error: "Please select your creator activity category before starting Stripe onboarding." },
+        { status: 400 }
+      );
+    }
+
+    const productDescription = creatorCategory.stripe_description;
 
     await stripe.accounts.update(stripeAccountId, {
+      business_type: "individual",
       business_profile: {
-        product_description: "Seller provides downloadable digital themes and creator assets through the 1neLink marketplace.",
+        product_description: productDescription,
         mcc: "5815", // Digital goods merchant code
         url: "https://1nelink.com",
       },

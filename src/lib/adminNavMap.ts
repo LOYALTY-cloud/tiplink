@@ -25,6 +25,16 @@ export const ADMIN_NAV_MAP: Record<string, NavSection> = {
       "user detail", "role", "kyc", "identity",
     ],
   },
+  creatorOnboarding: {
+    name: "Creator Onboarding Report",
+    description: "Creator activity category distribution and Stripe onboarding completion rates",
+    routes: ["/admin/creators/onboarding-report"],
+    keywords: [
+      "creator onboarding", "onboarding report", "creator category",
+      "category distribution", "completion rate", "stripe onboarding",
+      "creator activity",
+    ],
+  },
   transactions: {
     name: "Transactions",
     description: "All tips, payments, withdrawals, and transaction history",
