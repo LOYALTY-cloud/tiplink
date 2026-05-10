@@ -13,10 +13,10 @@ export default function TermsPage() {
           <p>Welcome to 1neLink (“we,” “our,” or “us”). By accessing or using our platform, you agree to these Terms.</p>
 
           <h2 className="font-semibold">1. Description of Service</h2>
-          <p>1neLink allows users to create a profile and receive voluntary monetary tips from supporters. We do not guarantee income, transaction volume, or payment processing outcomes.</p>
+          <p>1neLink allows creators to build public pages, receive voluntary monetary tips from supporters, and monetize digital creator offerings. Profile customization tools are optional. We do not guarantee income, transaction volume, or payment processing outcomes.</p>
 
           <h2 className="font-semibold">2. Payments</h2>
-          <p>Payments are processed securely through Stripe. By using 1neLink, you agree to Stripe’s Connected Account Agreement and Services Agreement. We do not store full credit card details. We may deduct applicable platform fees.</p>
+          <p>Payments are processed securely through Stripe. By using 1neLink, you agree to Stripe’s Connected Account Agreement and Services Agreement. We do not store full credit card details. We may deduct applicable platform fees for monetization transactions on the platform.</p>
 
           <h2 className="font-semibold">3. User Responsibilities</h2>
           <p>You agree NOT to: use the platform for illegal activity; engage in fraud or deceptive practices; violate intellectual property rights; harass or abuse other users. We reserve the right to suspend accounts at our discretion.</p>
@@ -31,7 +31,7 @@ export default function TermsPage() {
           <p>1neLink is provided “as is” without warranties of any kind.</p>
 
           <h2 className="font-semibold">7. Fees & Charges</h2>
-          <p>Tips are subject to a processing fee of 2.9% + $0.30 (charged by Stripe). These fees are transparently displayed before each transaction is confirmed. The creator receives the full tip amount minus applicable Stripe processing fees.</p>
+          <p>Tips and other creator monetization transactions are subject to payment processing fees (including Stripe fees, such as 2.9% + $0.30 where applicable). These fees are transparently displayed before each transaction is confirmed.</p>
 
           <h2 className="font-semibold">8. Refund Policy</h2>
           <p>Tips are voluntary payments. Because tips are irrevocable gifts, we generally do not issue refunds. However, refunds may be granted in cases of: unauthorized transactions, duplicate charges, technical errors that resulted in an incorrect charge. To request a refund, contact support within 30 days of the transaction. Refunds are processed to the original payment method and may take 5–10 business days.</p>

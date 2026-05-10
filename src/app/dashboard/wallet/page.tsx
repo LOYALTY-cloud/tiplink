@@ -10,6 +10,7 @@ import WithdrawalTimer from "@/components/WithdrawalTimer";
 import AnimatedBalance from "@/components/AnimatedBalance";
 import FreezeBanner from "@/components/FreezeBanner";
 import StripeVerificationCard from "@/components/StripeVerificationCard";
+import StripeRequirementsCenter from "@/components/StripeRequirementsCenter";
 import { useToast } from "@/lib/useToast";
 import { showGlobalToast } from "@/components/GlobalToast";
 import { ToastStack } from "@/components/ToastStack";
@@ -28,6 +29,11 @@ interface WithdrawalReceipt {
   message?: string;
   release_at?: string;
   created_at?: string;
+  trust_tier?: string;
+  trust_tier_label?: string;
+  payout_delay_days?: number;
+  instant_eligible?: boolean;
+  payout_policy_reason?: string;
 }
 
 export default function WalletPage() {
@@ -309,6 +315,13 @@ export default function WalletPage() {
         message: withdrawal.failure_reason ?? undefined,
         release_at: withdrawal.release_at ?? undefined,
         created_at: withdrawal.created_at ?? undefined,
+        trust_tier: typeof withdrawal.trust_tier === "string" ? withdrawal.trust_tier : undefined,
+        trust_tier_label: typeof withdrawal.trust_tier_label === "string" ? withdrawal.trust_tier_label : undefined,
+        payout_delay_days: Number.isFinite(Number(withdrawal.payout_delay_days))
+          ? Number(withdrawal.payout_delay_days)
+          : undefined,
+        instant_eligible: typeof withdrawal.instant_eligible === "boolean" ? withdrawal.instant_eligible : undefined,
+        payout_policy_reason: typeof withdrawal.payout_policy_reason === "string" ? withdrawal.payout_policy_reason : undefined,
       });
     } catch {
       // Non-blocking — wallet still works without restoring the last receipt.
@@ -566,6 +579,11 @@ export default function WalletPage() {
       message: json.message as string | undefined,
       release_at: json.release_at as string | undefined,
       created_at: new Date().toISOString(),
+      trust_tier: json.trust_tier as string | undefined,
+      trust_tier_label: json.trust_tier_label as string | undefined,
+      payout_delay_days: json.payout_delay_days as number | undefined,
+      instant_eligible: json.instant_eligible as boolean | undefined,
+      payout_policy_reason: json.payout_policy_reason as string | undefined,
     };
     setReceipt(newReceipt);
 
@@ -718,6 +736,7 @@ export default function WalletPage() {
 
       {/* Stripe verification alert (if requirements detected) */}
       {!walletLocked && <StripeVerificationCard />}
+      {!walletLocked && <StripeRequirementsCenter />}
 
       {/* Hero balance */}
       <div className="text-center py-8 space-y-2">
@@ -1023,6 +1042,29 @@ export default function WalletPage() {
                 <span className="text-sm text-white/60">Method</span>
                 <span className="text-sm text-white/70 capitalize">{receipt.payout_method}</span>
               </div>
+
+              {receipt.trust_tier_label && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white/60">Trust tier</span>
+                  <span className="text-sm font-semibold text-violet-300">{receipt.trust_tier_label}</span>
+                </div>
+              )}
+
+              {typeof receipt.payout_delay_days === "number" && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white/60">Tier delay policy</span>
+                  <span className="text-sm text-white/70">
+                    {receipt.payout_delay_days === 0 ? "Instant eligible" : `${receipt.payout_delay_days} day${receipt.payout_delay_days === 1 ? "" : "s"}`}
+                  </span>
+                </div>
+              )}
+
+              {receipt.payout_policy_reason && (
+                <div className="rounded-lg bg-white/[0.04] border border-white/[0.1] px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-white/45">Payout policy</p>
+                  <p className="text-xs text-white/70 mt-1">{receipt.payout_policy_reason}</p>
+                </div>
+              )}
             </div>
 
             <button

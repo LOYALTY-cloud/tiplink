@@ -4,6 +4,7 @@ import { stripe } from "@/lib/stripe/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 import type { ProfileRow } from "@/types/db";
+import { getCreatorCategoryByName } from "@/lib/creatorCategoriesServer";
 
 export const runtime = "nodejs";
 
@@ -34,12 +35,19 @@ export async function POST(req: Request) {
     // Check existing stripe account
     const { data: prof, error: profErr } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_account_id")
+      .select("stripe_account_id, creator_activity_category, first_name, last_name")
       .eq("user_id", userId)
       .maybeSingle()
       .returns<ProfileRow | null>();
 
     if (profErr) return NextResponse.json({ error: "Failed to start Stripe setup" }, { status: 500 });
+
+    if (!prof?.creator_activity_category) {
+      return NextResponse.json(
+        { error: "Please select your creator activity category before starting Stripe onboarding." },
+        { status: 400 }
+      );
+    }
 
     let accountId = prof?.stripe_account_id as string | null;
 
@@ -47,6 +55,7 @@ export async function POST(req: Request) {
       const acct = await stripe.accounts.create({
         type: "express",
         country: "US",
+        business_type: "individual",
         capabilities: {
           card_payments: { requested: true },
           transfers: { requested: true },
@@ -66,12 +75,22 @@ export async function POST(req: Request) {
 
     // Prefill account data with business info to reduce verification requests
     const emailParts = (userRes.user.email || "").split("@");
-    const firstName = emailParts[0]?.split(".")[0] || "Creator";
-    const lastName = emailParts[0]?.split(".")[1] || userId.slice(0, 8);
+    const firstName = prof?.first_name || emailParts[0]?.split(".")[0] || "Creator";
+    const lastName = prof?.last_name || emailParts[0]?.split(".")[1] || userId.slice(0, 8);
+    const creatorCategory = await getCreatorCategoryByName(prof?.creator_activity_category);
+    if (!creatorCategory) {
+      return NextResponse.json(
+        { error: "Please select your creator activity category before starting Stripe onboarding." },
+        { status: 400 }
+      );
+    }
+
+    const productDescription = creatorCategory.stripe_description;
 
     await stripe.accounts.update(accountId, {
+      business_type: "individual",
       business_profile: {
-        product_description: "Seller provides downloadable digital themes and creator assets through the 1neLink marketplace.",
+        product_description: productDescription,
         mcc: "5815", // Digital goods merchant code
         url: "https://1nelink.com",
       },

@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   const recentCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data: withdrawal, error } = await supabaseAdmin
     .from("withdrawals")
-    .select("id, amount, fee, net, status, payout_method, failure_reason, release_at, created_at")
+    .select("id, amount, fee, net, status, payout_method, failure_reason, release_at, created_at, trust_tier, trust_tier_label, payout_delay_days, instant_eligible, payout_policy_reason")
     .eq("user_id", authData.user.id)
     .gte("created_at", recentCutoff)
     .in("status", ["pending", "approved", "paid", "failed"])

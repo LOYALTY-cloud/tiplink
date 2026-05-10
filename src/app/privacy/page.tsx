@@ -13,7 +13,7 @@ export default function PrivacyPage() {
           <p>Your privacy matters to us.</p>
 
           <h2 className="font-semibold">1. Information We Collect</h2>
-          <p>We may collect: Email address, Username, Payment account details (via Stripe), Basic analytics (IP, browser type). We do NOT store credit card numbers.</p>
+          <p>We may collect: email address, username, creator profile data, payment account details (via Stripe), and basic analytics (IP, browser type). We do NOT store credit card numbers.</p>
 
           <h2 className="font-semibold">2. How We Use Information</h2>
           <p>We use information to provide and operate the service, process payments, improve user experience, and prevent fraud and abuse.</p>

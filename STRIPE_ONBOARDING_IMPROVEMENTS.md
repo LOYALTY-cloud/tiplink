@@ -215,3 +215,62 @@ Consider adding:
 3. Email template customization for requirement notifications
 4. Analytics tracking of onboarding completion rates
 5. A/B testing different onboarding flows
+
+---
+
+## Optional IP Reputation Adapter (Fail-Open)
+
+To strengthen payout risk scoring, 1neLink now supports an optional IP reputation adapter.
+
+### What It Does
+
+- Runs during withdrawal risk evaluation.
+- Flags VPN/proxy/TOR/abuse risk as an additional signal.
+- Can trigger a conservative payout delay override for high-risk IPs.
+- **Never blocks payouts by itself** if the provider is unavailable.
+
+### Fail-Open Behavior
+
+If no provider is configured, API keys are missing, or provider requests fail:
+
+- Withdrawal flow continues normally.
+- The adapter returns a neutral result.
+- Existing trust signals still apply (device, velocity, multi-account, etc.).
+
+### Supported Providers
+
+- `ipqualityscore`
+- `proxycheck`
+
+### Environment Variables
+
+Set only one provider at a time.
+
+```env
+# Optional (default: none)
+IP_REPUTATION_PROVIDER=ipqualityscore
+
+# Required when provider=ipqualityscore
+IPQUALITYSCORE_API_KEY=your_ipqualityscore_key
+
+# Required when provider=proxycheck
+PROXYCHECK_API_KEY=your_proxycheck_key
+```
+
+### Recommended Rollout
+
+1. Deploy with no provider configured (confirm no behavior change).
+2. Enable provider in staging first.
+3. Monitor payout policy reasons and fraud telemetry for `ip_reputation_high_risk`.
+4. Enable in production after reviewing false-positive rate.
+
+### Runtime Notes
+
+- Private/local IPs are ignored.
+- Provider calls use short timeouts.
+- Adapter output is logged into fraud signal metadata for investigation.
+
+### Related Files
+
+- `/src/lib/ipReputation.ts`
+- `/src/app/api/withdrawals/create/route.ts`

@@ -259,6 +259,47 @@ You’re about 80–85% done. Remaining work:
 
 The next thing to build is: Stripe Issuing Card Creation
 
+## Security Signals (Optional)
+
+1neLink supports an optional IP reputation adapter that augments withdrawal risk scoring.
+
+### Purpose
+
+- Detect high-risk IP patterns (VPN/proxy/TOR/recent abuse) as an additive signal.
+- Apply more conservative payout timing when risk is elevated.
+- Improve Stripe platform trust posture without introducing hard downtime dependencies.
+
+### Fail-open behavior
+
+If no provider is configured, API keys are missing, or provider requests fail:
+
+- Withdrawals continue using existing risk signals.
+- The IP adapter returns a neutral result.
+- No hard blocking is caused by provider outages.
+
+### Environment variables
+
+```env
+# Optional (default: none)
+IP_REPUTATION_PROVIDER=ipqualityscore
+
+# Required when provider=ipqualityscore
+IPQUALITYSCORE_API_KEY=your_ipqualityscore_key
+
+# Required when provider=proxycheck
+PROXYCHECK_API_KEY=your_proxycheck_key
+```
+
+### Supported providers
+
+- `ipqualityscore`
+- `proxycheck`
+
+### Implementation references
+
+- `src/lib/ipReputation.ts`
+- `src/app/api/withdrawals/create/route.ts`
+
 When a user signs up:
 
 ```

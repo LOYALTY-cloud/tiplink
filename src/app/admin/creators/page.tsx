@@ -118,6 +118,14 @@ export default function AdminCreatorsPage() {
         <p className="text-white/50 text-sm mt-1">
           Review and manage elite creator access
         </p>
+        <div className="mt-3">
+          <a
+            href="/admin/creators/onboarding-report"
+            className="inline-flex items-center rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/20 transition"
+          >
+            View onboarding category report
+          </a>
+        </div>
       </div>
 
       {/* TABS */}

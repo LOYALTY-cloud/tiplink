@@ -918,15 +918,17 @@ export async function handleStripeEvent(
     // ACCOUNT STATUS / CONNECT
     case "account.updated": {
       const account = event.data.object as Stripe.Account;
+      const verificationReminderCooldownMs = 24 * 60 * 60 * 1000;
       
       // Monitor requirements to notify user proactively instead of Stripe surprising them
       const currentlyDueRequirements = account.requirements?.currently_due || [];
       const futureRequirements = account.future_requirements?.currently_due || [];
       const disabledReason = account.requirements?.disabled_reason;
+      const requirementsSignature = [...currentlyDueRequirements].sort().join("|");
       
       const { data: profile } = await supabaseClient
         .from("profiles")
-        .select("user_id")
+        .select("user_id, last_stripe_requirements_hash, last_stripe_requirements_notified_at")
         .eq("stripe_account_id", account.id)
         .maybeSingle();
 
@@ -940,41 +942,64 @@ export async function handleStripeEvent(
 
       // Notify user if additional verification is required
       if (profile?.user_id && currentlyDueRequirements.length > 0) {
-        try {
-          // 1. In-app notification
-          const { createNotification } = await import("@/lib/notifications");
-          const requirementsList = currentlyDueRequirements.join(", ");
-          await createNotification({
-            userId: profile.user_id,
-            type: "verification_needed",
-            title: "Action needed: Complete verification",
-            body: `Your payout account needs additional verification (${currentlyDueRequirements.length} item(s)) to continue receiving payouts.`,
-            category: "security",
-            meta: {
-              requirements: requirementsList,
-              future_requirements: futureRequirements.join(", "),
-              disabled_reason: disabledReason,
-            },
-          });
+        const lastNotifiedAtMs = profile.last_stripe_requirements_notified_at
+          ? new Date(profile.last_stripe_requirements_notified_at).getTime()
+          : null;
+        const withinCooldown =
+          typeof lastNotifiedAtMs === "number" &&
+          Number.isFinite(lastNotifiedAtMs) &&
+          Date.now() - lastNotifiedAtMs < verificationReminderCooldownMs;
+        const sameRequirements =
+          profile.last_stripe_requirements_hash === requirementsSignature;
+        const shouldNotify = !sameRequirements || !withinCooldown;
 
-          // 2. Email notification (non-blocking, fire-and-forget)
+        if (!shouldNotify) {
+          console.log(`Verification reminder deduped for account ${account.id}`);
+        } else {
           try {
-            const { data: authUser } = await supabaseClient.auth.admin.getUserById(profile.user_id);
-            if (authUser?.user?.email) {
-              const { sendEmailAsync } = await import("@/lib/emailService");
-              sendEmailAsync({
-                type: "NOTIFICATION",
-                to: authUser.user.email,
-                subject: "Action needed: Complete your payout verification",
-                html: buildVerificationRequiredEmail(currentlyDueRequirements),
-                categoryOverride: "security",
-              });
+            // 1. In-app notification
+            const { createNotification } = await import("@/lib/notifications");
+            const requirementsList = currentlyDueRequirements.join(", ");
+            await createNotification({
+              userId: profile.user_id,
+              type: "verification_needed",
+              title: "Action needed: Complete verification",
+              body: `Your payout account needs additional verification (${currentlyDueRequirements.length} item(s)) to continue receiving payouts.`,
+              category: "security",
+              meta: {
+                requirements: requirementsList,
+                future_requirements: futureRequirements.join(", "),
+                disabled_reason: disabledReason,
+              },
+            });
+
+            // 2. Email notification (non-blocking, fire-and-forget)
+            try {
+              const { data: authUser } = await supabaseClient.auth.admin.getUserById(profile.user_id);
+              if (authUser?.user?.email) {
+                const { sendEmailAsync } = await import("@/lib/emailService");
+                sendEmailAsync({
+                  type: "NOTIFICATION",
+                  to: authUser.user.email,
+                  subject: "Action needed: Complete your payout verification",
+                  html: buildVerificationRequiredEmail(currentlyDueRequirements),
+                  categoryOverride: "security",
+                });
+              }
+            } catch (e) {
+              console.log("Failed to send verification email:", e instanceof Error ? e.message : e);
             }
+
+            await supabaseClient
+              .from("profiles")
+              .update({
+                last_stripe_requirements_hash: requirementsSignature,
+                last_stripe_requirements_notified_at: new Date().toISOString(),
+              })
+              .eq("user_id", profile.user_id);
           } catch (e) {
-            console.log("Failed to send verification email:", e instanceof Error ? e.message : e);
+            console.log("Failed to create verification notification:", e instanceof Error ? e.message : e);
           }
-        } catch (e) {
-          console.log("Failed to create verification notification:", e instanceof Error ? e.message : e);
         }
       }
 

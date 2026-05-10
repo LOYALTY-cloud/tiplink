@@ -9,12 +9,18 @@ export default function LegalPage() {
         <h1 className="text-3xl font-bold text-white">Legal</h1>
         <p className="text-sm text-white/50">Last updated: April 12, 2026</p>
 
+        <section className="rounded-xl border border-white/10 bg-white/5 p-4">
+          <p className="text-xs sm:text-sm text-white/75">
+            Platform purpose: 1neLink is a creator monetization and fan support platform. Profile customization and digital offerings are optional secondary tools.
+          </p>
+        </section>
+
         <section className="space-y-4">
           <h2 className="text-xl font-semibold text-white">Company Information</h2>
           <p>
-            1neLink is a payment facilitation platform operated out of Augusta, GA, United States.
-            We are not a bank. Payment processing services are provided by Stripe and other licensed
-            financial institutions.
+            1neLink is a creator monetization and fan support platform operated out of Augusta, GA, United States.
+            We help creators receive tips and monetize digital creator offerings. We are not a bank.
+            Payment processing services are provided by Stripe and other licensed financial institutions.
           </p>
         </section>
 
@@ -34,6 +40,48 @@ export default function LegalPage() {
             >
               <p className="font-medium text-white">Privacy Policy</p>
               <p className="text-sm text-white/40 mt-1">How we collect, use, and protect your data</p>
+            </Link>
+            <Link
+              href="/refund-policy"
+              className="block rounded-xl bg-white/5 border border-white/10 p-4 hover:bg-white/[0.07] transition"
+            >
+              <p className="font-medium text-white">Refund Policy</p>
+              <p className="text-sm text-white/40 mt-1">How refunds, chargebacks, and requests are handled</p>
+            </Link>
+            <Link
+              href="/acceptable-use"
+              className="block rounded-xl bg-white/5 border border-white/10 p-4 hover:bg-white/[0.07] transition"
+            >
+              <p className="font-medium text-white">Acceptable Use Policy</p>
+              <p className="text-sm text-white/40 mt-1">Rules for lawful platform use and payment safety</p>
+            </Link>
+            <Link
+              href="/creator-guidelines"
+              className="block rounded-xl bg-white/5 border border-white/10 p-4 hover:bg-white/[0.07] transition"
+            >
+              <p className="font-medium text-white">Creator Guidelines</p>
+              <p className="text-sm text-white/40 mt-1">Standards for creator trust, quality, and payouts</p>
+            </Link>
+            <Link
+              href="/prohibited-content"
+              className="block rounded-xl bg-white/5 border border-white/10 p-4 hover:bg-white/[0.07] transition"
+            >
+              <p className="font-medium text-white">Prohibited Content Policy</p>
+              <p className="text-sm text-white/40 mt-1">Content and behavior not allowed on 1neLink</p>
+            </Link>
+            <Link
+              href="/marketplace/dmca"
+              className="block rounded-xl bg-white/5 border border-white/10 p-4 hover:bg-white/[0.07] transition"
+            >
+              <p className="font-medium text-white">Copyright and DMCA Policy</p>
+              <p className="text-sm text-white/40 mt-1">Copyright takedown and counter-notice process</p>
+            </Link>
+            <Link
+              href="/contact"
+              className="block rounded-xl bg-white/5 border border-white/10 p-4 hover:bg-white/[0.07] transition"
+            >
+              <p className="font-medium text-white">Support and Contact</p>
+              <p className="text-sm text-white/40 mt-1">How to reach support, compliance, and legal teams</p>
             </Link>
           </div>
         </section>

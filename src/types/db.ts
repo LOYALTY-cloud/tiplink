@@ -81,6 +81,9 @@ export interface ProfileRow {
 
   // Profile extras
   links?: unknown[] | null;
+  creator_activity_category?: string | null;
+  last_stripe_requirements_hash?: string | null;
+  last_stripe_requirements_notified_at?: string | null;
 }
 
 export interface WalletRow {

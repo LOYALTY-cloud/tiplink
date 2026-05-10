@@ -10,12 +10,15 @@ import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 import { checkSoftRestrictions } from "@/lib/softRestrictions";
 import { calculateTrustScore, type TrustInput } from "@/lib/trustScore";
 import { shouldAutoFreeze, executeAutoFreeze, type FreezeContext } from "@/lib/autoFreeze";
-import { hasSuspiciousLogins } from "@/lib/loginTracker";
+import { hasSuspiciousLogins, generateDeviceHash } from "@/lib/loginTracker";
 import { logFraudSignal, createFraudCase } from "@/lib/fraudSignals";
 import { logCaughtError } from "@/lib/errorLogger";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { sendAdminAlert } from "@/lib/adminAlerts";
 import { triggerAIAlerts } from "@/lib/ai/alerts";
+import { determineTrustTier, TRUST_TIER_POLICIES } from "@/lib/payoutTrustTier";
+import { evaluateIpReputation } from "@/lib/ipReputation";
+import { getCreatorCategoryByName } from "@/lib/creatorCategoriesServer";
 import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
@@ -55,6 +58,9 @@ export async function POST(req: Request) {
 
     const userId = userRes.user.id;
     lockUserId = userId;
+    const clientIp = getClientIp(req);
+    const userAgent = req.headers.get("user-agent") || "";
+    const currentDeviceHash = generateDeviceHash(clientIp, userAgent);
 
     // Require verified email for withdrawals
     try {
@@ -95,18 +101,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: restriction.reason }, { status: 403 });
     }
 
-    // Flag (not block) suspicious login patterns — feeds into trust score instead
-    const suspiciousLogins = await hasSuspiciousLogins(userId);
+    // Flag (not block) suspicious login patterns + optional IP reputation
+    // signals — both feed trust scoring and can increase payout delay.
+    const [suspiciousLogins, ipReputation] = await Promise.all([
+      hasSuspiciousLogins(userId),
+      evaluateIpReputation(clientIp),
+    ]);
 
     // Load profile (Stripe status + account state)
     const { data: prof, error: profErr } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_account_id, stripe_payouts_enabled, is_flagged, created_at, account_status, payout_hold_until, daily_withdrawn, restricted_until, total_volume")
+      .select("stripe_account_id, stripe_payouts_enabled, is_flagged, created_at, account_status, payout_hold_until, daily_withdrawn, restricted_until, total_volume, last_ip, creator_activity_category")
       .eq("user_id", userId)
       .maybeSingle()
       .returns<ProfileRow | null>();
 
     if (profErr) return NextResponse.json({ error: "Withdrawal failed. Please try again." }, { status: 500 });
+
+    const creatorCategory = await getCreatorCategoryByName(prof?.creator_activity_category ?? null);
 
     // Acquire wallet lock EARLY to prevent concurrent withdrawal races
     const lock = await acquireWalletLock(supabaseAdmin, userId, "withdrawal", 300);
@@ -295,19 +307,56 @@ export async function POST(req: Request) {
     const isRapidPattern = rapidFire?.is_rapid ?? false;
     const isLoopPattern = rapidFire?.is_loop ?? false;
 
+    // ── Device/IP + multi-account signals ─────────────────────
+    const lookback24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const [knownDeviceRes, sharedDeviceRes, sharedIpRes] = await Promise.all([
+      supabaseAdmin
+        .from("trusted_devices")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("device_hash", currentDeviceHash)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("trusted_devices")
+        .select("user_id", { count: "exact", head: true })
+        .eq("device_hash", currentDeviceHash)
+        .neq("user_id", userId),
+      clientIp !== "unknown"
+        ? supabaseAdmin
+            .from("login_logs")
+            .select("user_id", { count: "exact", head: true })
+            .eq("ip_address", clientIp)
+            .eq("success", true)
+            .neq("user_id", userId)
+            .gte("created_at", lookback24h)
+        : Promise.resolve({ count: 0 } as any),
+    ]);
+
+    const knownDevice = Boolean(knownDeviceRes.data);
+    const newDeviceSignal = userAgent.length > 0 ? !knownDevice : false;
+    const sameDeviceSignal = !newDeviceSignal;
+    const newIpSignal =
+      (clientIp !== "unknown" && !!prof?.last_ip && prof.last_ip !== clientIp) ||
+      suspiciousLogins ||
+      ipReputation.highRisk;
+
+    const sharedDeviceSignal = (sharedDeviceRes.count ?? 0) > 0;
+    const sharedIpSignal = (sharedIpRes?.count ?? 0) > 0;
+    const multiAccountSignal = sharedDeviceSignal || (sharedIpSignal && suspiciousLogins);
+
     const trustInput: TrustInput = {
       account_age_days: accountAgeDays,
       successful_payouts: successfulPayouts,
       chargeback_count_30d: chargebackCount30d,
       consistent_activity: accountAgeDays >= 7, // simplified: active 7+ days
-      same_device: true,  // TODO: wire device fingerprint when available
+      same_device: sameDeviceSignal,
       stripe_verified: !!prof.stripe_payouts_enabled,
-      new_device: false,  // TODO: wire device fingerprint comparison
-      new_ip: suspiciousLogins, // 3+ IPs in 1h → trust penalty instead of hard block
+      new_device: newDeviceSignal,
+      new_ip: newIpSignal,
       large_withdrawal: largeWithdrawal,
       activity_spike: activitySpike,
       recent_chargeback: recentChargeback7d,
-      multi_account_flag: false, // TODO: wire multi-account detection
+      multi_account_flag: multiAccountSignal,
       is_flagged: !!prof.is_flagged,
       total_volume: Number(prof.total_volume ?? 0),
       ledger_anomaly_count: ledgerAnomalyCount,
@@ -315,16 +364,29 @@ export async function POST(req: Request) {
     };
 
     const trust = calculateTrustScore(trustInput);
+    const trustTier = determineTrustTier({
+      successfulPayouts,
+      trustScore: trust.score,
+      riskLevel: trust.risk,
+    });
+    const trustTierPolicy = TRUST_TIER_POLICIES[trustTier];
+    const categoryDelayFloor = Math.max(0, Number(creatorCategory?.payout_delay_days ?? 0));
+    const effectiveDelayDays = Math.max(trustTierPolicy.payoutDelayDays, categoryDelayFloor);
+    const effectiveInstantEligible = trustTierPolicy.instantEligible && effectiveDelayDays === 0;
+    const categoryRisk = creatorCategory?.risk_level || "low";
+    const categoryNeedsManualReview = Boolean(creatorCategory?.requires_manual_review);
 
     // ── Auto-freeze check ─────────────────────────────────────
     const freezeCtx: FreezeContext = {
       userId,
       trust_score: trust.score,
       recent_chargeback: recentChargeback7d,
-      multi_account_flag: false, // TODO: wire multi-account detection
+      multi_account_flag: multiAccountSignal,
       rapid_withdrawals: isRapidPattern || isLoopPattern,
-      activity_spike: false,
+      activity_spike: activitySpike,
       tip_withdraw_loop: isLoopPattern,
+      new_device: newDeviceSignal,
+      new_ip: newIpSignal,
     };
 
     const freezeResult = shouldAutoFreeze(freezeCtx);
@@ -348,6 +410,11 @@ export async function POST(req: Request) {
         status: "under_review",
         risk_score: trust.score,
         risk_level: trust.risk,
+        trust_tier: trustTier,
+        trust_tier_label: trustTierPolicy.label,
+        payout_delay_days: effectiveDelayDays,
+        instant_eligible: effectiveInstantEligible,
+        payout_policy_reason: `High-risk withdrawal sent to manual review (${creatorCategory?.name || "uncategorized"}, ${categoryRisk})`,
       });
 
       // Update profile trust score
@@ -371,34 +438,42 @@ export async function POST(req: Request) {
       );
     }
 
-    // ── Smart delay model ─────────────────────────────────────
-    // Combines payout history + trust score + risk level + behavior signals into one decision.
+    // ── Explicit trust-tier payout policy (Phase 4) ───────────
+    // New: 7 days, Verified: 3 days, Trusted: daily, Established: instant eligible.
+    // ── Payout decision model ──────────────────────────────────
     let withdrawalStatus: string;
     let releaseAt: string | null = null;
+    let payoutPolicyReason = "";
 
-    // Rapid-fire detected → always delay regardless of trust
-    if (isRapidPattern || isLoopPattern) {
+    const manualReviewSignal =
+      categoryNeedsManualReview &&
+      (largeWithdrawal || ipReputation.highRisk || multiAccountSignal || isRapidPattern || isLoopPattern);
+
+    // Risk override: rapid-fire behavior bypasses tier schedule.
+    if (manualReviewSignal) {
+      withdrawalStatus = "under_review";
+      payoutPolicyReason = `Category review rule (${creatorCategory?.name || "uncategorized"})`;
+    } else if (isRapidPattern || isLoopPattern) {
       const delayMinutes = 30 + Math.floor(Math.random() * 31);
       releaseAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
       withdrawalStatus = "pending";
-    } else if (successfulPayouts >= 10 || trust.score >= 80) {
-      // Trusted creators → instant
+      payoutPolicyReason = "Rapid activity risk override";
+    } else if (ipReputation.highRisk) {
+      const delayMinutes = 30 + Math.floor(Math.random() * 31);
+      releaseAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
+      withdrawalStatus = "pending";
+      payoutPolicyReason = `IP reputation risk override (${ipReputation.provider})`;
+    } else if (effectiveInstantEligible) {
       withdrawalStatus = "approved";
-    } else if (successfulPayouts <= 2) {
-      // New users → 60–120 min delay
-      const delayMinutes = 60 + Math.floor(Math.random() * 61);
-      releaseAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
-      withdrawalStatus = "pending";
-    } else if (trust.risk === "low") {
-      // Established + low risk → 10–20 min delay
-      const delayMinutes = 10 + Math.floor(Math.random() * 11);
-      releaseAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
-      withdrawalStatus = "pending";
+      payoutPolicyReason = `${trustTierPolicy.label} tier instant eligible`;
     } else {
-      // Medium risk → 30–60 min delay
-      const delayMinutes = 30 + Math.floor(Math.random() * 31);
-      releaseAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
+      releaseAt = new Date(Date.now() + effectiveDelayDays * 24 * 60 * 60 * 1000).toISOString();
       withdrawalStatus = "pending";
+      payoutPolicyReason = `${trustTierPolicy.label} tier ${effectiveDelayDays}-day policy`;
+    }
+
+    if (creatorCategory?.name) {
+      payoutPolicyReason = `${payoutPolicyReason} • Category: ${creatorCategory.name} (${categoryRisk})`;
     }
 
     // Compute fee + net
@@ -416,6 +491,11 @@ export async function POST(req: Request) {
         status: withdrawalStatus,
         risk_score: trust.score,
         risk_level: trust.risk,
+        trust_tier: trustTier,
+        trust_tier_label: trustTierPolicy.label,
+        payout_delay_days: effectiveDelayDays,
+        instant_eligible: effectiveInstantEligible,
+        payout_policy_reason: payoutPolicyReason,
         release_at: releaseAt,
         ...(payoutDestination ? { payout_destination: payoutDestination } : {}),
       })
@@ -441,7 +521,18 @@ export async function POST(req: Request) {
         type: "withdrawal",
         amount: Number((-amt).toFixed(2)),
         reference_id: w.id,
-        meta: { action: "withdrawal", method: "instant", fee: withdrawalFee, net: netAmount, currency: "usd" },
+        meta: {
+          action: "withdrawal",
+          method: "instant",
+          fee: withdrawalFee,
+          net: netAmount,
+          currency: "usd",
+          trust_tier: trustTier,
+          trust_tier_label: trustTierPolicy.label,
+          creator_category: creatorCategory?.name || null,
+          creator_category_risk: categoryRisk,
+          payout_policy_reason: payoutPolicyReason,
+        },
         status: "processing",
       });
     } catch (err: unknown) {
@@ -593,6 +684,23 @@ export async function POST(req: Request) {
         amount: amt,
         risk_score: trust.score,
         risk_level: trust.risk,
+        trust_tier: trustTier,
+        trust_tier_label: trustTierPolicy.label,
+        creator_category: creatorCategory?.name || null,
+        creator_category_risk: categoryRisk,
+        creator_category_requires_manual_review: categoryNeedsManualReview,
+        new_device: newDeviceSignal,
+        new_ip: newIpSignal,
+        multi_account_signal: multiAccountSignal,
+        ip_reputation_provider: ipReputation.provider,
+        ip_reputation_available: ipReputation.available,
+        ip_reputation_high_risk: ipReputation.highRisk,
+        ip_reputation_reason: ipReputation.reason,
+        ip_reputation_score: ipReputation.score,
+        ip_reputation_vpn: ipReputation.isVpn,
+        ip_reputation_proxy: ipReputation.isProxy,
+        ip_reputation_tor: ipReputation.isTor,
+        ip_reputation_recent_abuse: ipReputation.recentAbuse,
       });
 
       // Only refresh baseline if it's been >15min since last update
@@ -611,10 +719,19 @@ export async function POST(req: Request) {
       fee: withdrawalFee,
       net: netAmount,
       status: withdrawalStatus,
+      trust_tier: trustTier,
+      trust_tier_label: trustTierPolicy.label,
+      creator_category: creatorCategory?.name || null,
+      creator_category_risk: categoryRisk,
+      payout_delay_days: effectiveDelayDays,
+      instant_eligible: effectiveInstantEligible,
+      payout_policy_reason: payoutPolicyReason,
       payout_method: withdrawalStatus === "approved" ? "instant" : "standard",
       message: withdrawalStatus === "approved"
-        ? "Payout initiated"
-        : "Processing your payout — funds will be released shortly",
+        ? `Payout initiated (${trustTierPolicy.label} tier)`
+        : withdrawalStatus === "under_review"
+          ? "Withdrawal submitted for manual review"
+          : `Processing payout under ${trustTierPolicy.label} tier policy`,
       release_at: releaseAt,
     });
   } catch (e: unknown) {
