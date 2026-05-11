@@ -364,7 +364,7 @@ export async function POST(req: Request) {
     }
 
     const stripeRestrictionState = (profile as any)?.stripe_restriction_state ?? "safe";
-    if (stripeRestrictionState === "high_risk" || stripeRestrictionState === "disconnected") {
+    if (stripeRestrictionState === "restricted" || stripeRestrictionState === "disconnected") {
       return NextResponse.json({
         error: "This creator is temporarily unavailable for tipping",
         reason: (profile as any)?.stripe_disabled_reason ?? null,

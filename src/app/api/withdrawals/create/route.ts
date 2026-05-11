@@ -172,20 +172,6 @@ export async function POST(req: Request) {
       try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
       return NextResponse.json({ error: "Stripe not connected" }, { status: 400 });
     }
-    if (
-      (prof as any)?.stripe_restriction_state === "restricted" ||
-      (prof as any)?.stripe_restriction_state === "high_risk" ||
-      (prof as any)?.stripe_restriction_state === "disconnected"
-    ) {
-      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
-      return NextResponse.json(
-        {
-          error: "Withdrawals are temporarily restricted on your Stripe account",
-          reason: (prof as any)?.stripe_disabled_reason ?? null,
-        },
-        { status: 403 }
-      );
-    }
     if (!prof.stripe_payouts_enabled) {
       try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
       return NextResponse.json({ error: "Payouts not enabled" }, { status: 400 });

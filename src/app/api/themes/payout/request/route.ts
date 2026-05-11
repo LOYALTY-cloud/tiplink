@@ -60,7 +60,6 @@ export async function POST(req: Request) {
     }
     if (
       (profile as any)?.stripe_restriction_state === "restricted" ||
-      (profile as any)?.stripe_restriction_state === "high_risk" ||
       (profile as any)?.stripe_restriction_state === "disconnected"
     ) {
       return NextResponse.json(
