@@ -25,7 +25,7 @@ export async function GET(req: Request) {
 
   const { data: prof, error } = await supabaseAdmin
     .from("profiles")
-    .select("stripe_account_id, stripe_payouts_enabled, stripe_onboarding_complete")
+    .select("stripe_account_id, stripe_payouts_enabled, stripe_onboarding_complete, stripe_restriction_state, stripe_verification_status, stripe_disabled_reason")
     .eq("user_id", userId)
     .maybeSingle()
     .returns<ProfileRow | null>();
@@ -42,5 +42,8 @@ export async function GET(req: Request) {
     connected,
     payoutsEnabled,
     onboardingComplete: !!prof?.stripe_onboarding_complete,
+    restrictionState: prof?.stripe_restriction_state ?? "safe",
+    verificationStatus: prof?.stripe_verification_status ?? "pending",
+    disabledReason: prof?.stripe_disabled_reason ?? null,
   });
 }

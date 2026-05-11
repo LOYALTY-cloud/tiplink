@@ -12,6 +12,7 @@ import { sendAdminAlert } from "@/lib/adminAlerts";
 import { reversePayoutOnce } from "@/lib/payoutReversals";
 import { triggerAIAlerts } from "@/lib/ai/alerts";
 import { createNotification } from "@/lib/notifications";
+import { evaluateStripeConnectPolicy } from "@/lib/stripe/connectRisk";
 
 export const runtime = "nodejs";
 
@@ -41,6 +42,129 @@ async function markProcessed(supabaseClient: SupabaseClient, eventId: string, ty
     console.error("markProcessed failed:", error);
     throw new Error(`markProcessed failed for ${eventId}: ${error.message}`);
   }
+}
+
+type FailedWebhookStatus = "failed" | "replay_failed" | "replayed_success";
+
+async function upsertFailedWebhookEvent(
+  event: StripeWebhookEvent,
+  err: unknown,
+  options?: { status?: FailedWebhookStatus; replayedByAdminId?: string | null; incrementRetry?: boolean }
+) {
+  try {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+
+    const nowIso = new Date().toISOString();
+    const status: FailedWebhookStatus = options?.status ?? "failed";
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const stripeAccountId = typeof (event as any)?.account === "string" ? (event as any).account : null;
+    const stripeObjectId = typeof (event as any)?.data?.object?.id === "string"
+      ? (event as any).data.object.id
+      : null;
+
+    let affectedUserId: string | null = null;
+    if (stripeAccountId) {
+      const { data: prof } = await supabaseAdmin
+        .from("profiles")
+        .select("user_id")
+        .eq("stripe_account_id", stripeAccountId)
+        .maybeSingle();
+      affectedUserId = prof?.user_id ?? null;
+    }
+
+    const { data: existing, error: existingErr } = await supabaseAdmin
+      .from("stripe_failed_webhook_events")
+      .select("event_id, failure_count, retry_count")
+      .eq("event_id", event.id)
+      .maybeSingle();
+
+    if (existingErr) {
+      console.error("failed webhook lookup failed:", existingErr);
+      return;
+    }
+
+    if (!existing) {
+      const { error: insertErr } = await supabaseAdmin
+        .from("stripe_failed_webhook_events")
+        .insert({
+          event_id: event.id,
+          event_type: event.type,
+          stripe_account_id: stripeAccountId,
+          stripe_object_id: stripeObjectId,
+          affected_user_id: affectedUserId,
+          payload: event as any,
+          status,
+          failure_count: 1,
+          retry_count: options?.incrementRetry ? 1 : 0,
+          first_failed_at: nowIso,
+          last_failed_at: nowIso,
+          last_error_message: errMsg.slice(0, 4000),
+          last_replayed_at: options?.replayedByAdminId ? nowIso : null,
+          last_replayed_by_admin_id: options?.replayedByAdminId ?? null,
+          resolved_at: status === "replayed_success" ? nowIso : null,
+        });
+
+      if (insertErr) {
+        console.error("failed webhook insert failed:", insertErr);
+      }
+      return;
+    }
+
+    const { error: updateErr } = await supabaseAdmin
+      .from("stripe_failed_webhook_events")
+      .update({
+        event_type: event.type,
+        stripe_account_id: stripeAccountId,
+        stripe_object_id: stripeObjectId,
+        affected_user_id: affectedUserId,
+        payload: event as any,
+        status,
+        failure_count: (existing.failure_count ?? 0) + (status === "replayed_success" ? 0 : 1),
+        retry_count: (existing.retry_count ?? 0) + (options?.incrementRetry ? 1 : 0),
+        last_failed_at: nowIso,
+        last_error_message: status === "replayed_success" ? null : errMsg.slice(0, 4000),
+        last_replayed_at: options?.replayedByAdminId ? nowIso : null,
+        last_replayed_by_admin_id: options?.replayedByAdminId ?? null,
+        resolved_at: status === "replayed_success" ? nowIso : null,
+      })
+      .eq("event_id", event.id);
+
+    if (updateErr) {
+      console.error("failed webhook update failed:", updateErr);
+    }
+  } catch (queueErr) {
+    console.error("failed webhook queue writer crashed:", queueErr);
+  }
+}
+
+export async function recordWebhookReplayResult(args: {
+  event: StripeWebhookEvent;
+  success: boolean;
+  error?: unknown;
+  adminUserId: string;
+}) {
+  if (args.success) {
+    await upsertFailedWebhookEvent(args.event, "replayed", {
+      status: "replayed_success",
+      replayedByAdminId: args.adminUserId,
+      incrementRetry: true,
+    });
+    return;
+  }
+
+  await upsertFailedWebhookEvent(args.event, args.error ?? "replay_failed", {
+    status: "replay_failed",
+    replayedByAdminId: args.adminUserId,
+    incrementRetry: true,
+  });
+}
+
+function mergeRiskReason(existing: unknown, reason: string, remove = false): string[] {
+  const current = Array.isArray(existing)
+    ? existing.filter((v): v is string => typeof v === "string" && v.length > 0)
+    : [];
+  if (remove) return current.filter((v) => v !== reason);
+  return Array.from(new Set([...current, reason]));
 }
 
 /**
@@ -176,6 +300,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     console.error("Webhook processing failed:", err);
     logCaughtError("stripe/webhook", err, { severity: "critical", metadata: { reason: "processing_failed" } });
+    await upsertFailedWebhookEvent(event, err, { status: "failed" });
     sendAdminAlert({
       subject: "Stripe webhook processing failed",
       body: `Webhook event ${event.type} (${event.id}) failed to process. Event was acknowledged to prevent retries.`,
@@ -489,6 +614,35 @@ export async function handleStripeEvent(
           .in("status", ["pending", "created"]);
       }
 
+      break;
+    }
+
+    case "payment_intent.canceled": {
+      const pi = event.data.object as Stripe.PaymentIntent;
+      const receiptId = (pi.metadata?.receipt_id as string) || null;
+      const cancellationReason = pi.cancellation_reason || "Payment canceled";
+
+      if (receiptId) {
+        await supabaseClient
+          .from("tip_intents")
+          .update({
+            status: "failed",
+            failure_reason: cancellationReason.slice(0, 500),
+          })
+          .eq("receipt_id", receiptId)
+          .in("status", ["pending", "created"]);
+      } else {
+        await supabaseClient
+          .from("tip_intents")
+          .update({
+            status: "failed",
+            failure_reason: cancellationReason.slice(0, 500),
+          })
+          .eq("stripe_payment_intent_id", pi.id)
+          .in("status", ["pending", "created"]);
+      }
+
+      console.warn(`Payment canceled for PI ${pi.id}: ${cancellationReason}`);
       break;
     }
 
@@ -928,9 +1082,11 @@ export async function handleStripeEvent(
       
       const { data: profile } = await supabaseClient
         .from("profiles")
-        .select("user_id, last_stripe_requirements_hash, last_stripe_requirements_notified_at")
+        .select("user_id, last_stripe_requirements_hash, last_stripe_requirements_notified_at, stripe_restriction_state")
         .eq("stripe_account_id", account.id)
         .maybeSingle();
+
+      const connectPolicy = evaluateStripeConnectPolicy(account);
 
       // Update profile with latest Stripe status
       await supabaseClient.from("profiles").update({
@@ -938,7 +1094,49 @@ export async function handleStripeEvent(
         stripe_charges_enabled: account.charges_enabled,
         stripe_payouts_enabled: account.payouts_enabled,
         stripe_onboarding_complete: Boolean(account.charges_enabled && account.payouts_enabled),
+        payouts_enabled: Boolean(account.charges_enabled && account.payouts_enabled),
+        stripe_restriction_state: connectPolicy.state,
+        stripe_verification_status: connectPolicy.verificationStatus,
+        stripe_disabled_reason: connectPolicy.disabledReason,
+        stripe_requirements_due_count: connectPolicy.currentlyDueCount,
+        stripe_future_requirements_due_count: connectPolicy.futureDueCount,
+        stripe_past_requirements_due_count: connectPolicy.pastDueCount,
+        stripe_connect_risk_reasons: connectPolicy.reasons,
+        stripe_connect_last_event_at: new Date().toISOString(),
+        stripe_connect_last_event_type: event.type,
       }).eq("stripe_account_id", account.id);
+
+      const previousState = (profile as { stripe_restriction_state?: string | null } | null)?.stripe_restriction_state ?? "safe";
+      if (profile?.user_id && previousState !== connectPolicy.state) {
+        if (connectPolicy.state === "high_risk" || (previousState === "safe" && connectPolicy.state === "restricted")) {
+          sendAdminAlert({
+            subject: `Stripe Connect state escalated: ${connectPolicy.state}`,
+            body: `User ${profile.user_id} moved from ${previousState} to ${connectPolicy.state}.`,
+            severity: connectPolicy.state === "high_risk" ? "critical" : "warning",
+            meta: {
+              user_id: profile.user_id,
+              stripe_account_id: account.id,
+              previous_state: previousState,
+              next_state: connectPolicy.state,
+              disabled_reason: connectPolicy.disabledReason ?? "none",
+              reasons: connectPolicy.reasons.join(", "),
+            },
+          });
+
+          if (connectPolicy.state === "high_risk") {
+            try {
+              await createNotification({
+                userId: profile.user_id,
+                type: "security",
+                title: "Action required: Stripe account restricted",
+                body: "Your Stripe account has been restricted. Tipping and payouts are temporarily paused while this is reviewed.",
+                category: "security",
+                meta: { reason: connectPolicy.disabledReason ?? "stripe_restriction" },
+              });
+            } catch (_) {}
+          }
+        }
+      }
 
       // Notify user if additional verification is required
       if (profile?.user_id && currentlyDueRequirements.length > 0) {
@@ -1036,12 +1234,23 @@ export async function handleStripeEvent(
         try {
           const { stripe: stripeLib } = await import("@/lib/stripe/server");
           const account = await stripeLib.accounts.retrieve(connectedAccountId);
+          const connectPolicy = evaluateStripeConnectPolicy(account);
 
           await supabaseClient.from("profiles").update({
             stripe_charges_enabled: account.charges_enabled,
             stripe_payouts_enabled: account.payouts_enabled,
             stripe_onboarding_complete: Boolean(account.charges_enabled && account.payouts_enabled),
             stripe_account_status: account.details_submitted ? "verified" : "incomplete",
+            payouts_enabled: Boolean(account.charges_enabled && account.payouts_enabled),
+            stripe_restriction_state: connectPolicy.state,
+            stripe_verification_status: connectPolicy.verificationStatus,
+            stripe_disabled_reason: connectPolicy.disabledReason,
+            stripe_requirements_due_count: connectPolicy.currentlyDueCount,
+            stripe_future_requirements_due_count: connectPolicy.futureDueCount,
+            stripe_past_requirements_due_count: connectPolicy.pastDueCount,
+            stripe_connect_risk_reasons: connectPolicy.reasons,
+            stripe_connect_last_event_at: new Date().toISOString(),
+            stripe_connect_last_event_type: event.type,
           }).eq("stripe_account_id", connectedAccountId);
 
           console.log(`capability.updated: ${connectedAccountId} capability=${capability.id} status=${capability.status} charges_enabled=${account.charges_enabled} payouts_enabled=${account.payouts_enabled}`);
@@ -1078,10 +1287,239 @@ export async function handleStripeEvent(
       // The connected account ID is on event.account.
       const connectedAccountId = (event as any).account as string | undefined;
       if (connectedAccountId) {
-        await supabaseClient.from("profiles").update({ stripe_account_status: "disconnected" }).eq("stripe_account_id", connectedAccountId);
+        await supabaseClient.from("profiles").update({
+          stripe_account_status: "disconnected",
+          stripe_restriction_state: "disconnected",
+          stripe_verification_status: "disconnected",
+          stripe_connect_last_event_at: new Date().toISOString(),
+          stripe_connect_last_event_type: event.type,
+        }).eq("stripe_account_id", connectedAccountId);
         console.warn(`Account disconnected: ${connectedAccountId}`);
       } else {
         console.warn("account.application.deauthorized: no connected account ID found", event.id);
+      }
+      break;
+    }
+
+    case "person.updated": {
+      const person = event.data.object as Stripe.Person;
+      const connectedAccountId = (event as any).account as string | undefined;
+      if (!connectedAccountId) {
+        console.warn("person.updated: missing connected account", event.id);
+        break;
+      }
+
+      const currentlyDue = ((person as any)?.requirements?.currently_due ?? []) as string[];
+      const pastDue = ((person as any)?.requirements?.past_due ?? []) as string[];
+      const verificationStatus = ((person as any)?.verification?.status ?? null) as string | null;
+
+      const { data: profile } = await supabaseClient
+        .from("profiles")
+        .select("user_id")
+        .eq("stripe_account_id", connectedAccountId)
+        .maybeSingle();
+
+      await supabaseClient
+        .from("profiles")
+        .update({
+          stripe_connect_last_event_at: new Date().toISOString(),
+          stripe_connect_last_event_type: event.type,
+        })
+        .eq("stripe_account_id", connectedAccountId);
+
+      if ((currentlyDue.length > 0 || pastDue.length > 0) && profile?.user_id) {
+        try {
+          await createNotification({
+            userId: profile.user_id,
+            type: "verification_needed",
+            title: "Identity verification update",
+            body: "Stripe needs updated identity details to keep your account in good standing.",
+            category: "security",
+            meta: {
+              stripe_person_id: person.id,
+              currently_due_count: currentlyDue.length,
+              past_due_count: pastDue.length,
+              verification_status: verificationStatus,
+            },
+          });
+        } catch (_) {}
+      }
+
+      if (pastDue.length > 0 || verificationStatus === "unverified") {
+        sendAdminAlert({
+          subject: "Stripe person verification issue",
+          body: `Person ${person.id} on account ${connectedAccountId} has verification requirements due.`,
+          severity: "warning",
+          meta: {
+            stripe_person_id: person.id,
+            stripe_account_id: connectedAccountId,
+            currently_due_count: currentlyDue.length,
+            past_due_count: pastDue.length,
+            verification_status: verificationStatus ?? "unknown",
+          },
+        });
+      }
+      break;
+    }
+
+    case "account.external_account.updated": {
+      const externalAccount = event.data.object as Stripe.BankAccount | Stripe.Card;
+      const connectedAccountId = (event as any).account as string | undefined;
+      if (!connectedAccountId) {
+        console.warn("account.external_account.updated: missing connected account", event.id);
+        break;
+      }
+
+      const { data: profile } = await supabaseClient
+        .from("profiles")
+        .select("user_id")
+        .eq("stripe_account_id", connectedAccountId)
+        .maybeSingle();
+
+      if (profile?.user_id) {
+        try {
+          const { syncExternalAccounts } = await import("@/lib/syncExternalAccounts");
+          await syncExternalAccounts(profile.user_id, connectedAccountId);
+        } catch (e) {
+          console.warn("account.external_account.updated sync failed:", e instanceof Error ? e.message : e);
+        }
+
+        await supabaseClient
+          .from("profiles")
+          .update({
+            stripe_connect_last_event_at: new Date().toISOString(),
+            stripe_connect_last_event_type: event.type,
+          })
+          .eq("user_id", profile.user_id);
+      }
+
+      if ((externalAccount as any)?.status === "errored") {
+        sendAdminAlert({
+          subject: "Stripe external account errored",
+          body: `External account ${(externalAccount as any)?.id ?? "unknown"} reported errored status for ${connectedAccountId}.`,
+          severity: "warning",
+          meta: {
+            stripe_account_id: connectedAccountId,
+            external_account_id: (externalAccount as any)?.id ?? null,
+            external_account_status: (externalAccount as any)?.status ?? null,
+          },
+        });
+      }
+
+      break;
+    }
+
+    case "review.opened": {
+      const review = event.data.object as Stripe.Review;
+      const connectedAccountId = (event as any).account as string | undefined;
+      if (!connectedAccountId) {
+        console.warn("review.opened: missing connected account", event.id);
+        break;
+      }
+
+      const { data: profile } = await supabaseClient
+        .from("profiles")
+        .select("user_id, stripe_connect_risk_reasons")
+        .eq("stripe_account_id", connectedAccountId)
+        .maybeSingle();
+
+      await supabaseClient
+        .from("profiles")
+        .update({
+          stripe_restriction_state: "high_risk",
+          stripe_verification_status: "restricted",
+          stripe_connect_risk_reasons: mergeRiskReason(
+            (profile as any)?.stripe_connect_risk_reasons,
+            "stripe_review_opened",
+          ),
+          stripe_connect_last_event_at: new Date().toISOString(),
+          stripe_connect_last_event_type: event.type,
+        })
+        .eq("stripe_account_id", connectedAccountId);
+
+      sendAdminAlert({
+        subject: "Stripe review opened",
+        body: `Stripe review ${review.id} opened for connected account ${connectedAccountId}.`,
+        severity: "critical",
+        meta: {
+          stripe_review_id: review.id,
+          stripe_account_id: connectedAccountId,
+          reason: review.reason ?? "unspecified",
+          opened_reason: review.opened_reason ?? "unspecified",
+        },
+      });
+
+      if (profile?.user_id) {
+        try {
+          await createNotification({
+            userId: profile.user_id,
+            type: "security",
+            title: "Stripe account under review",
+            body: "Stripe opened a review on your account. We increased monitoring while the review is in progress.",
+            category: "security",
+            meta: {
+              stripe_review_id: review.id,
+              reason: review.reason ?? "unspecified",
+            },
+          });
+        } catch (_) {}
+      }
+      break;
+    }
+
+    case "review.closed": {
+      const review = event.data.object as Stripe.Review;
+      const connectedAccountId = (event as any).account as string | undefined;
+      if (!connectedAccountId) {
+        console.warn("review.closed: missing connected account", event.id);
+        break;
+      }
+
+      const { data: profile } = await supabaseClient
+        .from("profiles")
+        .select("user_id, stripe_connect_risk_reasons")
+        .eq("stripe_account_id", connectedAccountId)
+        .maybeSingle();
+
+      await supabaseClient
+        .from("profiles")
+        .update({
+          stripe_connect_risk_reasons: mergeRiskReason(
+            (profile as any)?.stripe_connect_risk_reasons,
+            "stripe_review_opened",
+            true,
+          ),
+          stripe_connect_last_event_at: new Date().toISOString(),
+          stripe_connect_last_event_type: event.type,
+        })
+        .eq("stripe_account_id", connectedAccountId);
+
+      sendAdminAlert({
+        subject: "Stripe review closed",
+        body: `Stripe review ${review.id} closed for connected account ${connectedAccountId}.`,
+        severity: "warning",
+        meta: {
+          stripe_review_id: review.id,
+          stripe_account_id: connectedAccountId,
+          reason: review.reason ?? "unspecified",
+          closed_reason: review.closed_reason ?? "unspecified",
+        },
+      });
+
+      if (profile?.user_id) {
+        try {
+          await createNotification({
+            userId: profile.user_id,
+            type: "security",
+            title: "Stripe review closed",
+            body: "Stripe closed the recent review on your account. Monitoring remains active.",
+            category: "security",
+            meta: {
+              stripe_review_id: review.id,
+              reason: review.reason ?? "unspecified",
+            },
+          });
+        } catch (_) {}
       }
       break;
     }
@@ -1233,6 +1671,278 @@ export async function handleStripeEvent(
           { stripe_dispute_id: dispute.id, amount: disputeAmount, reason: dispute.reason },
         );
       } catch (_e) {}
+
+      break;
+    }
+
+    case "charge.dispute.updated": {
+      const dispute = event.data.object as Stripe.Dispute;
+      const charge = dispute.charge;
+      const chargeId = typeof charge === "string" ? charge : charge?.id ?? null;
+      const paymentIntentId = typeof dispute.payment_intent === "string"
+        ? dispute.payment_intent
+        : (dispute.payment_intent as Stripe.PaymentIntent)?.id ?? null;
+
+      let tipIntent: any = null;
+      if (paymentIntentId) {
+        const { data } = await supabaseClient
+          .from("tip_intents")
+          .select("id, receipt_id, creator_user_id")
+          .eq("stripe_payment_intent_id", paymentIntentId)
+          .maybeSingle();
+        tipIntent = data;
+      }
+      if (!tipIntent && chargeId) {
+        const { data } = await supabaseClient
+          .from("tip_intents")
+          .select("id, receipt_id, creator_user_id")
+          .eq("stripe_charge_id", chargeId)
+          .maybeSingle();
+        tipIntent = data;
+      }
+
+      if (!tipIntent) {
+        console.warn(`charge.dispute.updated: no tip found for dispute ${dispute.id}`);
+        break;
+      }
+
+      if (dispute.status === "needs_response" || dispute.status === "warning_needs_response") {
+        sendAdminAlert({
+          subject: "Dispute needs response",
+          body: `Dispute ${dispute.id} requires response for user ${tipIntent.creator_user_id}.`,
+          severity: "critical",
+          meta: {
+            stripe_dispute_id: dispute.id,
+            stripe_dispute_status: dispute.status,
+            user_id: tipIntent.creator_user_id,
+            charge_id: chargeId,
+          },
+        });
+      }
+
+      try {
+        const { logDisputeEvent } = await import("@/lib/disputeEvents");
+        await logDisputeEvent(
+          supabaseClient,
+          tipIntent.receipt_id,
+          "system",
+          `Dispute updated — status ${dispute.status}`,
+          null,
+          { stripe_dispute_id: dispute.id, status: dispute.status },
+        );
+      } catch (_) {}
+
+      await supabaseClient
+        .from("profiles")
+        .update({
+          stripe_connect_last_event_at: new Date().toISOString(),
+          stripe_connect_last_event_type: event.type,
+        })
+        .eq("user_id", tipIntent.creator_user_id);
+
+      break;
+    }
+
+    case "charge.dispute.closed": {
+      const dispute = event.data.object as Stripe.Dispute;
+      const charge = dispute.charge;
+      const chargeId = typeof charge === "string" ? charge : charge?.id ?? null;
+      const disputeAmount = (dispute.amount ?? 0) / 100;
+      const paymentIntentId = typeof dispute.payment_intent === "string"
+        ? dispute.payment_intent
+        : (dispute.payment_intent as Stripe.PaymentIntent)?.id ?? null;
+
+      let tipIntent: any = null;
+      if (paymentIntentId) {
+        const { data } = await supabaseClient
+          .from("tip_intents")
+          .select("id, receipt_id, creator_user_id, status")
+          .eq("stripe_payment_intent_id", paymentIntentId)
+          .maybeSingle();
+        tipIntent = data;
+      }
+      if (!tipIntent && chargeId) {
+        const { data } = await supabaseClient
+          .from("tip_intents")
+          .select("id, receipt_id, creator_user_id, status")
+          .eq("stripe_charge_id", chargeId)
+          .maybeSingle();
+        tipIntent = data;
+      }
+
+      if (!tipIntent) {
+        console.warn(`charge.dispute.closed: no tip found for dispute ${dispute.id}`);
+        break;
+      }
+
+      if (dispute.status === "won") {
+        const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
+        if (!lock.ok) {
+          throw new Error(`Wallet lock failed for dispute close on user ${tipIntent.creator_user_id}: ${lock.reason}`);
+        }
+        try {
+          await ledgerFn({
+            user_id: tipIntent.creator_user_id,
+            type: "adjustment",
+            amount: disputeAmount,
+            reference_id: tipIntent.id,
+            meta: {
+              action: "dispute_won_credit",
+              stripe_dispute_id: dispute.id,
+              payment_intent_id: paymentIntentId,
+              charge_id: chargeId,
+              event_id: event.id,
+            },
+          });
+
+          await supabaseClient
+            .from("tip_intents")
+            .update({
+              status: "completed",
+              refund_status: "none",
+              refunded_amount: 0,
+            })
+            .eq("id", tipIntent.id);
+
+          await supabaseClient
+            .from("profiles")
+            .update({
+              stripe_connect_last_event_at: new Date().toISOString(),
+              stripe_connect_last_event_type: event.type,
+            })
+            .eq("user_id", tipIntent.creator_user_id);
+        } finally {
+          try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (_) {}
+        }
+      } else if (dispute.status === "lost") {
+        await supabaseClient
+          .from("profiles")
+          .update({
+            account_status: "restricted",
+            status_reason: `chargeback_dispute_lost_${dispute.id}`,
+            stripe_connect_last_event_at: new Date().toISOString(),
+            stripe_connect_last_event_type: event.type,
+          })
+          .eq("user_id", tipIntent.creator_user_id);
+      }
+
+      try {
+        const { logDisputeEvent } = await import("@/lib/disputeEvents");
+        await logDisputeEvent(
+          supabaseClient,
+          tipIntent.receipt_id,
+          "system",
+          `Dispute closed — ${dispute.status}`,
+          null,
+          {
+            stripe_dispute_id: dispute.id,
+            status: dispute.status,
+            amount: disputeAmount,
+          },
+        );
+      } catch (_) {}
+
+      break;
+    }
+
+    case "transfer.created": {
+      const transfer = event.data.object as Stripe.Transfer;
+      const destinationAccountId = typeof transfer.destination === "string"
+        ? transfer.destination
+        : transfer.destination?.id;
+
+      if (destinationAccountId) {
+        await supabaseClient
+          .from("profiles")
+          .update({
+            stripe_connect_last_event_at: new Date().toISOString(),
+            stripe_connect_last_event_type: event.type,
+          })
+          .eq("stripe_account_id", destinationAccountId);
+      }
+
+      if (transfer.id) {
+        await supabaseClient
+          .from("payout_requests")
+          .update({ status: "processing" })
+          .eq("stripe_transfer_id", transfer.id)
+          .in("status", ["pending", "processing"]);
+      }
+
+      break;
+    }
+
+    case "transfer.updated": {
+      const transfer = event.data.object as Stripe.Transfer;
+      const destinationAccountId = typeof transfer.destination === "string"
+        ? transfer.destination
+        : transfer.destination?.id;
+
+      if (destinationAccountId) {
+        await supabaseClient
+          .from("profiles")
+          .update({
+            stripe_connect_last_event_at: new Date().toISOString(),
+            stripe_connect_last_event_type: event.type,
+          })
+          .eq("stripe_account_id", destinationAccountId);
+      }
+
+      if (transfer.id && (transfer as any).reversed === true) {
+        await supabaseClient
+          .from("payout_requests")
+          .update({
+            status: "failed",
+            failure_reason: "Stripe transfer marked reversed",
+          })
+          .eq("stripe_transfer_id", transfer.id)
+          .neq("status", "paid");
+      }
+
+      break;
+    }
+
+    case "transfer.reversed": {
+      const transferObj = event.data.object as any;
+      const transferId = typeof transferObj?.id === "string"
+        ? transferObj.id
+        : (typeof transferObj?.transfer === "string" ? transferObj.transfer : null);
+
+      const destinationAccountId = typeof transferObj?.destination === "string"
+        ? transferObj.destination
+        : transferObj?.destination?.id;
+
+      if (destinationAccountId) {
+        await supabaseClient
+          .from("profiles")
+          .update({
+            stripe_connect_last_event_at: new Date().toISOString(),
+            stripe_connect_last_event_type: event.type,
+          })
+          .eq("stripe_account_id", destinationAccountId);
+      }
+
+      if (transferId) {
+        await supabaseClient
+          .from("payout_requests")
+          .update({
+            status: "failed",
+            failure_reason: "Stripe transfer reversed",
+          })
+          .eq("stripe_transfer_id", transferId)
+          .neq("status", "paid");
+      }
+
+      sendAdminAlert({
+        subject: "Stripe transfer reversed",
+        body: `Transfer ${transferId ?? "unknown"} was reversed by Stripe.`,
+        severity: "critical",
+        meta: {
+          transfer_id: transferId,
+          stripe_account_id: destinationAccountId ?? null,
+          event_id: event.id,
+        },
+      });
 
       break;
     }

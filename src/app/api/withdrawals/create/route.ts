@@ -111,7 +111,7 @@ export async function POST(req: Request) {
     // Load profile (Stripe status + account state)
     const { data: prof, error: profErr } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_account_id, stripe_payouts_enabled, is_flagged, created_at, account_status, payout_hold_until, daily_withdrawn, restricted_until, total_volume, last_ip, creator_activity_category")
+      .select("stripe_account_id, stripe_payouts_enabled, is_flagged, created_at, account_status, payout_hold_until, daily_withdrawn, restricted_until, total_volume, last_ip, creator_activity_category, stripe_restriction_state, stripe_disabled_reason")
       .eq("user_id", userId)
       .maybeSingle()
       .returns<ProfileRow | null>();

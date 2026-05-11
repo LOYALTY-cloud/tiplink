@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe/server";
 import { syncExternalAccounts } from "@/lib/syncExternalAccounts";
+import { evaluateStripeConnectPolicy } from "@/lib/stripe/connectRisk";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,7 @@ export async function POST(req: Request) {
     }
 
     const acct = await stripe.accounts.retrieve(profile.stripe_account_id);
+    const connectPolicy = evaluateStripeConnectPolicy(acct);
 
     const chargesEnabled = Boolean(acct.charges_enabled);
     const payoutsEnabledStripe = Boolean(acct.payouts_enabled);
@@ -48,6 +50,15 @@ export async function POST(req: Request) {
         stripe_onboarding_complete: onboardingComplete,
         payouts_enabled: onboardingComplete,
         payouts_enabled_at: onboardingComplete ? new Date().toISOString() : null,
+        stripe_restriction_state: connectPolicy.state,
+        stripe_verification_status: connectPolicy.verificationStatus,
+        stripe_disabled_reason: connectPolicy.disabledReason,
+        stripe_requirements_due_count: connectPolicy.currentlyDueCount,
+        stripe_future_requirements_due_count: connectPolicy.futureDueCount,
+        stripe_past_requirements_due_count: connectPolicy.pastDueCount,
+        stripe_connect_risk_reasons: connectPolicy.reasons,
+        stripe_connect_last_event_at: new Date().toISOString(),
+        stripe_connect_last_event_type: "manual_sync",
       })
       .eq("user_id", user_id);
 
@@ -65,6 +76,9 @@ export async function POST(req: Request) {
       charges_enabled: chargesEnabled,
       payouts_enabled_stripe: payoutsEnabledStripe,
       details_submitted: acct.details_submitted,
+      restriction_state: connectPolicy.state,
+      verification_status: connectPolicy.verificationStatus,
+      disabled_reason: connectPolicy.disabledReason,
     });
   } catch (e: unknown) {
     console.log("stripe connect sync error:", e instanceof Error ? e.message : e);

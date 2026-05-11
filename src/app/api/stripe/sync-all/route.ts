@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
+import { evaluateStripeConnectPolicy } from "@/lib/stripe/connectRisk";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -58,12 +59,23 @@ export async function POST(req: Request) {
   for (const p of profiles || []) {
     try {
       const acct = await stripe.accounts.retrieve(p.stripe_account_id!);
+      const connectPolicy = evaluateStripeConnectPolicy(acct);
       await supabaseAdmin
         .from("profiles")
         .update({
           stripe_charges_enabled: acct.charges_enabled ?? false,
           stripe_payouts_enabled: acct.payouts_enabled ?? false,
           stripe_onboarding_complete: Boolean(acct.charges_enabled && acct.payouts_enabled),
+          payouts_enabled: Boolean(acct.charges_enabled && acct.payouts_enabled),
+          stripe_restriction_state: connectPolicy.state,
+          stripe_verification_status: connectPolicy.verificationStatus,
+          stripe_disabled_reason: connectPolicy.disabledReason,
+          stripe_requirements_due_count: connectPolicy.currentlyDueCount,
+          stripe_future_requirements_due_count: connectPolicy.futureDueCount,
+          stripe_past_requirements_due_count: connectPolicy.pastDueCount,
+          stripe_connect_risk_reasons: connectPolicy.reasons,
+          stripe_connect_last_event_at: new Date().toISOString(),
+          stripe_connect_last_event_type: "sync_all",
         })
         .eq("user_id", p.user_id);
 

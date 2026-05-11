@@ -51,12 +51,24 @@ export async function POST(req: Request) {
     // Require Stripe Connect to be set up and payouts enabled
     const { data: profile } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_account_id, stripe_payouts_enabled")
+      .select("stripe_account_id, stripe_payouts_enabled, stripe_restriction_state, stripe_disabled_reason")
       .eq("user_id", userId)
       .maybeSingle();
 
     if (!profile?.stripe_account_id) {
       return NextResponse.json({ error: "Stripe account not connected" }, { status: 400 });
+    }
+    if (
+      (profile as any)?.stripe_restriction_state === "restricted" ||
+      (profile as any)?.stripe_restriction_state === "disconnected"
+    ) {
+      return NextResponse.json(
+        {
+          error: "Theme payouts are temporarily restricted on your Stripe account",
+          reason: (profile as any)?.stripe_disabled_reason ?? null,
+        },
+        { status: 403 }
+      );
     }
     if (!profile.stripe_payouts_enabled) {
       return NextResponse.json(
