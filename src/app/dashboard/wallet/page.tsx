@@ -80,6 +80,7 @@ export default function WalletPage() {
 
   const [showInsufficientModal, setShowInsufficientModal] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [withdrawErrorKind, setWithdrawErrorKind] = useState<"error" | "pending">("error");
 
   // Wallet 2FA lock state
   const [walletLocked, setWalletLocked] = useState<boolean | null>(null); // null = loading
@@ -498,7 +499,7 @@ export default function WalletPage() {
 
   const onWithdraw = async () => {
     setWithdrawError(null);
-
+      setWithdrawErrorKind("error");
     if (amount > availableBalance) {
       setShowInsufficientModal(true);
       return;
@@ -552,7 +553,12 @@ export default function WalletPage() {
       // Stripe-level / platform errors go to the inline error card.
       if (errMsg === "Insufficient balance") {
         setShowInsufficientModal(true);
+      } else if (json.pending_cents) {
+        // Funds are pending settlement — show amber notice
+        setWithdrawErrorKind("pending");
+        setWithdrawError(errMsg);
       } else {
+        setWithdrawErrorKind("error");
         setWithdrawError(errMsg);
       }
       return;
@@ -914,14 +920,25 @@ export default function WalletPage() {
 
         {/* Withdrawal error */}
         {withdrawError && (
-          <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-400/20 rounded-xl px-4 py-3">
-            <span className="text-red-400 mt-0.5 shrink-0">✕</span>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-red-400">Withdrawal Failed</p>
-              <p className="text-xs text-red-300/70 mt-0.5">{withdrawError}</p>
+          withdrawErrorKind === "pending" ? (
+            <div className="flex items-start gap-2.5 bg-amber-500/10 border border-amber-400/20 rounded-xl px-4 py-3">
+              <span className="text-amber-400 mt-0.5 shrink-0">⏳</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-amber-300">Funds Processing</p>
+                <p className="text-xs text-amber-200/70 mt-0.5">{withdrawError}</p>
+              </div>
+              <button onClick={() => { setWithdrawError(null); setWithdrawErrorKind("error"); }} className="text-amber-400/50 hover:text-amber-400 shrink-0 text-xs">dismiss</button>
             </div>
-            <button onClick={() => setWithdrawError(null)} className="text-red-400/50 hover:text-red-400 shrink-0 text-xs">dismiss</button>
-          </div>
+          ) : (
+            <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-400/20 rounded-xl px-4 py-3">
+              <span className="text-red-400 mt-0.5 shrink-0">✕</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-red-400">Withdrawal Failed</p>
+                <p className="text-xs text-red-300/70 mt-0.5">{withdrawError}</p>
+              </div>
+              <button onClick={() => setWithdrawError(null)} className="text-red-400/50 hover:text-red-400 shrink-0 text-xs">dismiss</button>
+            </div>
+          )
         )}
 
         {/* CTA */}

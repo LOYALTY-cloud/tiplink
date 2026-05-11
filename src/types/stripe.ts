@@ -10,6 +10,7 @@ export type StripeWebhookEvent =
   | (Stripe.Event & { type: "payout.failed"; data: { object: Stripe.Payout } })
   | (Stripe.Event & { type: "account.updated"; data: { object: Stripe.Account } })
   | (Stripe.Event & { type: "account.application.deauthorized"; data: { object: Stripe.Account } })
+  | (Stripe.Event & { type: "capability.updated"; data: { object: Stripe.Capability } })
   | (Stripe.Event & { type: "issuing_authorization.request"; data: { object: Stripe.Issuing.Authorization } })
   | (Stripe.Event & { type: "issuing_authorization.created"; data: { object: Stripe.Issuing.Authorization } })
   | (Stripe.Event & { type: "issuing_authorization.updated"; data: { object: Stripe.Issuing.Authorization } })

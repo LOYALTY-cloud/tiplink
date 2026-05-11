@@ -412,10 +412,10 @@ export async function handleStripeEvent(
 
         const payouts = creatorProfile?.successful_payouts ?? 0;
         let holdHours: number;
-        if (payouts >= 20) holdHours = 0;       // instant eligibility
-        else if (payouts >= 6) holdHours = 2;   // 2h hold
-        else if (payouts >= 3) holdHours = 12;  // 12h hold
-        else holdHours = 24;                    // 24h hold for new users
+        if (payouts >= 20) holdHours = 0;        // instant eligibility
+        else if (payouts >= 6) holdHours = 2;    // 2h hold
+        else if (payouts >= 3) holdHours = 12;   // 12h hold
+        else holdHours = 96;                     // 4-day hold for new users (matches Stripe's ~2-4 day settlement window)
 
         if (holdHours > 0) {
           const newHold = new Date(Date.now() + holdHours * 60 * 60 * 1000).toISOString();
@@ -967,9 +967,7 @@ export async function handleStripeEvent(
               body: `Your payout account needs additional verification (${currentlyDueRequirements.length} item(s)) to continue receiving payouts.`,
               category: "security",
               meta: {
-                requirements: requirementsList,
-                future_requirements: futureRequirements.join(", "),
-                disabled_reason: disabledReason,
+                reason: disabledReason ?? undefined,
               },
             });
 
@@ -1023,6 +1021,55 @@ export async function handleStripeEvent(
       }
 
       console.log(`Account updated: ${account.id} charges_enabled=${account.charges_enabled} payouts_enabled=${account.payouts_enabled}`);
+      break;
+    }
+
+    case "capability.updated": {
+      // Fires when a Connect capability (card_payments, transfers, etc.) changes status.
+      // Re-sync the account's charges/payouts flags so the dashboard reflects reality.
+      const capability = event.data.object as Stripe.Capability;
+      const connectedAccountId = typeof capability.account === "string"
+        ? capability.account
+        : (capability.account as Stripe.Account)?.id;
+
+      if (connectedAccountId) {
+        try {
+          const { stripe: stripeLib } = await import("@/lib/stripe/server");
+          const account = await stripeLib.accounts.retrieve(connectedAccountId);
+
+          await supabaseClient.from("profiles").update({
+            stripe_charges_enabled: account.charges_enabled,
+            stripe_payouts_enabled: account.payouts_enabled,
+            stripe_onboarding_complete: Boolean(account.charges_enabled && account.payouts_enabled),
+            stripe_account_status: account.details_submitted ? "verified" : "incomplete",
+          }).eq("stripe_account_id", connectedAccountId);
+
+          console.log(`capability.updated: ${connectedAccountId} capability=${capability.id} status=${capability.status} charges_enabled=${account.charges_enabled} payouts_enabled=${account.payouts_enabled}`);
+
+          // If both caps are now active, fire the payout-enabled notification
+          if (account.charges_enabled && account.payouts_enabled) {
+            const { data: profile } = await supabaseClient
+              .from("profiles")
+              .select("user_id")
+              .eq("stripe_account_id", connectedAccountId)
+              .maybeSingle();
+            if (profile?.user_id) {
+              try {
+                const { createNotification } = await import("@/lib/notifications");
+                await createNotification({
+                  userId: profile.user_id,
+                  type: "payout_paid",
+                  title: "Payouts enabled",
+                  body: "Your payout account is verified and ready to receive withdrawals.",
+                  category: "payouts",
+                });
+              } catch (_) {}
+            }
+          }
+        } catch (e) {
+          console.log("capability.updated sync error:", e instanceof Error ? e.message : e);
+        }
+      }
       break;
     }
 

@@ -1,28 +1,13 @@
 "use client";
 
-import { supabase } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
 
 export function ConnectStripeButton() {
-  const onConnect = async () => {
-    const { data } = await supabase.auth.getUser();
-    const user = data.user;
-    if (!user) return alert("Please log in.");
-
-    const res = await fetch("/api/stripe/connect/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: user.id }),
-    });
-
-    const json = await res.json();
-    if (!res.ok) return alert(json.error || "Failed to start onboarding");
-
-    window.location.href = json.url; // send to Stripe onboarding
-  };
+  const router = useRouter();
 
   return (
     <button
-      onClick={onConnect}
+      onClick={() => router.push("/dashboard/onboarding")}
       className="rounded-xl bg-gray-900 text-white px-4 py-3 font-semibold hover:bg-gray-800"
     >
       Connect Stripe

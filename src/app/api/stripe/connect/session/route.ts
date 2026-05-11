@@ -7,7 +7,6 @@ import { getCreatorCategoryByName } from "@/lib/creatorCategoriesServer";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  console.log("[session] POST start", new Date().toISOString());
   try {
     // Authenticate caller
     const authHeader = req.headers.get("authorization") || "";
