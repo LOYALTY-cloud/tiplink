@@ -18,6 +18,9 @@ type ProfileData = {
   email: string | null;
   handle: string | null;
   display_name: string | null;
+  stripe_charges_enabled: boolean | null;
+  stripe_payouts_enabled: boolean | null;
+  stripe_onboarding_complete: boolean | null;
 };
 
 const STATUS_DISPLAY: Record<string, { label: string; color: string; icon: string }> = {
@@ -43,7 +46,7 @@ function AccountContent() {
 
       const { data: prof } = await supabase
         .from("profiles")
-        .select("account_status, status_reason, restricted_until, restriction_count, kyc_status, is_verified, created_at, email, handle, display_name")
+        .select("account_status, status_reason, restricted_until, restriction_count, kyc_status, is_verified, created_at, email, handle, display_name, stripe_charges_enabled, stripe_payouts_enabled, stripe_onboarding_complete")
         .eq("user_id", userRes.user.id)
         .maybeSingle();
 
@@ -65,6 +68,17 @@ function AccountContent() {
   const status = profile.account_status ?? "active";
   const display = STATUS_DISPLAY[status] ?? STATUS_DISPLAY.active;
   const reason = profile.status_reason;
+
+  // Stripe-side health: charges or payouts disabled means the payout account needs attention.
+  // Only flag this when onboarding has been attempted (stripe_onboarding_complete is non-null).
+  const stripeOnboarded = profile.stripe_onboarding_complete !== null;
+  const stripeHealthy =
+    !stripeOnboarded ||
+    (profile.stripe_charges_enabled === true && profile.stripe_payouts_enabled === true);
+  const stripeNeedsAction = stripeOnboarded && !stripeHealthy;
+
+  // Overall health: unhealthy if either platform status OR Stripe is restricted.
+  const overallHealthy = status === "active" && stripeHealthy;
 
   // Format restricted_until as readable duration
   const restrictedUntilLabel = profile.restricted_until
@@ -89,12 +103,12 @@ function AccountContent() {
       <h1 className={ui.h2}>Account</h1>
 
       {/* Hero Status Banner */}
-      <div className="rounded-2xl p-5 bg-gradient-to-br from-white/5 to-white/[0.02] border border-white/[0.12] shadow-xl">
+      <div className="rounded-2xl p-5 bg-gradient-to-br from-white/5 to-white/[0.02] border border-white/[0.12] shadow-xl space-y-3">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs text-white/50 uppercase tracking-wider">Account Health</p>
             <p className="text-lg font-semibold mt-1">
-              {status === "active" ? "Everything looks good" : "Action required"}
+              {overallHealthy ? "Everything looks good" : "Action required"}
             </p>
           </div>
           <div className={`text-sm px-3 py-1.5 rounded-full ${
@@ -105,6 +119,34 @@ function AccountContent() {
             {display.label}
           </div>
         </div>
+
+        {/* Stripe payout account health — separate from platform account_status */}
+        {stripeOnboarded && (
+          <div className={`flex items-center justify-between text-sm pt-1 border-t ${
+            stripeNeedsAction ? "border-amber-500/20" : "border-white/[0.08]"
+          }`}>
+            <span className="text-white/50">Payout account</span>
+            {stripeNeedsAction ? (
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400 font-medium">
+                  {!profile.stripe_charges_enabled && !profile.stripe_payouts_enabled
+                    ? "Charges & payouts disabled"
+                    : !profile.stripe_charges_enabled
+                    ? "Charges disabled"
+                    : "Payouts disabled"}
+                </span>
+                <a
+                  href="/dashboard/onboarding"
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 text-xs font-medium hover:bg-amber-500/25 transition"
+                >
+                  Fix →
+                </a>
+              </div>
+            ) : (
+              <span className="text-emerald-400 font-medium">Active</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Account Status Card */}

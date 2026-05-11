@@ -1,7 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import StripeEmbeddedOnboarding from "./StripeEmbeddedOnboarding";
+import { useCallback, useState } from "react";
+import dynamic from "next/dynamic";
+const StripeEmbeddedOnboarding = dynamic(
+  () => import("./StripeEmbeddedOnboarding"),
+  { ssr: false },
+);
 import { supabase } from "@/lib/supabase/client";
 
 export default function StripeVerificationModal({
@@ -13,55 +17,46 @@ export default function StripeVerificationModal({
   onClose: () => void;
   onComplete?: () => void;
 }) {
-  const [clientSecret, setClientSecret] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Increment to force-remount the Stripe component on retry
+  const [retryKey, setRetryKey] = useState(0);
 
-  if (!open) return null;
+  /**
+   * Called by Stripe on mount and on every session-token refresh.
+   * Must return a *fresh* cacs_… secret each call — reusing a previously-returned
+   * secret results in an "authentication error" inside the iframe.
+   */
+  const fetchStripeSecret = useCallback(async (): Promise<string> => {
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess.session?.access_token;
+    if (!token) throw new Error("Not authenticated");
 
-  // Load account management session when modal opens
-  if (!clientSecret && loading) {
-    (async () => {
-      try {
-        const { data: sess } = await supabase.auth.getSession();
-        const user = sess.session?.user;
-        const token = sess.session?.access_token;
-        if (!user || !token) throw new Error("Not authenticated");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000);
+    const res = await fetch("/api/stripe/connect/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      // Use onboarding mode — account_management does NOT surface tos_acceptance
+      // or other missing requirements that users need to complete.
+      body: JSON.stringify({}),
+      signal: controller.signal,
+    });
 
-        const res = await fetch("/api/stripe/connect/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          // Use onboarding mode so the account_onboarding component is rendered.
-          // account_management does NOT surface tos_acceptance or other missing requirements.
-          body: JSON.stringify({}),
-          signal: controller.signal,
-        });
+    clearTimeout(timeout);
 
-        clearTimeout(timeout);
-
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(j.error || "Could not load verification");
-        setClientSecret(j.client_secret || "");
-        setError(null);
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : String(e);
-        setError(message);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }
+    const j = await res.json().catch(() => ({})) as Record<string, unknown>;
+    if (!res.ok) throw new Error((j.error as string) || "Could not load verification");
+    const secret = j.client_secret as string | undefined;
+    if (!secret) throw new Error("No session returned");
+    return secret;
+  }, []);
 
   const handleClose = () => {
-    setClientSecret("");
-    setLoading(true);
-    setError(null);
     onClose();
     onComplete?.();
   };
+
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
@@ -77,43 +72,21 @@ export default function StripeVerificationModal({
           <button
             onClick={handleClose}
             className="text-white hover:bg-white/20 p-2 rounded-lg transition"
-            disabled={loading}
           >
             ✕
           </button>
         </div>
 
-        {/* Content */}
+        {/* Content — StripeEmbeddedOnboarding handles its own loading and error states */}
         <div className="bg-gray-50 p-6 min-h-[500px] max-h-[80vh] overflow-y-auto">
-          {loading && !clientSecret && (
-            <div className="flex flex-col items-center justify-center h-full gap-3">
-              <div className="h-8 w-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-              <p className="text-gray-600">Loading verification form...</p>
-            </div>
-          )}
-
-          {error && !loading && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-              <p className="text-red-800 font-semibold">Failed to Load</p>
-              <p className="text-red-600 text-sm mt-1">{error}</p>
-              <button
-                onClick={() => {
-                  setClientSecret("");
-                  setLoading(true);
-                  setError(null);
-                }}
-                className="mt-3 rounded-lg bg-red-600 text-white px-4 py-2 text-sm font-medium hover:bg-red-700 transition"
-              >
-                Try Again
-              </button>
-            </div>
-          )}
-
-          {clientSecret && (
-            <div className="bg-white rounded-xl p-4">
-              <StripeEmbeddedOnboarding clientSecret={clientSecret} mode="onboarding" />
-            </div>
-          )}
+          <div className="bg-white rounded-xl p-4">
+            <StripeEmbeddedOnboarding
+              key={retryKey}
+              fetchClientSecret={fetchStripeSecret}
+              mode="onboarding"
+              onRetry={() => setRetryKey((k) => k + 1)}
+            />
+          </div>
         </div>
 
         {/* Footer */}
@@ -126,3 +99,4 @@ export default function StripeVerificationModal({
     </div>
   );
 }
+

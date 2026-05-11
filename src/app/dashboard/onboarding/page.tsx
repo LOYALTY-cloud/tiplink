@@ -1,8 +1,17 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import StripeEmbeddedOnboarding from "@/components/StripeEmbeddedOnboarding";
+import dynamic from "next/dynamic";
+const StripeEmbeddedOnboarding = dynamic(
+  () => import("@/components/StripeEmbeddedOnboarding"),
+  { ssr: false, loading: () => (
+    <div className="flex items-center gap-2 text-sm text-white/70 py-6">
+      <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+      <span>Loading secure onboarding…</span>
+    </div>
+  )},
+);
 import { supabase } from "@/lib/supabase/client";
 import { DEFAULT_CREATOR_CATEGORIES, type CreatorCategory } from "@/lib/creatorCategories";
 
@@ -24,6 +33,12 @@ function OnboardingContent() {
   const [savingCreatorCategory, setSavingCreatorCategory] = useState(false);
   const [continuingToStripe, setContinuingToStripe] = useState(false);
   const [categorySaved, setCategorySaved] = useState(false);
+  const [categoryCollapsed, setCategoryCollapsed] = useState(false);
+  const [stripeKey, setStripeKey] = useState(0); // increment to remount Stripe component on retry
+  const onboardingRef = useRef<HTMLDivElement | null>(null);
+  // Always-current ref so fetchStripeSecret never closes over stale state
+  const creatorCategoryRef = useRef(creatorCategory);
+  creatorCategoryRef.current = creatorCategory;
 
   const persistCreatorCategory = async (categoryValue?: string) => {
     const category = categoryValue ?? creatorCategory;
@@ -68,11 +83,14 @@ function OnboardingContent() {
         }),
       });
 
-      const j = await res.json().catch(() => ({}));
+      const rawText = await res.text().catch(() => "");
+      let j: Record<string, unknown> = {};
+      try { j = JSON.parse(rawText); } catch { /* non-JSON body */ }
       if (!res.ok) {
-        const checkpoint = j._checkpoint || "unknown";
-        const detail = j._detail || "";
-        const message = `[${res.status} @ ${checkpoint}] ${j.error || "Could not create session"}${detail ? ` — ${detail}` : ""}`;
+        const checkpoint = (j._checkpoint as string) || "unknown";
+        const detail = (j._detail as string) || "";
+        const errMsg = (j.error as string) || (rawText.length < 300 ? rawText : "Could not create session");
+        const message = `[${res.status} @ ${checkpoint}] ${errMsg}${detail ? ` — ${detail}` : ""}`;
 
         // Safety retry: if category wasn't persisted yet, save and retry once.
         if (
@@ -102,6 +120,34 @@ function OnboardingContent() {
       return false;
     }
   };
+
+  /**
+   * Called by Stripe's embedded component on mount and whenever it needs to refresh
+   * its session token. Must return a *fresh* cacs_… client secret each invocation —
+   * reusing a previously-returned secret causes an "authentication error" in the iframe.
+   */
+  const fetchStripeSecret = useCallback(async (): Promise<string> => {
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess.session?.access_token;
+    if (!token) throw new Error("Not authenticated");
+
+    const res = await fetch("/api/stripe/connect/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        mode: isManage ? "manage" : "onboarding",
+        creator_activity_category: isManage ? undefined : (creatorCategoryRef.current || undefined),
+      }),
+    });
+
+    const j = await res.json().catch(() => ({})) as Record<string, unknown>;
+    if (!res.ok) throw new Error((j.error as string) || "Failed to create Stripe session");
+    const secret = j.client_secret as string | undefined;
+    if (!secret) throw new Error("No client secret returned");
+    // Keep the gate state in sync so the parent knows a session was created.
+    setClientSecret(secret);
+    return secret;
+  }, [isManage]); // isManage is stable (search param); creatorCategoryRef is always current
 
   useEffect(() => {
     let mounted = true;
@@ -225,7 +271,10 @@ function OnboardingContent() {
       if (!saved) return;
 
       setCategorySaved(true);
-      setTimeout(() => setCategorySaved(false), 2000);
+      setCategoryCollapsed(true);
+      setTimeout(() => {
+        onboardingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 300);
 
       // Immediately continue by creating Stripe session once category is saved.
       await createStripeSession({ retryOnCategoryError: false });
@@ -256,57 +305,75 @@ function OnboardingContent() {
 
       {error ? <p className="text-red-400 font-medium mb-4">{error}</p> : null}
 
-      <div className="space-y-3 mb-8">
-        <label className="text-xs text-white/70 font-medium">
-          How do you use 1neLink?
-        </label>
-        <div className="space-y-4">
-          {Object.entries(groupedCategories).map(([groupName, categories]) => (
-            <div key={groupName} className="space-y-2">
-              <h3 className="text-xs uppercase tracking-[0.16em] text-white/45">{groupName}</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {categories.map((category) => {
-                  const isSelected = creatorCategory === category.name;
-                  return (
-                    <button
-                      key={category.name}
-                      type="button"
-                      onClick={() => setCreatorCategory(category.name)}
-                      className={[
-                        "rounded-xl border px-3 py-2.5 text-sm text-left transition",
-                        isSelected
-                          ? "border-blue-400/60 bg-blue-500/20 text-white"
-                          : "border-white/[0.12] bg-white/[0.04] text-white/75 hover:bg-white/[0.08]",
-                      ].join(" ")}
-                    >
-                      {category.name}
-                    </button>
-                  );
-                })}
-              </div>
+      <div className="space-y-3 mb-8 transition-all duration-300">
+        {categoryCollapsed ? (
+          <div className="rounded-2xl border border-green-500/20 bg-green-500/10 p-4 flex items-center justify-between animate-[fadeIn_0.25s_ease]">
+            <div>
+              <p className="text-sm font-semibold text-green-300">Creator category saved</p>
+              <p className="text-xs text-white/50 mt-1">{creatorCategory}</p>
             </div>
-          ))}
-          {availableCategories.length === 0 ? (
-            <p className="text-xs text-white/50">No categories available yet. Please try again.</p>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={saveCreatorCategory}
-            disabled={savingCreatorCategory || !creatorCategory}
-            className="px-4 py-2 text-sm font-semibold rounded-xl bg-gradient-to-b from-blue-500 to-blue-700 text-white hover:from-blue-400 hover:to-blue-600 transition disabled:opacity-50"
-          >
-            {savingCreatorCategory ? "Saving..." : categorySaved ? "Saved" : "Save category"}
-          </button>
-          <p className="text-xs text-white/55">
-            Category metadata drives Stripe descriptions, payout policy, and risk controls.
-          </p>
-        </div>
+            <button
+              type="button"
+              onClick={() => setCategoryCollapsed(false)}
+              className="text-xs text-white/50 hover:text-white transition"
+            >
+              Edit
+            </button>
+          </div>
+        ) : (
+          <>
+            <label className="text-xs text-white/70 font-medium">
+              How do you use 1neLink?
+            </label>
+            <div className="space-y-4">
+              {Object.entries(groupedCategories).map(([groupName, categories]) => (
+                <div key={groupName} className="space-y-2">
+                  <h3 className="text-xs uppercase tracking-[0.16em] text-white/45">{groupName}</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {categories.map((category) => {
+                      const isSelected = creatorCategory === category.name;
+                      return (
+                        <button
+                          key={category.name}
+                          type="button"
+                          onClick={() => setCreatorCategory(category.name)}
+                          className={[
+                            "rounded-xl border px-3 py-2.5 text-sm text-left transition",
+                            isSelected
+                              ? "border-blue-400/60 bg-blue-500/20 text-white"
+                              : "border-white/[0.12] bg-white/[0.04] text-white/75 hover:bg-white/[0.08]",
+                          ].join(" ")}
+                        >
+                          {category.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              {availableCategories.length === 0 ? (
+                <p className="text-xs text-white/50">No categories available yet. Please try again.</p>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={saveCreatorCategory}
+                disabled={savingCreatorCategory || !creatorCategory}
+                className="px-4 py-2 text-sm font-semibold rounded-xl bg-gradient-to-b from-blue-500 to-blue-700 text-white hover:from-blue-400 hover:to-blue-600 transition disabled:opacity-50"
+              >
+                {savingCreatorCategory ? "Saving..." : categorySaved ? "Saved ✓" : "Continue"}
+              </button>
+              <p className="text-xs text-white/55">
+                Category metadata drives Stripe descriptions, payout policy, and risk controls.
+              </p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── WEBSITE / SOCIAL PROFILE ───────────────────── */}
-      <div className="space-y-2 mb-8">
+      <div ref={onboardingRef} className="space-y-2 mb-8">
         <label className="text-xs text-white/70 font-medium">
           Website or Social Profile
         </label>
@@ -367,7 +434,12 @@ function OnboardingContent() {
       </div>
 
       {clientSecret ? (
-        <StripeEmbeddedOnboarding clientSecret={clientSecret} mode={isManage ? "manage" : "onboarding"} />
+        <StripeEmbeddedOnboarding
+          key={stripeKey}
+          fetchClientSecret={fetchStripeSecret}
+          mode={isManage ? "manage" : "onboarding"}
+          onRetry={() => setStripeKey((k) => k + 1)}
+        />
       ) : (
         <div className="rounded-xl border border-white/[0.12] bg-white/[0.03] p-5 mt-6 space-y-3">
           <p className="text-sm font-medium text-white/80">
