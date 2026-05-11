@@ -111,7 +111,7 @@ export async function POST(req: Request) {
     // Load profile (Stripe status + account state)
     const { data: prof, error: profErr } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_account_id, stripe_payouts_enabled, is_flagged, created_at, account_status, payout_hold_until, daily_withdrawn, restricted_until, total_volume, last_ip, creator_activity_category")
+      .select("stripe_account_id, stripe_payouts_enabled, is_flagged, created_at, account_status, payout_hold_until, daily_withdrawn, restricted_until, total_volume, last_ip, creator_activity_category, stripe_restriction_state, stripe_disabled_reason")
       .eq("user_id", userId)
       .maybeSingle()
       .returns<ProfileRow | null>();
@@ -171,6 +171,20 @@ export async function POST(req: Request) {
     if (!prof?.stripe_account_id) {
       try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
       return NextResponse.json({ error: "Stripe not connected" }, { status: 400 });
+    }
+    if (
+      (prof as any)?.stripe_restriction_state === "restricted" ||
+      (prof as any)?.stripe_restriction_state === "high_risk" ||
+      (prof as any)?.stripe_restriction_state === "disconnected"
+    ) {
+      try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
+      return NextResponse.json(
+        {
+          error: "Withdrawals are temporarily restricted on your Stripe account",
+          reason: (prof as any)?.stripe_disabled_reason ?? null,
+        },
+        { status: 403 }
+      );
     }
     if (!prof.stripe_payouts_enabled) {
       try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}

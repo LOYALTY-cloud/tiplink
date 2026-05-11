@@ -84,7 +84,7 @@ export async function GET(req: Request) {
 
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_account_id, last_stripe_requirements_notified_at")
+      .select("stripe_account_id, last_stripe_requirements_notified_at, stripe_restriction_state, stripe_verification_status")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -130,6 +130,8 @@ export async function GET(req: Request) {
       disabled_reason: disabledReason,
       disabled_reason_label: disabledReasonLabel,
       last_notified_at: profile.last_stripe_requirements_notified_at ?? null,
+      restriction_state: (profile as any)?.stripe_restriction_state ?? "safe",
+      verification_status: (profile as any)?.stripe_verification_status ?? "pending",
     });
   } catch (e) {
     console.error("stripe/requirements error:", e);

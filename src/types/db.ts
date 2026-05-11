@@ -84,6 +84,15 @@ export interface ProfileRow {
   creator_activity_category?: string | null;
   last_stripe_requirements_hash?: string | null;
   last_stripe_requirements_notified_at?: string | null;
+  stripe_restriction_state?: "safe" | "restricted" | "high_risk" | "disconnected" | null;
+  stripe_verification_status?: "verified" | "pending" | "required" | "restricted" | "disconnected" | null;
+  stripe_disabled_reason?: string | null;
+  stripe_requirements_due_count?: number | null;
+  stripe_future_requirements_due_count?: number | null;
+  stripe_past_requirements_due_count?: number | null;
+  stripe_connect_risk_reasons?: unknown[] | null;
+  stripe_connect_last_event_at?: string | null;
+  stripe_connect_last_event_type?: string | null;
 }
 
 export interface WalletRow {

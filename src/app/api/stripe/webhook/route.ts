@@ -12,6 +12,7 @@ import { sendAdminAlert } from "@/lib/adminAlerts";
 import { reversePayoutOnce } from "@/lib/payoutReversals";
 import { triggerAIAlerts } from "@/lib/ai/alerts";
 import { createNotification } from "@/lib/notifications";
+import { evaluateStripeConnectPolicy } from "@/lib/stripe/connectRisk";
 
 export const runtime = "nodejs";
 
@@ -928,9 +929,11 @@ export async function handleStripeEvent(
       
       const { data: profile } = await supabaseClient
         .from("profiles")
-        .select("user_id, last_stripe_requirements_hash, last_stripe_requirements_notified_at")
+        .select("user_id, last_stripe_requirements_hash, last_stripe_requirements_notified_at, stripe_restriction_state")
         .eq("stripe_account_id", account.id)
         .maybeSingle();
+
+      const connectPolicy = evaluateStripeConnectPolicy(account);
 
       // Update profile with latest Stripe status
       await supabaseClient.from("profiles").update({
@@ -938,7 +941,49 @@ export async function handleStripeEvent(
         stripe_charges_enabled: account.charges_enabled,
         stripe_payouts_enabled: account.payouts_enabled,
         stripe_onboarding_complete: Boolean(account.charges_enabled && account.payouts_enabled),
+        payouts_enabled: Boolean(account.charges_enabled && account.payouts_enabled),
+        stripe_restriction_state: connectPolicy.state,
+        stripe_verification_status: connectPolicy.verificationStatus,
+        stripe_disabled_reason: connectPolicy.disabledReason,
+        stripe_requirements_due_count: connectPolicy.currentlyDueCount,
+        stripe_future_requirements_due_count: connectPolicy.futureDueCount,
+        stripe_past_requirements_due_count: connectPolicy.pastDueCount,
+        stripe_connect_risk_reasons: connectPolicy.reasons,
+        stripe_connect_last_event_at: new Date().toISOString(),
+        stripe_connect_last_event_type: event.type,
       }).eq("stripe_account_id", account.id);
+
+      const previousState = (profile as { stripe_restriction_state?: string | null } | null)?.stripe_restriction_state ?? "safe";
+      if (profile?.user_id && previousState !== connectPolicy.state) {
+        if (connectPolicy.state === "high_risk" || (previousState === "safe" && connectPolicy.state === "restricted")) {
+          sendAdminAlert({
+            subject: `Stripe Connect state escalated: ${connectPolicy.state}`,
+            body: `User ${profile.user_id} moved from ${previousState} to ${connectPolicy.state}.`,
+            severity: connectPolicy.state === "high_risk" ? "critical" : "warning",
+            meta: {
+              user_id: profile.user_id,
+              stripe_account_id: account.id,
+              previous_state: previousState,
+              next_state: connectPolicy.state,
+              disabled_reason: connectPolicy.disabledReason ?? "none",
+              reasons: connectPolicy.reasons.join(", "),
+            },
+          });
+
+          if (connectPolicy.state === "high_risk") {
+            try {
+              await createNotification({
+                userId: profile.user_id,
+                type: "security",
+                title: "Action required: Stripe account restricted",
+                body: "Your Stripe account has been restricted. Tipping and payouts are temporarily paused while this is reviewed.",
+                category: "security",
+                meta: { reason: connectPolicy.disabledReason ?? "stripe_restriction" },
+              });
+            } catch (_) {}
+          }
+        }
+      }
 
       // Notify user if additional verification is required
       if (profile?.user_id && currentlyDueRequirements.length > 0) {
@@ -1036,12 +1081,23 @@ export async function handleStripeEvent(
         try {
           const { stripe: stripeLib } = await import("@/lib/stripe/server");
           const account = await stripeLib.accounts.retrieve(connectedAccountId);
+          const connectPolicy = evaluateStripeConnectPolicy(account);
 
           await supabaseClient.from("profiles").update({
             stripe_charges_enabled: account.charges_enabled,
             stripe_payouts_enabled: account.payouts_enabled,
             stripe_onboarding_complete: Boolean(account.charges_enabled && account.payouts_enabled),
             stripe_account_status: account.details_submitted ? "verified" : "incomplete",
+            payouts_enabled: Boolean(account.charges_enabled && account.payouts_enabled),
+            stripe_restriction_state: connectPolicy.state,
+            stripe_verification_status: connectPolicy.verificationStatus,
+            stripe_disabled_reason: connectPolicy.disabledReason,
+            stripe_requirements_due_count: connectPolicy.currentlyDueCount,
+            stripe_future_requirements_due_count: connectPolicy.futureDueCount,
+            stripe_past_requirements_due_count: connectPolicy.pastDueCount,
+            stripe_connect_risk_reasons: connectPolicy.reasons,
+            stripe_connect_last_event_at: new Date().toISOString(),
+            stripe_connect_last_event_type: event.type,
           }).eq("stripe_account_id", connectedAccountId);
 
           console.log(`capability.updated: ${connectedAccountId} capability=${capability.id} status=${capability.status} charges_enabled=${account.charges_enabled} payouts_enabled=${account.payouts_enabled}`);
@@ -1078,7 +1134,13 @@ export async function handleStripeEvent(
       // The connected account ID is on event.account.
       const connectedAccountId = (event as any).account as string | undefined;
       if (connectedAccountId) {
-        await supabaseClient.from("profiles").update({ stripe_account_status: "disconnected" }).eq("stripe_account_id", connectedAccountId);
+        await supabaseClient.from("profiles").update({
+          stripe_account_status: "disconnected",
+          stripe_restriction_state: "disconnected",
+          stripe_verification_status: "disconnected",
+          stripe_connect_last_event_at: new Date().toISOString(),
+          stripe_connect_last_event_type: event.type,
+        }).eq("stripe_account_id", connectedAccountId);
         console.warn(`Account disconnected: ${connectedAccountId}`);
       } else {
         console.warn("account.application.deauthorized: no connected account ID found", event.id);

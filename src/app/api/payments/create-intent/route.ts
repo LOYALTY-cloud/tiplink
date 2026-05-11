@@ -345,7 +345,7 @@ export async function POST(req: Request) {
 
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
-      .select("user_id, stripe_account_id, handle, display_name, stripe_charges_enabled, account_status")
+      .select("user_id, stripe_account_id, handle, display_name, stripe_charges_enabled, account_status, stripe_restriction_state, stripe_disabled_reason")
       .eq("user_id", creator_user_id)
       .maybeSingle()
       .returns<ProfileRow | null>();
@@ -361,6 +361,14 @@ export async function POST(req: Request) {
     }
     if (creatorStatus === "restricted" || creatorStatus === "suspended") {
       return NextResponse.json({ error: "This creator's account is temporarily unavailable" }, { status: 403 });
+    }
+
+    const stripeRestrictionState = (profile as any)?.stripe_restriction_state ?? "safe";
+    if (stripeRestrictionState === "high_risk" || stripeRestrictionState === "disconnected") {
+      return NextResponse.json({
+        error: "This creator is temporarily unavailable for tipping",
+        reason: (profile as any)?.stripe_disabled_reason ?? null,
+      }, { status: 403 });
     }
 
     if (!profile.stripe_account_id) {
