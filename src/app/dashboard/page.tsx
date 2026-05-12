@@ -70,8 +70,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     (async () => {
-      const { data: userRes } = await supabase.auth.getUser();
-      const user = userRes.user;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user ?? null;
       if (!user) return;
 
       setUserId(user.id);

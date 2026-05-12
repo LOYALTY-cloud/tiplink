@@ -64,18 +64,19 @@ export default function DashboardLayout({
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!data.user) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user ?? null;
+      if (!user) {
         router.replace("/login");
         return;
       }
-      setEmail(data.user.email ?? "");
+      setEmail(user.email ?? "");
 
       // Auto-redirect restricted/suspended users to Account page
       const { data: prof } = await supabase
         .from("profiles")
         .select("account_status")
-        .eq("user_id", data.user.id)
+        .eq("user_id", user.id)
         .maybeSingle();
 
       const acctStatus = (prof as { account_status?: string } | null)?.account_status;

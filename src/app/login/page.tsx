@@ -76,7 +76,7 @@ export default function LoginPage() {
       setSuccess(true);
       // Cookies are set server-side by the login API, so the middleware
       // will see the session immediately. Small delay for the UI transition.
-      setTimeout(() => router.push("/dashboard"), 600);
+      setTimeout(() => router.push("/dashboard"), 800);
     } catch {
       setLoading(false);
       setMsg("Network error. Please try again.");
