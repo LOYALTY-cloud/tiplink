@@ -190,6 +190,51 @@ export async function syncStripeAccount(
 
     // ── 11. Admin alerts for high-risk ───────────────────────────────────────
     if (restrictionLevel === "high_risk") {
+      // ── Human-readable translations for Stripe field codes ──────────────
+      const stripeFieldLabels: Record<string, string> = {
+        "individual.id_number":            "Government ID number (SSN / National ID)",
+        "individual.ssn_last_4":           "Last 4 digits of SSN",
+        "individual.dob.day":              "Date of birth",
+        "individual.dob.month":            "Date of birth",
+        "individual.dob.year":             "Date of birth",
+        "individual.first_name":           "First name",
+        "individual.last_name":            "Last name",
+        "individual.address.line1":        "Street address",
+        "individual.address.city":         "City",
+        "individual.address.state":        "State",
+        "individual.address.postal_code":  "ZIP / Postal code",
+        "individual.phone":                "Phone number",
+        "individual.email":                "Email address",
+        "individual.verification.document":"Identity verification document",
+        "tos_acceptance.date":             "Terms of Service not accepted (date missing)",
+        "tos_acceptance.ip":               "Terms of Service not accepted (IP missing)",
+        "business_profile.url":            "Business website URL",
+        "business_profile.mcc":            "Business category",
+        "external_account":                "Bank account / debit card not linked",
+        "bank_account":                    "Bank account not linked",
+      };
+
+      const translateField = (f: string) => stripeFieldLabels[f] ?? f;
+      const translateReason = (r: string | null) => {
+        const map: Record<string, string> = {
+          "requirements.past_due":       "Account has overdue requirements",
+          "requirements.pending_verification": "Verification is pending review",
+          "listed":                      "Account flagged on a watchlist",
+          "under_review":                "Account is under Stripe review",
+          "other":                       "Other restriction",
+          "rejected.fraud":              "Account rejected for fraud",
+          "rejected.terms_of_service":   "Account rejected for Terms of Service violation",
+          "rejected.listed":             "Account rejected — listed entity",
+          "rejected.other":              "Account rejected",
+        };
+        return r ? (map[r] ?? r) : "Unknown";
+      };
+
+      const pastDueReadable      = pastDue.map(translateField);
+      const currentlyDueReadable = currentlyDue.map(translateField);
+      const pendingReadable      = pendingVerification.map(translateField);
+      const reasonReadable       = translateReason(disabledReason);
+
       // Persist to admin_alerts table
       await supabaseAdmin.from("admin_alerts").insert({
         type:              "stripe_account_restricted",
@@ -202,22 +247,29 @@ export async function syncStripeAccount(
 
       // Also send live admin notification
       sendAdminAlert({
-        subject:  `Stripe account restricted: ${stripeAccountId}`,
+        subject: `Creator account restricted — action needed`,
         body:
-          `Creator account ${stripeAccountId} has been flagged as high_risk.\n` +
-          `Disabled reason: ${disabledReason ?? "none"}\n` +
-          (pastDue.length > 0 ? `Past due (${pastDue.length}): ${pastDue.join(", ")}\n` : "") +
-          (currentlyDue.length > 0 ? `Currently due (${currentlyDue.length}): ${currentlyDue.join(", ")}\n` : "") +
-          (pendingVerification.length > 0 ? `Pending verification: ${pendingVerification.join(", ")}` : ""),
+          `A creator's Stripe account has been restricted and they can no longer receive tips or payouts.\n` +
+          `\n` +
+          `Reason: ${reasonReadable}\n` +
+          (pastDueReadable.length > 0
+            ? `\nOverdue items (${pastDueReadable.length}):\n${pastDueReadable.map(i => `  • ${i}`).join("\n")}\n`
+            : "") +
+          (currentlyDueReadable.length > 0
+            ? `\nNeeds to complete (${currentlyDueReadable.length}):\n${currentlyDueReadable.map(i => `  • ${i}`).join("\n")}\n`
+            : "") +
+          (pendingReadable.length > 0
+            ? `\nWaiting on Stripe to verify:\n${pendingReadable.map(i => `  • ${i}`).join("\n")}`
+            : ""),
         severity: "critical",
         meta: {
-          stripe_account_id:  stripeAccountId,
-          creator_id:         creatorId,
-          disabled_reason:    disabledReason ?? "none",
-          past_due_count:     pastDue.length,
-          currently_due_count: currentlyDue.length,
-          charges_enabled:    String(chargesEnabled),
-          payouts_enabled:    String(payoutsEnabled),
+          stripe_account_id:   stripeAccountId,
+          creator_id:          creatorId,
+          restriction_reason:  reasonReadable,
+          overdue_items:       pastDueReadable.length,
+          items_to_complete:   currentlyDueReadable.length,
+          charges_enabled:     chargesEnabled ? "Yes" : "No",
+          payouts_enabled:     payoutsEnabled ? "Yes" : "No",
         },
       });
     }
