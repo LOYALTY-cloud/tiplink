@@ -2,11 +2,9 @@
 
 import { useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -74,9 +72,10 @@ export default function LoginPage() {
       }
 
       setSuccess(true);
-      // Cookies are set server-side by the login API, so the middleware
-      // will see the session immediately. Small delay for the UI transition.
-      setTimeout(() => router.push("/dashboard"), 800);
+      // Use hard navigation to guarantee the session cookies set server-side
+      // are sent with the next request. router.push() can silently fail after
+      // setSession() in Next.js App Router.
+      setTimeout(() => { window.location.href = "/dashboard"; }, 800);
     } catch {
       setLoading(false);
       setMsg("Network error. Please try again.");
