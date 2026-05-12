@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { stripe } from "@/lib/stripe/server";
-import { syncExternalAccounts } from "@/lib/syncExternalAccounts";
-import { evaluateStripeConnectPolicy } from "@/lib/stripe/connectRisk";
+import { syncStripeAccount } from "@/lib/stripe/syncAccount";
 
 export const runtime = "nodejs";
 
@@ -35,50 +33,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ payouts_enabled: false, reason: "no_account" });
     }
 
-    const acct = await stripe.accounts.retrieve(profile.stripe_account_id);
-    const connectPolicy = evaluateStripeConnectPolicy(acct);
+    const result = await syncStripeAccount(profile.stripe_account_id, { eventType: "manual_sync" });
 
-    const chargesEnabled = Boolean(acct.charges_enabled);
-    const payoutsEnabledStripe = Boolean(acct.payouts_enabled);
-    const onboardingComplete = chargesEnabled && payoutsEnabledStripe;
-
-    await supabaseAdmin
-      .from("profiles")
-      .update({
-        stripe_charges_enabled: chargesEnabled,
-        stripe_payouts_enabled: payoutsEnabledStripe,
-        stripe_onboarding_complete: onboardingComplete,
-        payouts_enabled: onboardingComplete,
-        payouts_enabled_at: onboardingComplete ? new Date().toISOString() : null,
-        stripe_restriction_state: connectPolicy.state,
-        stripe_verification_status: connectPolicy.verificationStatus,
-        stripe_disabled_reason: connectPolicy.disabledReason,
-        stripe_requirements_due_count: connectPolicy.currentlyDueCount,
-        stripe_future_requirements_due_count: connectPolicy.futureDueCount,
-        stripe_past_requirements_due_count: connectPolicy.pastDueCount,
-        stripe_connect_risk_reasons: connectPolicy.reasons,
-        stripe_connect_last_event_at: new Date().toISOString(),
-        stripe_connect_last_event_type: "manual_sync",
-      })
-      .eq("user_id", user_id);
-
-    // Sync external accounts (cards/bank accounts) from Stripe Connect → local DB
-    if (onboardingComplete) {
-      try {
-        await syncExternalAccounts(user_id, profile.stripe_account_id);
-      } catch (e) {
-        console.log("External account sync error:", e instanceof Error ? e.message : e);
-      }
+    if (!result.success) {
+      console.log("stripe connect sync error:", result.error);
+      return NextResponse.json({ error: "Server error" }, { status: 500 });
     }
 
     return NextResponse.json({
-      payouts_enabled: onboardingComplete,
-      charges_enabled: chargesEnabled,
-      payouts_enabled_stripe: payoutsEnabledStripe,
-      details_submitted: acct.details_submitted,
-      restriction_state: connectPolicy.state,
-      verification_status: connectPolicy.verificationStatus,
-      disabled_reason: connectPolicy.disabledReason,
+      payouts_enabled: result.restrictionLevel === "healthy",
+      restriction_level: result.restrictionLevel,
+      verification_status: result.verificationStatus,
     });
   } catch (e: unknown) {
     console.log("stripe connect sync error:", e instanceof Error ? e.message : e);
