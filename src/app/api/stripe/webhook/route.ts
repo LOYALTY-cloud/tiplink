@@ -13,6 +13,7 @@ import { reversePayoutOnce } from "@/lib/payoutReversals";
 import { triggerAIAlerts } from "@/lib/ai/alerts";
 import { createNotification } from "@/lib/notifications";
 import { evaluateStripeConnectPolicy } from "@/lib/stripe/connectRisk";
+import { syncStripeAccount } from "@/lib/stripe/syncAccount";
 
 export const runtime = "nodejs";
 
@@ -1072,153 +1073,8 @@ export async function handleStripeEvent(
     // ACCOUNT STATUS / CONNECT
     case "account.updated": {
       const account = event.data.object as Stripe.Account;
-      const verificationReminderCooldownMs = 24 * 60 * 60 * 1000;
-      
-      // Monitor requirements to notify user proactively instead of Stripe surprising them
-      const currentlyDueRequirements = account.requirements?.currently_due || [];
-      const futureRequirements = account.future_requirements?.currently_due || [];
-      const disabledReason = account.requirements?.disabled_reason;
-      const requirementsSignature = [...currentlyDueRequirements].sort().join("|");
-      
-      const { data: profile } = await supabaseClient
-        .from("profiles")
-        .select("user_id, last_stripe_requirements_hash, last_stripe_requirements_notified_at, stripe_restriction_state")
-        .eq("stripe_account_id", account.id)
-        .maybeSingle();
-
-      const connectPolicy = evaluateStripeConnectPolicy(account);
-
-      // Update profile with latest Stripe status
-      await supabaseClient.from("profiles").update({
-        stripe_account_status: account.details_submitted ? "verified" : "incomplete",
-        stripe_charges_enabled: account.charges_enabled,
-        stripe_payouts_enabled: account.payouts_enabled,
-        stripe_onboarding_complete: Boolean(account.charges_enabled && account.payouts_enabled),
-        payouts_enabled: Boolean(account.charges_enabled && account.payouts_enabled),
-        stripe_restriction_state: connectPolicy.state,
-        stripe_verification_status: connectPolicy.verificationStatus,
-        stripe_disabled_reason: connectPolicy.disabledReason,
-        stripe_requirements_due_count: connectPolicy.currentlyDueCount,
-        stripe_future_requirements_due_count: connectPolicy.futureDueCount,
-        stripe_past_requirements_due_count: connectPolicy.pastDueCount,
-        stripe_connect_risk_reasons: connectPolicy.reasons,
-        stripe_connect_last_event_at: new Date().toISOString(),
-        stripe_connect_last_event_type: event.type,
-      }).eq("stripe_account_id", account.id);
-
-      const previousState = (profile as { stripe_restriction_state?: string | null } | null)?.stripe_restriction_state ?? "safe";
-      if (profile?.user_id && previousState !== connectPolicy.state) {
-        if (connectPolicy.state === "high_risk" || (previousState === "safe" && connectPolicy.state === "restricted")) {
-          sendAdminAlert({
-            subject: `Stripe Connect state escalated: ${connectPolicy.state}`,
-            body: `User ${profile.user_id} moved from ${previousState} to ${connectPolicy.state}.`,
-            severity: connectPolicy.state === "high_risk" ? "critical" : "warning",
-            meta: {
-              user_id: profile.user_id,
-              stripe_account_id: account.id,
-              previous_state: previousState,
-              next_state: connectPolicy.state,
-              disabled_reason: connectPolicy.disabledReason ?? "none",
-              reasons: connectPolicy.reasons.join(", "),
-            },
-          });
-
-          if (connectPolicy.state === "high_risk") {
-            try {
-              await createNotification({
-                userId: profile.user_id,
-                type: "security",
-                title: "Action required: Stripe account restricted",
-                body: "Your Stripe account has been restricted. Tipping and payouts are temporarily paused while this is reviewed.",
-                category: "security",
-                meta: { reason: connectPolicy.disabledReason ?? "stripe_restriction" },
-              });
-            } catch (_) {}
-          }
-        }
-      }
-
-      // Notify user if additional verification is required
-      if (profile?.user_id && currentlyDueRequirements.length > 0) {
-        const lastNotifiedAtMs = profile.last_stripe_requirements_notified_at
-          ? new Date(profile.last_stripe_requirements_notified_at).getTime()
-          : null;
-        const withinCooldown =
-          typeof lastNotifiedAtMs === "number" &&
-          Number.isFinite(lastNotifiedAtMs) &&
-          Date.now() - lastNotifiedAtMs < verificationReminderCooldownMs;
-        const sameRequirements =
-          profile.last_stripe_requirements_hash === requirementsSignature;
-        const shouldNotify = !sameRequirements || !withinCooldown;
-
-        if (!shouldNotify) {
-          console.log(`Verification reminder deduped for account ${account.id}`);
-        } else {
-          try {
-            // 1. In-app notification
-            const { createNotification } = await import("@/lib/notifications");
-            const requirementsList = currentlyDueRequirements.join(", ");
-            await createNotification({
-              userId: profile.user_id,
-              type: "verification_needed",
-              title: "Action needed: Complete verification",
-              body: `Your payout account needs additional verification (${currentlyDueRequirements.length} item(s)) to continue receiving payouts.`,
-              category: "security",
-              meta: {
-                reason: disabledReason ?? undefined,
-              },
-            });
-
-            // 2. Email notification (non-blocking, fire-and-forget)
-            try {
-              const { data: authUser } = await supabaseClient.auth.admin.getUserById(profile.user_id);
-              if (authUser?.user?.email) {
-                const { sendEmailAsync } = await import("@/lib/emailService");
-                sendEmailAsync({
-                  type: "NOTIFICATION",
-                  to: authUser.user.email,
-                  subject: "Action needed: Complete your payout verification",
-                  html: buildVerificationRequiredEmail(currentlyDueRequirements),
-                  categoryOverride: "security",
-                });
-              }
-            } catch (e) {
-              console.log("Failed to send verification email:", e instanceof Error ? e.message : e);
-            }
-
-            await supabaseClient
-              .from("profiles")
-              .update({
-                last_stripe_requirements_hash: requirementsSignature,
-                last_stripe_requirements_notified_at: new Date().toISOString(),
-              })
-              .eq("user_id", profile.user_id);
-          } catch (e) {
-            console.log("Failed to create verification notification:", e instanceof Error ? e.message : e);
-          }
-        }
-      }
-
-      // Log requirements for debugging
-      if (currentlyDueRequirements.length > 0 || disabledReason) {
-        console.log(`Account ${account.id} requires verification:`, {
-          currently_due: currentlyDueRequirements,
-          future_requirements: futureRequirements,
-          disabled_reason: disabledReason,
-        });
-      }
-
-      // Sync external accounts (cards/bank accounts) to payout_methods
-      if (account.charges_enabled && account.payouts_enabled && profile?.user_id) {
-        try {
-          const { syncExternalAccounts } = await import("@/lib/syncExternalAccounts");
-          await syncExternalAccounts(profile.user_id, account.id);
-        } catch (e) {
-          console.log("External account sync error in webhook:", e instanceof Error ? e.message : e);
-        }
-      }
-
-      console.log(`Account updated: ${account.id} charges_enabled=${account.charges_enabled} payouts_enabled=${account.payouts_enabled}`);
+      await syncStripeAccount(account.id, { eventType: "account.updated", notifyCreator: true });
+      console.log(`account.updated synced: ${account.id}`);
       break;
     }
 
@@ -1232,49 +1088,8 @@ export async function handleStripeEvent(
 
       if (connectedAccountId) {
         try {
-          const { stripe: stripeLib } = await import("@/lib/stripe/server");
-          const account = await stripeLib.accounts.retrieve(connectedAccountId);
-          const connectPolicy = evaluateStripeConnectPolicy(account);
-
-          await supabaseClient.from("profiles").update({
-            stripe_charges_enabled: account.charges_enabled,
-            stripe_payouts_enabled: account.payouts_enabled,
-            stripe_onboarding_complete: Boolean(account.charges_enabled && account.payouts_enabled),
-            stripe_account_status: account.details_submitted ? "verified" : "incomplete",
-            payouts_enabled: Boolean(account.charges_enabled && account.payouts_enabled),
-            stripe_restriction_state: connectPolicy.state,
-            stripe_verification_status: connectPolicy.verificationStatus,
-            stripe_disabled_reason: connectPolicy.disabledReason,
-            stripe_requirements_due_count: connectPolicy.currentlyDueCount,
-            stripe_future_requirements_due_count: connectPolicy.futureDueCount,
-            stripe_past_requirements_due_count: connectPolicy.pastDueCount,
-            stripe_connect_risk_reasons: connectPolicy.reasons,
-            stripe_connect_last_event_at: new Date().toISOString(),
-            stripe_connect_last_event_type: event.type,
-          }).eq("stripe_account_id", connectedAccountId);
-
-          console.log(`capability.updated: ${connectedAccountId} capability=${capability.id} status=${capability.status} charges_enabled=${account.charges_enabled} payouts_enabled=${account.payouts_enabled}`);
-
-          // If both caps are now active, fire the payout-enabled notification
-          if (account.charges_enabled && account.payouts_enabled) {
-            const { data: profile } = await supabaseClient
-              .from("profiles")
-              .select("user_id")
-              .eq("stripe_account_id", connectedAccountId)
-              .maybeSingle();
-            if (profile?.user_id) {
-              try {
-                const { createNotification } = await import("@/lib/notifications");
-                await createNotification({
-                  userId: profile.user_id,
-                  type: "payout_paid",
-                  title: "Payouts enabled",
-                  body: "Your payout account is verified and ready to receive withdrawals.",
-                  category: "payouts",
-                });
-              } catch (_) {}
-            }
-          }
+          await syncStripeAccount(connectedAccountId, { eventType: "capability.updated" });
+          console.log(`capability.updated synced: ${connectedAccountId} capability=${capability.id} status=${capability.status}`);
         } catch (e) {
           console.log("capability.updated sync error:", e instanceof Error ? e.message : e);
         }
@@ -1309,56 +1124,9 @@ export async function handleStripeEvent(
         break;
       }
 
-      const currentlyDue = ((person as any)?.requirements?.currently_due ?? []) as string[];
-      const pastDue = ((person as any)?.requirements?.past_due ?? []) as string[];
-      const verificationStatus = ((person as any)?.verification?.status ?? null) as string | null;
-
-      const { data: profile } = await supabaseClient
-        .from("profiles")
-        .select("user_id")
-        .eq("stripe_account_id", connectedAccountId)
-        .maybeSingle();
-
-      await supabaseClient
-        .from("profiles")
-        .update({
-          stripe_connect_last_event_at: new Date().toISOString(),
-          stripe_connect_last_event_type: event.type,
-        })
-        .eq("stripe_account_id", connectedAccountId);
-
-      if ((currentlyDue.length > 0 || pastDue.length > 0) && profile?.user_id) {
-        try {
-          await createNotification({
-            userId: profile.user_id,
-            type: "verification_needed",
-            title: "Identity verification update",
-            body: "Stripe needs updated identity details to keep your account in good standing.",
-            category: "security",
-            meta: {
-              stripe_person_id: person.id,
-              currently_due_count: currentlyDue.length,
-              past_due_count: pastDue.length,
-              verification_status: verificationStatus,
-            },
-          });
-        } catch (_) {}
-      }
-
-      if (pastDue.length > 0 || verificationStatus === "unverified") {
-        sendAdminAlert({
-          subject: "Stripe person verification issue",
-          body: `Person ${person.id} on account ${connectedAccountId} has verification requirements due.`,
-          severity: "warning",
-          meta: {
-            stripe_person_id: person.id,
-            stripe_account_id: connectedAccountId,
-            currently_due_count: currentlyDue.length,
-            past_due_count: pastDue.length,
-            verification_status: verificationStatus ?? "unknown",
-          },
-        });
-      }
+      // Full sync so person-level requirement changes are reflected in the profile
+      await syncStripeAccount(connectedAccountId, { eventType: "person.updated", notifyCreator: true });
+      console.log(`person.updated synced: ${connectedAccountId} person=${person.id}`);
       break;
     }
 
@@ -1417,26 +1185,6 @@ export async function handleStripeEvent(
         break;
       }
 
-      const { data: profile } = await supabaseClient
-        .from("profiles")
-        .select("user_id, stripe_connect_risk_reasons")
-        .eq("stripe_account_id", connectedAccountId)
-        .maybeSingle();
-
-      await supabaseClient
-        .from("profiles")
-        .update({
-          stripe_restriction_state: "high_risk",
-          stripe_verification_status: "restricted",
-          stripe_connect_risk_reasons: mergeRiskReason(
-            (profile as any)?.stripe_connect_risk_reasons,
-            "stripe_review_opened",
-          ),
-          stripe_connect_last_event_at: new Date().toISOString(),
-          stripe_connect_last_event_type: event.type,
-        })
-        .eq("stripe_account_id", connectedAccountId);
-
       sendAdminAlert({
         subject: "Stripe review opened",
         body: `Stripe review ${review.id} opened for connected account ${connectedAccountId}.`,
@@ -1449,21 +1197,9 @@ export async function handleStripeEvent(
         },
       });
 
-      if (profile?.user_id) {
-        try {
-          await createNotification({
-            userId: profile.user_id,
-            type: "security",
-            title: "Stripe account under review",
-            body: "Stripe opened a review on your account. We increased monitoring while the review is in progress.",
-            category: "security",
-            meta: {
-              stripe_review_id: review.id,
-              reason: review.reason ?? "unspecified",
-            },
-          });
-        } catch (_) {}
-      }
+      // Full sync to capture the restriction state change
+      await syncStripeAccount(connectedAccountId, { eventType: "review.opened" });
+      console.log(`review.opened synced: ${connectedAccountId} review=${review.id}`);
       break;
     }
 
@@ -1474,25 +1210,6 @@ export async function handleStripeEvent(
         console.warn("review.closed: missing connected account", event.id);
         break;
       }
-
-      const { data: profile } = await supabaseClient
-        .from("profiles")
-        .select("user_id, stripe_connect_risk_reasons")
-        .eq("stripe_account_id", connectedAccountId)
-        .maybeSingle();
-
-      await supabaseClient
-        .from("profiles")
-        .update({
-          stripe_connect_risk_reasons: mergeRiskReason(
-            (profile as any)?.stripe_connect_risk_reasons,
-            "stripe_review_opened",
-            true,
-          ),
-          stripe_connect_last_event_at: new Date().toISOString(),
-          stripe_connect_last_event_type: event.type,
-        })
-        .eq("stripe_account_id", connectedAccountId);
 
       sendAdminAlert({
         subject: "Stripe review closed",
@@ -1506,21 +1223,9 @@ export async function handleStripeEvent(
         },
       });
 
-      if (profile?.user_id) {
-        try {
-          await createNotification({
-            userId: profile.user_id,
-            type: "security",
-            title: "Stripe review closed",
-            body: "Stripe closed the recent review on your account. Monitoring remains active.",
-            category: "security",
-            meta: {
-              stripe_review_id: review.id,
-              reason: review.reason ?? "unspecified",
-            },
-          });
-        } catch (_) {}
-      }
+      // Full sync to recalculate restriction state after review closes
+      await syncStripeAccount(connectedAccountId, { eventType: "review.closed" });
+      console.log(`review.closed synced: ${connectedAccountId} review=${review.id}`);
       break;
     }
 

@@ -12,6 +12,7 @@ import { StripeReturnSync } from "@/components/StripeReturnSync";
 import { ui } from "@/lib/ui";
 import EarningsCard from "@/components/EarningsCard";
 import VerifyEmailBanner from "@/components/VerifyEmailBanner";
+import StripeRestrictionModal from "@/components/StripeRestrictionModal";
 
 export default function DashboardPage() {
   const { toast, show } = useToast();
@@ -38,6 +39,8 @@ export default function DashboardPage() {
   const [isCreator, setIsCreator] = useState<boolean | null>(null);
   const [creatorApp, setCreatorApp] = useState<{ status: string; review_notes: string | null } | null>(null);
   const [showCreatorModal, setShowCreatorModal] = useState(false);
+  const [showRestrictionModal, setShowRestrictionModal] = useState(false);
+  const [stripeProfile, setStripeProfile] = useState<any>(null);
   const [applyForm, setApplyForm] = useState({ social_links: "", description: "", audience_size: "" });
   const [applyState, setApplyState] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [applyMsg, setApplyMsg] = useState<string | null>(null);
@@ -76,7 +79,11 @@ export default function DashboardPage() {
 
       const { data: prof } = await supabase
         .from("profiles")
-        .select("handle, account_status, status_reason, stripe_account_id, stripe_charges_enabled, email_verified, is_creator")
+        .select(
+          "handle, account_status, status_reason, stripe_account_id, stripe_charges_enabled, email_verified, is_creator, " +
+          "stripe_payouts_enabled, stripe_disabled_reason, stripe_currently_due, stripe_pending_verification, " +
+          "stripe_capabilities, monetization_enabled, verification_status"
+        )
         .eq("user_id", user.id)
         .maybeSingle()
         .returns<ProfileRow | null>();
@@ -88,6 +95,19 @@ export default function DashboardPage() {
       setStatusReason(prof?.status_reason ?? null);
       setChargesEnabled(Boolean(prof?.stripe_charges_enabled));
       setIsCreator(Boolean((prof as (typeof prof & { is_creator?: boolean }) | null)?.is_creator));
+
+      // Show restriction modal if the account has any Stripe issues
+      if (prof?.stripe_account_id) {
+        setStripeProfile(prof);
+        const hasIssue =
+          !prof?.stripe_charges_enabled ||
+          !prof?.stripe_payouts_enabled ||
+          (prof as any)?.stripe_currently_due?.length > 0 ||
+          (prof as any)?.stripe_disabled_reason ||
+          (prof as any)?.verification_status === "restricted";
+        const modalDismissed = sessionStorage.getItem("stripe_restriction_modal_dismissed");
+        if (hasIssue && !modalDismissed) setShowRestrictionModal(true);
+      }
 
       // Fetch creator application status
       const { data: sessForApply } = await supabase.auth.getSession();
@@ -193,6 +213,7 @@ export default function DashboardPage() {
           const updated = payload.new as ProfileRow;
           if (updated.account_status) setAccountStatus(updated.account_status);
           if (updated.handle) setHandle(updated.handle);
+          if (updated.email_verified != null) setEmailVerified(Boolean(updated.email_verified));
           if (updated.stripe_charges_enabled != null) {
             setChargesEnabled((prev) => {
               if (!prev && updated.stripe_charges_enabled) {
@@ -206,6 +227,23 @@ export default function DashboardPage() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
+  }, [userId]);
+
+  // Re-check email_verified when user returns to this tab
+  // (they may have clicked the confirmation link in another tab)
+  useEffect(() => {
+    if (!userId) return;
+    async function recheckVerification() {
+      if (document.visibilityState !== "visible") return;
+      const { data } = await supabase
+        .from("profiles")
+        .select("email_verified")
+        .eq("user_id", userId!)
+        .maybeSingle();
+      if (data?.email_verified) setEmailVerified(true);
+    }
+    document.addEventListener("visibilitychange", recheckVerification);
+    return () => document.removeEventListener("visibilitychange", recheckVerification);
   }, [userId]);
 
   const onelinkPath = handle ? `/${handle}` : "/(set-handle)";
@@ -276,6 +314,15 @@ export default function DashboardPage() {
   return (
     <div className="space-y-5">
       <StripeReturnSync />
+
+      <StripeRestrictionModal
+        open={showRestrictionModal}
+        onClose={() => {
+          sessionStorage.setItem("stripe_restriction_modal_dismissed", "1");
+          setShowRestrictionModal(false);
+        }}
+        creator={stripeProfile}
+      />
 
       {!emailVerified && userEmail && userId && (
         <VerifyEmailBanner email={userEmail} userId={userId} />

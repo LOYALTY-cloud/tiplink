@@ -59,6 +59,10 @@
     {
       "path": "/api/cron/store-grace-expiry",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/stripe-reconcile",
+      "schedule": "0 * * * *"
     }
   ]
 }
