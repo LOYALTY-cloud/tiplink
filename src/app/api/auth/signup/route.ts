@@ -110,7 +110,7 @@ export async function POST(req: Request) {
       .eq("user_id", authData.user.id);
 
     // Send confirmation email via custom token (reliable — doesn't depend on generateLink)
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://1nelink.com";
     try {
       const token = crypto.randomBytes(32).toString("hex");
       const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
