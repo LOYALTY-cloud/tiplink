@@ -56,12 +56,12 @@ export async function syncStripeAccount(
     const userId = creator.user_id;
 
     // ── 3. Requirement arrays ────────────────────────────────────────────────
-    const requirements = account.requirements ?? {};
-    const currentlyDue = requirements.currently_due ?? [];
-    const eventuallyDue = requirements.eventually_due ?? [];
-    const pastDue = requirements.past_due ?? [];
-    const pendingVerification = requirements.pending_verification ?? [];
-    const disabledReason = requirements.disabled_reason ?? null;
+    const requirements = (account.requirements as unknown as Record<string, unknown>) ?? {};
+    const currentlyDue = (requirements.currently_due as string[]) ?? [];
+    const eventuallyDue = (requirements.eventually_due as string[]) ?? [];
+    const pastDue = (requirements.past_due as string[]) ?? [];
+    const pendingVerification = (requirements.pending_verification as string[]) ?? [];
+    const disabledReason = (requirements.disabled_reason as string | null) ?? null;
 
     // ── 4. Capabilities ──────────────────────────────────────────────────────
     const capabilities = (account.capabilities ?? {}) as Record<string, string>;
@@ -243,7 +243,7 @@ export async function syncStripeAccount(
         reason:            disabledReason ?? "Stripe high-risk flag detected",
         metadata:          { currently_due: currentlyDue, past_due: pastDue, pending_verification: pendingVerification },
         created_at:        new Date().toISOString(),
-      }).then(() => {}).catch(() => {});
+      }).then(() => {}, (_e: unknown) => {});
 
       // Also send live admin notification
       sendAdminAlert({
@@ -253,13 +253,13 @@ export async function syncStripeAccount(
           `\n` +
           `Reason: ${reasonReadable}\n` +
           (pastDueReadable.length > 0
-            ? `\nOverdue items (${pastDueReadable.length}):\n${pastDueReadable.map(i => `  • ${i}`).join("\n")}\n`
+            ? `\nOverdue items (${pastDueReadable.length}):\n${pastDueReadable.map((i: string) => `  • ${i}`).join("\n")}\n`
             : "") +
           (currentlyDueReadable.length > 0
-            ? `\nNeeds to complete (${currentlyDueReadable.length}):\n${currentlyDueReadable.map(i => `  • ${i}`).join("\n")}\n`
+            ? `\nNeeds to complete (${currentlyDueReadable.length}):\n${currentlyDueReadable.map((i: string) => `  • ${i}`).join("\n")}\n`
             : "") +
           (pendingReadable.length > 0
-            ? `\nWaiting on Stripe to verify:\n${pendingReadable.map(i => `  • ${i}`).join("\n")}`
+            ? `\nWaiting on Stripe to verify:\n${pendingReadable.map((i: string) => `  • ${i}`).join("\n")}`
             : ""),
         severity: "critical",
         meta: {
