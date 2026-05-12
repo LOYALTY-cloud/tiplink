@@ -19,6 +19,9 @@ export default function StoreMobileMenu() {
   }, []);
 
   async function logout() {
+    for (const key of ["supabase.auth.token", "supabase.auth.token.0", "supabase.auth.token.1"]) {
+      document.cookie = `${key}=; path=/; max-age=0; samesite=lax`;
+    }
     await supabase.auth.signOut();
     setOpen(false);
     router.push("/login");

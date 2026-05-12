@@ -71,10 +71,11 @@ export default function LoginPage() {
       }
 
       setSuccess(true);
-      // Client-side navigation keeps the Supabase client instance in memory
-      // so the dashboard auth guard finds the session immediately without
-      // needing to re-validate over the network after a full page reload.
-      setTimeout(() => router.push("/dashboard"), 600);
+      // Hard navigation bypasses the Next.js router cache, which can otherwise
+      // serve a stale /dashboard route that doesn't re-run middleware.
+      // getUser() in the dashboard layout is network-based so there's no
+      // localStorage race condition on full reload.
+      setTimeout(() => { window.location.href = "/dashboard"; }, 600);
     } catch {
       setLoading(false);
       setMsg("Network error. Please try again.");
