@@ -116,7 +116,19 @@ export async function POST(req: Request) {
       }).catch(() => {});
     }
 
-    // Set auth cookies so middleware can read the session
+    // Set auth cookies so middleware can read the session.
+    // Pass request cookies to getAll() so the SSR client can discover and
+    // clear any stale session chunks from a previous login — otherwise the
+    // old chunks stay in the browser and confuse the middleware on the next
+    // request, triggering an invalid refresh-token error.
+    const existingCookies = (req.headers.get("cookie") ?? "")
+      .split(";")
+      .flatMap<{ name: string; value: string }>((c) => {
+        const eq = c.indexOf("=");
+        if (eq < 0) return [];
+        return [{ name: c.slice(0, eq).trim(), value: c.slice(eq + 1).trim() }];
+      });
+
     const res = NextResponse.json({
       access_token: data.session.access_token,
       refresh_token: data.session.refresh_token,
@@ -128,7 +140,7 @@ export async function POST(req: Request) {
       {
         cookies: {
           getAll() {
-            return [];
+            return existingCookies;
           },
           setAll(cookiesToSet) {
             for (const { name, value, options } of cookiesToSet) {
