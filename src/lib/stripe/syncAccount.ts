@@ -203,9 +203,22 @@ export async function syncStripeAccount(
       // Also send live admin notification
       sendAdminAlert({
         subject:  `Stripe account restricted: ${stripeAccountId}`,
-        body:     `Creator account ${stripeAccountId} has been flagged as high_risk.\nDisabled reason: ${disabledReason ?? "none"}\nPast due: ${pastDue.join(", ") || "none"}`,
+        body:
+          `Creator account ${stripeAccountId} has been flagged as high_risk.\n` +
+          `Disabled reason: ${disabledReason ?? "none"}\n` +
+          (pastDue.length > 0 ? `Past due (${pastDue.length}): ${pastDue.join(", ")}\n` : "") +
+          (currentlyDue.length > 0 ? `Currently due (${currentlyDue.length}): ${currentlyDue.join(", ")}\n` : "") +
+          (pendingVerification.length > 0 ? `Pending verification: ${pendingVerification.join(", ")}` : ""),
         severity: "critical",
-        meta:     { stripe_account_id: stripeAccountId, creator_id: creatorId, disabled_reason: disabledReason ?? "none" },
+        meta: {
+          stripe_account_id:  stripeAccountId,
+          creator_id:         creatorId,
+          disabled_reason:    disabledReason ?? "none",
+          past_due_count:     pastDue.length,
+          currently_due_count: currentlyDue.length,
+          charges_enabled:    String(chargesEnabled),
+          payouts_enabled:    String(payoutsEnabled),
+        },
       });
     }
 
