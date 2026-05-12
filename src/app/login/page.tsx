@@ -55,9 +55,6 @@ export default function LoginPage() {
         return;
       }
 
-      // Clear any stale session from a previous user before setting the new one.
-      await supabase.auth.signOut({ scope: "local" });
-
       // Set session from server-issued tokens
       const { error: sessionError } = await supabase.auth.setSession({
         access_token: body.access_token,
