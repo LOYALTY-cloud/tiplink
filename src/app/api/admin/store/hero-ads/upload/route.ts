@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   try {
     const admin = await getAdminFromRequest(req);
     if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    requireRole(admin.role, ["owner", "super_admin"]);
+    requireRole(admin.role, ["owner", "super_admin", "moderator"]);
 
     let formData: FormData;
     try {

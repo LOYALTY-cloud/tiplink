@@ -134,6 +134,36 @@ const CATEGORIES: Category[] = [
     ],
   },
   {
+    icon: "🎨",
+    label: "Themes & Store",
+    articles: [
+      {
+        title: "🎨 How theme monitoring works",
+        body: "All themes submitted to the 1neLink marketplace are reviewed by our moderation team before going live and may be re-reviewed at any time.\n\nWhat we check:\n• Appropriate content (no offensive, explicit, or hateful imagery)\n• Correct categorization and accurate previews\n• No copyright or trademark violations\n• No misleading titles or descriptions\n• Functional design that meets quality standards\n\nThemes that pass review are published to the marketplace. Themes that violate our guidelines will be removed and the creator will be notified.",
+      },
+      {
+        title: "⚠️ Warnings, strikes & restrictions",
+        body: "We use a progressive enforcement system to keep the marketplace fair.\n\nWarning (1st violation):\n• You will receive an in-app and email notification\n• The theme is removed from the marketplace\n• No immediate penalty to your creator status\n• You may revise and resubmit the theme\n\nStrike 1 (2nd violation):\n• Theme is permanently removed\n• A formal strike is recorded on your account\n• You will be notified with the reason\n• Continued access to Theme Builder is allowed\n\nStrike 2 (3rd violation):\n• Second strike recorded\n• Theme Builder access may be temporarily suspended pending review\n• You will receive a mandatory review notice\n\nRestriction (3+ strikes or severe violation):\n• Your creator account is restricted\n• Theme submission is disabled\n• Existing themes may be unlisted\n• You may appeal by submitting a support ticket\n\nSevere violations (e.g. explicit content, illegal material) will result in immediate restriction without prior warning.",
+      },
+      {
+        title: "🚫 What is not allowed in themes",
+        body: "The following are prohibited in any theme submitted to the marketplace:\n\n• Nudity or sexually explicit imagery\n• Hate symbols, slurs, or discriminatory content\n• Content that glorifies or promotes violence\n• Copyrighted or trademarked assets you do not own\n• Misleading previews that don't match the actual theme\n• Malicious code or links embedded in theme assets\n• Impersonation of other creators or brands\n\nWhen in doubt, do not submit. You can always contact support before submitting a theme if you're unsure.",
+      },
+      {
+        title: "📩 How to appeal a strike or restriction",
+        body: "If you believe a strike or restriction was applied in error, you can appeal.\n\nSteps:\n1. Go to Dashboard → Support\n2. Submit a ticket with the subject \"Theme Strike Appeal\"\n3. Include the theme name, the violation notice you received, and your explanation\n4. Our moderation team will review within 3–5 business days\n\nAppeals are reviewed by a senior moderator. If your appeal is approved, the strike will be removed and your theme may be reinstated.",
+      },
+      {
+        title: "🛍️ How to list a theme in the store",
+        body: "Approved creators can submit themes to the 1neLink marketplace.\n\nSteps:\n1. Go to Dashboard → Theme Builder\n2. Create or edit your theme\n3. Tap \"Submit for Review\"\n4. Add a title, description, price, and preview image\n5. Submit — our team will review within 24–48 hours\n\nOnce approved, your theme will appear in the marketplace and you'll earn a share of each sale. Make sure your theme meets our guidelines before submitting to avoid delays.",
+      },
+      {
+        title: "💵 How theme earnings work",
+        body: "When another creator purchases your theme, you earn a share of the sale price.\n\nBreakdown:\n• You set the price when submitting your theme\n• Platform takes a small percentage as a marketplace fee\n• Your earnings are added to your wallet balance\n• You can withdraw theme earnings the same way as tip earnings\n\nYou can track your theme sales and earnings in Dashboard → Wallet → Transactions (filter by \"Theme Sale\").",
+      },
+    ],
+  },
+  {
     icon: "❓",
     label: "Getting Started",
     articles: [

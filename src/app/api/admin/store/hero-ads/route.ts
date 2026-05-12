@@ -147,7 +147,7 @@ export async function POST(req: Request) {
   try {
     const admin = await getAdminFromRequest(req);
     if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    requireRole(admin.role, ["owner", "super_admin"]);
+    requireRole(admin.role, ["owner", "super_admin", "moderator"]);
 
     const body = (await req.json()) as HeroAdInput;
     const payload = parseHeroPayload(body, true);
@@ -173,7 +173,7 @@ export async function PATCH(req: Request) {
   try {
     const admin = await getAdminFromRequest(req);
     if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    requireRole(admin.role, ["owner", "super_admin"]);
+    requireRole(admin.role, ["owner", "super_admin", "moderator"]);
 
     const body = (await req.json()) as HeroAdInput & { id?: unknown };
     if (typeof body.id !== "string" || !body.id.trim()) {
@@ -204,7 +204,7 @@ export async function DELETE(req: Request) {
   try {
     const admin = await getAdminFromRequest(req);
     if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    requireRole(admin.role, ["owner", "super_admin"]);
+    requireRole(admin.role, ["owner", "super_admin", "moderator"]);
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id")?.trim();

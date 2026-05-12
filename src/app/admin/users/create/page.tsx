@@ -6,6 +6,7 @@ import { ui } from "@/lib/ui";
 import { getAdminHeaders } from "@/lib/auth/adminSession";
 
 const ROLES = [
+  { value: "moderator", label: "Moderator" },
   { value: "support_admin", label: "Support Admin" },
   { value: "finance_admin", label: "Finance Admin" },
   { value: "super_admin", label: "Super Admin" },

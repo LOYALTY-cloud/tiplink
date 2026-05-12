@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   try {
     const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    requireRole(session.role, ["owner", "super_admin", "finance_admin"]);
+    requireRole(session.role, ["owner", "super_admin", "finance_admin", "moderator"]);
 
     const url = new URL(req.url);
     const userId = url.searchParams.get("user_id")?.trim() || null;

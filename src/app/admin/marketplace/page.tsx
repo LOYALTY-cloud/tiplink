@@ -57,7 +57,8 @@ export default function MarketplaceModerationPage() {
   const [actionState, setActionState] = useState<ActionState>("idle");
   const [flagReason, setFlagReason] = useState("");
   const [strikeReason, setStrikeReason] = useState("");
-  const [actionPanel, setActionPanel] = useState<"flag" | "strike" | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [actionPanel, setActionPanel] = useState<"flag" | "strike" | "reject" | null>(null);
   const [toast, setToast] = useState("");
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -158,6 +159,30 @@ export default function MarketplaceModerationPage() {
         setStrikeReason("");
       } else {
         showToast("Failed to issue strike.");
+      }
+    } finally {
+      setActionState("idle");
+    }
+  }
+
+  async function doReject(themeId: string) {
+    if (!rejectReason.trim()) return;
+    setActionState("loading");
+    try {
+      const res = await fetch("/api/admin/marketplace/reject", {
+        method: "POST",
+        headers: { ...getAdminHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ themeId, reason: rejectReason.trim() }),
+      });
+      if (res.ok) {
+        showToast("Theme rejected — creator notified 📧");
+        setThemes((prev) => prev.filter((t) => t.id !== themeId));
+        setSelected(null);
+        setActionPanel(null);
+        setRejectReason("");
+      } else {
+        const json = await res.json();
+        showToast(json.error ?? "Failed to reject theme.");
       }
     } finally {
       setActionState("idle");
@@ -348,6 +373,34 @@ export default function MarketplaceModerationPage() {
                 </div>
               )}
 
+              {actionPanel === "reject" && (
+                <div className="mb-4 space-y-2">
+                  <label className={`${ui.label} block`}>Rejection Reason <span className="text-red-400">*</span></label>
+                  <p className="text-xs text-white/40">This will be sent to the creator via email.</p>
+                  <textarea
+                    className={`${ui.input} min-h-[80px] resize-none text-sm`}
+                    placeholder="Explain why this theme is being rejected (e.g. explicit content, copyright violation, misleading preview)…"
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      className={`${ui.btnGhost} text-sm flex-1`}
+                      onClick={() => setActionPanel(null)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="flex-1 rounded-xl px-4 py-2 bg-red-600/20 border border-red-600/30 text-red-400 text-sm font-semibold hover:bg-red-600/30 transition disabled:opacity-50"
+                      disabled={!rejectReason.trim() || actionState === "loading"}
+                      onClick={() => doReject(selected.id)}
+                    >
+                      {actionState === "loading" ? "Rejecting…" : "🚫 Reject & Notify"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {actionPanel === "strike" && (
                 <div className="mb-4 space-y-2">
                   <label className={`${ui.label} block`}>Strike Reason</label>
@@ -384,6 +437,12 @@ export default function MarketplaceModerationPage() {
                     onClick={() => doApprove(selected.id)}
                   >
                     {actionState === "loading" ? "…" : "✅ Approve"}
+                  </button>
+                  <button
+                    className="rounded-xl px-3 py-2.5 bg-red-600/20 border border-red-600/30 text-red-400 text-sm font-semibold hover:bg-red-600/30 transition col-span-2"
+                    onClick={() => setActionPanel("reject")}
+                  >
+                    🚫 Reject
                   </button>
                   <button
                     className="rounded-xl px-3 py-2.5 bg-amber-500/20 border border-amber-500/30 text-amber-400 text-sm font-semibold hover:bg-amber-500/30 transition"

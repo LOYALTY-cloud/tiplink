@@ -59,7 +59,7 @@ export async function POST(req: Request) {
   // Verify theme ownership
   const { data: theme } = await supabaseAdmin
     .from("themes")
-    .select("id, price, is_market_active, is_deleted")
+    .select("id, price, is_market_active, is_deleted, status")
     .eq("id", themeId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -70,6 +70,13 @@ export async function POST(req: Request) {
 
   if ((theme as Record<string, unknown>).is_deleted) {
     return NextResponse.json({ error: "Deleted themes cannot be re-published" }, { status: 400 });
+  }
+
+  if (publish && (theme as Record<string, unknown>).status === "rejected") {
+    return NextResponse.json(
+      { error: "This theme was rejected by our moderation team and cannot be published. Please revise and resubmit." },
+      { status: 403 }
+    );
   }
 
   // Can't publish a free theme (no price set)

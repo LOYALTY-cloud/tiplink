@@ -171,10 +171,18 @@ function AdminUsersContent() {
 
   const filtered = search
     ? users.filter(
-        (u) =>
-          u.handle?.toLowerCase().includes(search.toLowerCase()) ||
-          u.display_name?.toLowerCase().includes(search.toLowerCase()) ||
-          u.id.includes(search)
+        (u) => {
+          const q = search.toLowerCase();
+          return (
+            u.handle?.toLowerCase().includes(q) ||
+            u.display_name?.toLowerCase().includes(q) ||
+            u.email?.toLowerCase().includes(q) ||
+            u.first_name?.toLowerCase().includes(q) ||
+            u.last_name?.toLowerCase().includes(q) ||
+            u.id.includes(q) ||
+            u.user_id?.includes(q)
+          );
+        }
       )
     : users;
 

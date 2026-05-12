@@ -54,6 +54,7 @@ export type EmailType =
   | "ELITE_CREATOR_REJECTED"
   /* ── Theme Store ─────────────────────────────────── */
   | "MARKETPLACE_STRIKE"
+  | "THEME_REJECTED"
   /* ── Notification engine (passthrough) ───────────── */
   | "NOTIFICATION";
 
@@ -87,6 +88,7 @@ const TYPE_TO_CATEGORY: Record<EmailType, EmailCategory> = {
   ELITE_CREATOR_REJECTED: "alerts",
   // Theme Store
   MARKETPLACE_STRIKE: "alerts",
+  THEME_REJECTED: "support",
   // Notification engine passthrough
   NOTIFICATION: "security", // overridden at call site
 };

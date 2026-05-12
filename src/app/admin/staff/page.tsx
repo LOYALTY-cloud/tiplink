@@ -73,7 +73,7 @@ export default function AdminStaffPage() {
   useEffect(() => {
     const s = getAdminSession();
     if (!s) { router.replace("/admin/login"); return; }
-    const allowed = ["owner", "super_admin", "finance_admin", "support_admin"];
+    const allowed = ["owner", "super_admin", "finance_admin", "support_admin", "moderator"];
     if (!allowed.includes(s.role)) { router.replace("/admin"); return; }
     loadAdmins();
   }, []);

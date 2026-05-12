@@ -8,7 +8,7 @@ import { sendEmail } from "@/lib/emailService";
 
 export const runtime = "nodejs";
 
-const ADMIN_ROLES = ["owner", "super_admin", "finance_admin", "support_admin"];
+const ADMIN_ROLES = ["owner", "super_admin", "finance_admin", "support_admin", "moderator"];
 
 export async function POST(req: Request) {
   try {
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     }
 
     const displayName = `${firstName.trim()} ${lastName.trim()}`;
-    const roleName = role === "owner" ? "Owner" : role === "super_admin" ? "Super Admin" : role === "finance_admin" ? "Finance Admin" : "Support Agent";
+    const roleName = role === "owner" ? "Owner" : role === "super_admin" ? "Super Admin" : role === "finance_admin" ? "Finance Admin" : role === "moderator" ? "Moderator" : "Support Agent";
 
     // Generate unique admin ID (retry on collision)
     let adminId = generateAdminId(role);
