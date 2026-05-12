@@ -2,9 +2,11 @@
 
 import { useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -69,10 +71,10 @@ export default function LoginPage() {
       }
 
       setSuccess(true);
-      // Use hard navigation to guarantee the session cookies set server-side
-      // are sent with the next request. router.push() can silently fail after
-      // setSession() in Next.js App Router.
-      setTimeout(() => { window.location.href = "/dashboard"; }, 800);
+      // Client-side navigation keeps the Supabase client instance in memory
+      // so the dashboard auth guard finds the session immediately without
+      // needing to re-validate over the network after a full page reload.
+      setTimeout(() => router.push("/dashboard"), 600);
     } catch {
       setLoading(false);
       setMsg("Network error. Please try again.");
