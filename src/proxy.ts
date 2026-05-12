@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 import { jwtVerify } from "jose";
 import { isOwnerEliteEmail } from "@/lib/creatorAccess";
 
@@ -110,10 +111,23 @@ export async function proxy(req: NextRequest) {
   // ── Dashboard route protection ──────────────────────────────────────────
   if (pathname.startsWith("/dashboard")) {
     const res = NextResponse.next({ request: { headers: requestHeaders } });
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() { return req.cookies.getAll(); },
+          setAll(cookiesToSet) {
+            for (const { name, value, options } of cookiesToSet) {
+              req.cookies.set(name, value);
+              res.cookies.set(name, value, options);
+            }
+          },
+        },
+      }
+    );
 
-    // Decode session directly from cookies — no SSR client, no network call,
-    // no __loadSession() path that calls _callRefreshToken() on stale cookies.
-    const user = getSessionUser(req);
+    const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
       const loginUrl = req.nextUrl.clone();
@@ -156,58 +170,6 @@ export async function proxy(req: NextRequest) {
   }
 
   return NextResponse.next({ request: { headers: requestHeaders } });
-}
-
-/**
- * Decode the Supabase session stored in request cookies and return the user ID
- * from the JWT payload — without any network calls or SSR client initialization.
- *
- * The @supabase/ssr package stores sessions as:
- *   "base64-" + base64url(JSON.stringify(session))  — in one or more chunks:
- *   supabase.auth.token           (when it fits in one cookie)
- *   supabase.auth.token.0, .1 …  (when it needs multiple cookies)
- *
- * We only decode the payload to check expiry and extract the sub claim.
- * Signature verification would require the project JWT secret (not available
- * in env); the redirect decision is low-risk since every API route still
- * validates auth independently with the service-role key.
- */
-function getSessionUser(req: NextRequest): { id: string; email?: string } | null {
-  const KEY = "supabase.auth.token";
-  // Collect chunked or non-chunked cookie value
-  let raw = req.cookies.get(KEY)?.value ?? null;
-  if (!raw) {
-    const parts: string[] = [];
-    for (let i = 0; ; i++) {
-      const c = req.cookies.get(`${KEY}.${i}`)?.value;
-      if (!c) break;
-      parts.push(c);
-    }
-    if (parts.length) raw = parts.join("");
-  }
-  if (!raw) return null;
-  try {
-    // SSR package prefixes base64url-encoded values with "base64-"
-    let json = raw;
-    if (raw.startsWith("base64-")) {
-      json = Buffer.from(raw.slice(7), "base64url").toString("utf-8");
-    }
-    const session = JSON.parse(json) as { access_token?: string; expires_at?: number } | null;
-    const { access_token, expires_at } = session ?? {};
-    if (!access_token || !expires_at) return null;
-    // Reject if within the same 90 s expiry margin Supabase uses internally
-    if (expires_at * 1000 - Date.now() < 90_000) return null;
-    // Decode JWT payload to extract sub (user ID) — base64url middle segment
-    const payloadB64 = access_token.split(".")[1];
-    if (!payloadB64) return null;
-    const payload = JSON.parse(
-      Buffer.from(payloadB64, "base64url").toString("utf-8")
-    ) as { sub?: string; email?: string } | null;
-    if (!payload?.sub) return null;
-    return { id: payload.sub, email: payload.email };
-  } catch {
-    return null;
-  }
 }
 
 export const config = {
