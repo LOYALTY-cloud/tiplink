@@ -88,7 +88,9 @@ export default function DashboardPage() {
         .maybeSingle()
         .returns<ProfileRow | null>();
 
-      setEmailVerified(Boolean(prof?.email_verified));
+      // Treat as verified if either our profiles column OR Supabase's own
+      // email_confirmed_at is set — whichever path the user took to verify.
+      setEmailVerified(Boolean(prof?.email_verified) || Boolean(user.email_confirmed_at));
 
       setHandle(prof?.handle ?? null);
       setAccountStatus(prof?.account_status ?? null);
@@ -235,12 +237,12 @@ export default function DashboardPage() {
     if (!userId) return;
     async function recheckVerification() {
       if (document.visibilityState !== "visible") return;
-      const { data } = await supabase
-        .from("profiles")
-        .select("email_verified")
-        .eq("user_id", userId!)
-        .maybeSingle();
-      if (data?.email_verified) setEmailVerified(true);
+      // Check both our profiles column and Supabase's own email_confirmed_at
+      const [{ data: prof }, { data: userRes }] = await Promise.all([
+        supabase.from("profiles").select("email_verified").eq("user_id", userId!).maybeSingle(),
+        supabase.auth.getUser(),
+      ]);
+      if (prof?.email_verified || userRes.user?.email_confirmed_at) setEmailVerified(true);
     }
     document.addEventListener("visibilitychange", recheckVerification);
     return () => document.removeEventListener("visibilitychange", recheckVerification);
