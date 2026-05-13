@@ -23,10 +23,12 @@ export default function StripeEmbeddedOnboarding({
   fetchClientSecret,
   mode = "onboarding",
   onRetry,
+  onExit,
 }: {
   fetchClientSecret: () => Promise<string>;
   mode?: "onboarding" | "manage";
   onRetry?: () => void;
+  onExit?: () => void;
 }) {
   const [connectInstance, setConnectInstance] = useState<StripeConnectInstance | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
@@ -157,7 +159,7 @@ export default function StripeEmbeddedOnboarding({
         {mode === "manage" ? (
           <ConnectAccountManagement />
         ) : (
-          <ConnectAccountOnboarding onExit={() => {}} />
+          <ConnectAccountOnboarding onExit={() => { void onExit?.(); }} />
         )}
       </div>
     </ConnectComponentsProvider>

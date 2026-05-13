@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 const StripeEmbeddedOnboarding = dynamic(
   () => import("@/components/StripeEmbeddedOnboarding"),
@@ -21,6 +21,7 @@ type CreatorCategoriesResponse = {
 
 function OnboardingContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const isManage = searchParams.get("manage") === "1";
   const [clientSecret, setClientSecret] = useState("");
   const [loading, setLoading] = useState(true);
@@ -439,6 +440,23 @@ function OnboardingContent() {
           fetchClientSecret={fetchStripeSecret}
           mode={isManage ? "manage" : "onboarding"}
           onRetry={() => setStripeKey((k) => k + 1)}
+          onExit={async () => {
+            // Sync Stripe account status immediately so the dashboard reflects
+            // the new enabled state without waiting for the webhook.
+            try {
+              const { data: sess } = await supabase.auth.getSession();
+              const token = sess.session?.access_token;
+              if (token) {
+                await fetch("/api/stripe/connect/sync", {
+                  method: "POST",
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+              }
+            } catch {
+              // Non-fatal — webhook will catch up
+            }
+            router.push("/dashboard");
+          }}
         />
       ) : (
         <div className="rounded-xl border border-white/[0.12] bg-white/[0.03] p-5 mt-6 space-y-3">
