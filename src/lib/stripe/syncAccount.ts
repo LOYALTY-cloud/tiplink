@@ -253,13 +253,13 @@ export async function syncStripeAccount(
           `\n` +
           `Reason: ${reasonReadable}\n` +
           (pastDueReadable.length > 0
-            ? `\nOverdue items (${pastDueReadable.length}):\n${pastDueReadable.map((i: string) => `  • ${i}`).join("\n")}\n`
+            ? `\nOverdue items (${pastDueReadable.length}):\n${pastDueReadable.map(i => `  • ${i}`).join("\n")}\n`
             : "") +
           (currentlyDueReadable.length > 0
-            ? `\nNeeds to complete (${currentlyDueReadable.length}):\n${currentlyDueReadable.map((i: string) => `  • ${i}`).join("\n")}\n`
+            ? `\nNeeds to complete (${currentlyDueReadable.length}):\n${currentlyDueReadable.map(i => `  • ${i}`).join("\n")}\n`
             : "") +
           (pendingReadable.length > 0
-            ? `\nWaiting on Stripe to verify:\n${pendingReadable.map((i: string) => `  • ${i}`).join("\n")}`
+            ? `\nWaiting on Stripe to verify:\n${pendingReadable.map(i => `  • ${i}`).join("\n")}`
             : ""),
         severity: "critical",
         meta: {
