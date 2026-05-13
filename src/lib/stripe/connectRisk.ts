@@ -63,7 +63,7 @@ export function evaluateStripeConnectPolicy(account: Stripe.Account): StripeConn
     severity = "warning";
   }
 
-  const allowTips = state !== "high_risk" && state !== "disconnected" && !!account.charges_enabled;
+  const allowTips = state !== "high_risk" && (state as string) !== "disconnected" && !!account.charges_enabled;
   const allowPayouts = state === "safe" && !!account.payouts_enabled;
 
   return {
