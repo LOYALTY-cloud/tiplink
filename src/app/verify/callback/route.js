@@ -13,13 +13,32 @@ export async function GET(request) {
 
   if (code || (tokenHash && type)) {
     const supabase = await createSupabaseRouteClient();
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
 
+    let userId = null;
     if (code) {
-      await supabase.auth.exchangeCodeForSession(code);
-      return NextResponse.redirect(`${baseUrl}/verify?status=success`);
+      const { data } = await supabase.auth.exchangeCodeForSession(code);
+      userId = data?.user?.id ?? null;
+    } else {
+      const { data } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
+      userId = data?.user?.id ?? null;
     }
 
-    await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
+    // Sync the email_verified flag on our profiles table so the dashboard
+    // banner is dismissed immediately — Supabase's own auth.users.email_confirmed_at
+    // is set by the calls above but our custom column is what the banner reads.
+    if (userId) {
+      const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(userId);
+      const email = authUser?.user?.email ?? null;
+      await supabaseAdmin
+        .from("profiles")
+        .update({ email_verified: true, ...(email ? { email } : {}) })
+        .eq("user_id", userId);
+    }
+
     return NextResponse.redirect(`${baseUrl}/verify?status=success`);
   }
 

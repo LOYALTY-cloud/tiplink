@@ -25,8 +25,17 @@ export async function POST(req: Request) {
     const userId = authRes.user.id;
     const email = authRes.user.email;
 
+    // Derive a readable handle from the email prefix instead of using the raw UUID.
+    // Strip characters not allowed in handles (only a-z, 0-9, _) and truncate to 30 chars.
+    // Fall back to a short alphanumeric slice of the userId if the prefix is too short.
+    const emailPrefix = (email || "").split("@")[0] || "";
+    const cleanedPrefix = emailPrefix.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 30);
+    const seedHandle = cleanedPrefix.length >= 3
+      ? cleanedPrefix
+      : `user${userId.replace(/-/g, "").slice(0, 8)}`;
+
     // Ensure profile row exists (must come before user_settings due to FK constraint)
-    const profileData: Record<string, unknown> = { user_id: userId, handle: userId };
+    const profileData: Record<string, unknown> = { user_id: userId, handle: seedHandle };
     if (email) {
       profileData.email = email;
     }
