@@ -82,7 +82,7 @@ export default function DashboardPage() {
         .select(
           "handle, account_status, status_reason, stripe_account_id, stripe_charges_enabled, email_verified, is_creator, " +
           "stripe_payouts_enabled, stripe_disabled_reason, stripe_currently_due, stripe_pending_verification, " +
-          "stripe_capabilities, monetization_enabled, verification_status"
+          "stripe_capabilities, monetization_enabled, stripe_verification_status"
         )
         .eq("user_id", user.id)
         .maybeSingle()
@@ -106,7 +106,7 @@ export default function DashboardPage() {
           !prof?.stripe_payouts_enabled ||
           (prof as any)?.stripe_currently_due?.length > 0 ||
           (prof as any)?.stripe_disabled_reason ||
-          (prof as any)?.verification_status === "restricted";
+          (prof as any)?.stripe_verification_status === "restricted";
         const modalDismissed = sessionStorage.getItem("stripe_restriction_modal_dismissed");
         if (hasIssue && !modalDismissed) setShowRestrictionModal(true);
       }
