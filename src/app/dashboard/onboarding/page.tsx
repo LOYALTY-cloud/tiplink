@@ -112,7 +112,7 @@ function OnboardingContent() {
         throw new Error(message);
       }
 
-      setClientSecret(j.client_secret || "");
+      setClientSecret(String(j.client_secret || ""));
       return true;
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);

@@ -52,7 +52,7 @@ export async function GET(req: Request) {
     .select("id, name, base_price, price, upgrade_price, unlock_count, is_verified, created_at, config, category:theme_categories(name, slug), store:creator_stores(store_name, slug, featured, total_sales, is_active)")
     .eq("is_public", true)
     .eq("is_market_active", true)
-    .eq("status", "approved")
+    .not("status", "in", '("rejected","pending_review","flagged")')
     .not("store_id", "is", null)
     .order("created_at", { ascending: false })
     .limit(200);

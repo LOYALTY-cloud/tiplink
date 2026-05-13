@@ -157,7 +157,7 @@ export default function StripeEmbeddedOnboarding({
         {mode === "manage" ? (
           <ConnectAccountManagement />
         ) : (
-          <ConnectAccountOnboarding />
+          <ConnectAccountOnboarding onExit={() => {}} />
         )}
       </div>
     </ConnectComponentsProvider>
