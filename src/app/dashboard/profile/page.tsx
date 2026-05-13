@@ -52,8 +52,16 @@ export default function ProfilePage() {
 
       if (prof) {
         setProfileId(prof.id);
-        setHandle(prof.handle || "");
-        setSavedHandle(prof.handle || "");
+        // If the stored handle is still the raw UUID (legacy seed from create-user),
+        // treat it as unset and pre-fill with an email-derived suggestion instead.
+        const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const isUuidHandle = UUID_RE.test(prof.handle || "");
+        const suggestedFromEmail = ((user.email || "").split("@")[0] || "")
+          .toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 30) || "my1nelink";
+        setHandle(isUuidHandle ? suggestedFromEmail : (prof.handle || ""));
+        // Keep savedHandle empty when we're overriding a UUID so the form
+        // treats this as a first-time handle set (no change-lock applied).
+        setSavedHandle(isUuidHandle ? "" : (prof.handle || ""));
         setDisplayName(prof.display_name || "");
         setBio(prof.bio || "");
         setLocation(prof.location || "");
