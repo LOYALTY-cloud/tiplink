@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { trackLogin, generateDeviceHash, isNewDevice } from "@/lib/loginTracker";
@@ -116,32 +115,42 @@ export async function POST(req: Request) {
       }).catch(() => {});
     }
 
-    // Set auth cookies so middleware can read the session
     const res = NextResponse.json({
       access_token: data.session.access_token,
       refresh_token: data.session.refresh_token,
     });
 
-    const supabaseSsr = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return [];
-          },
-          setAll(cookiesToSet) {
-            for (const { name, value, options } of cookiesToSet) {
-              res.cookies.set(name, value, options);
-            }
-          },
-        },
-      }
-    );
-
-    await supabaseSsr.auth.setSession({
+    // Write the session cookie directly — avoids the extra GET /user network
+    // call that supabaseSsr.auth.setSession() makes internally before it writes
+    // cookies. If that call is slow or fails, no cookies get set and the
+    // middleware rejects the next /dashboard request.
+    //
+    // Format matches exactly what @supabase/ssr writes:
+    //   "base64-" + base64url(JSON.stringify(session))
+    // The getSessionUser() function in proxy.ts decodes this same format.
+    const sessionPayload = JSON.stringify({
       access_token: data.session.access_token,
       refresh_token: data.session.refresh_token,
+      expires_at: data.session.expires_at,
+      token_type: "bearer",
+    });
+    const cookieValue = "base64-" + Buffer.from(sessionPayload, "utf-8").toString("base64url");
+
+    // Clear any stale session chunks from a previous login before setting new one
+    const existingCookieNames = (req.headers.get("cookie") ?? "")
+      .split(";")
+      .map((c) => c.slice(0, c.indexOf("=")).trim())
+      .filter((n) => n.startsWith("supabase.auth.token"));
+
+    for (const stale of existingCookieNames) {
+      res.cookies.set(stale, "", { path: "/", maxAge: 0, sameSite: "lax" });
+    }
+
+    res.cookies.set("supabase.auth.token", cookieValue, {
+      path: "/",
+      maxAge: 400 * 24 * 60 * 60, // 400 days — matches @supabase/ssr default
+      sameSite: "lax",
+      httpOnly: false,             // must be readable by client JS
     });
 
     return res;

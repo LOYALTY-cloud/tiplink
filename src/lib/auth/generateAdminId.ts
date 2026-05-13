@@ -5,6 +5,7 @@ export const ROLE_PREFIXES: Record<string, string> = {
   super_admin: "ADM",
   finance_admin: "FIN",
   support_admin: "SUP",
+  moderator: "MOD",
 };
 
 /** Cryptographically secure random string from a character set */

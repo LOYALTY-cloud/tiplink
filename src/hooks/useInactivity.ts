@@ -26,6 +26,9 @@ export function useInactivity(timeout = 15 * 60 * 1000, warningTime = 14 * 60 * 
         await fetch("/api/admin/logout", { method: "POST" }).catch(() => {})
       }
       await supabase.auth.signOut()
+      for (const key of ["supabase.auth.token", "supabase.auth.token.0", "supabase.auth.token.1"]) {
+        document.cookie = `${key}=; path=/; max-age=0; samesite=lax`;
+      }
       window.location.href = "/login"
     }, timeout)
   }, [timeout, warningTime])

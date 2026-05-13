@@ -93,6 +93,12 @@ export default function DashboardLayout({
   }, [router, pathname]);
 
   const logout = async () => {
+    // Clear the HTTP cookie set by the login API — client-side signOut only
+    // clears localStorage and doesn't know about server-set cookies.
+    // If left behind, the stale cookie confuses the middleware on next login.
+    for (const key of ["supabase.auth.token", "supabase.auth.token.0", "supabase.auth.token.1"]) {
+      document.cookie = `${key}=; path=/; max-age=0; samesite=lax`;
+    }
     await supabase.auth.signOut();
     router.replace("/login");
   };

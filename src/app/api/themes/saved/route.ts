@@ -21,7 +21,7 @@ export async function GET(req: Request) {
 
     const { data, error } = await supabaseAdmin
       .from("themes")
-      .select("id, name, config, is_active, created_at, price, is_public, unlock_count, is_market_active, version, parent_theme_id")
+      .select("id, name, config, is_active, created_at, price, is_public, unlock_count, is_market_active, version, parent_theme_id, status, moderation_reason")
       .eq("user_id", userId)
       .neq("is_deleted", true)
       .neq("is_applied_unlock", true)

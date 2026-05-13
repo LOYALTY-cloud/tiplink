@@ -10,6 +10,7 @@ const ASSIGNABLE_ROLES = [
   "super_admin",
   "finance_admin",
   "support_admin",
+  "moderator",
   "user",
 ];
 

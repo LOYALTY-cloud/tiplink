@@ -57,9 +57,6 @@ export default function LoginPage() {
         return;
       }
 
-      // Clear any stale session from a previous user before setting the new one.
-      await supabase.auth.signOut({ scope: "local" });
-
       // Set session from server-issued tokens
       const { error: sessionError } = await supabase.auth.setSession({
         access_token: body.access_token,
@@ -74,9 +71,11 @@ export default function LoginPage() {
       }
 
       setSuccess(true);
-      // Cookies are set server-side by the login API, so the middleware
-      // will see the session immediately. Small delay for the UI transition.
-      setTimeout(() => router.push("/dashboard"), 600);
+      // Hard navigation bypasses the Next.js router cache, which can otherwise
+      // serve a stale /dashboard route that doesn't re-run middleware.
+      // getUser() in the dashboard layout is network-based so there's no
+      // localStorage race condition on full reload.
+      setTimeout(() => { window.location.href = "/dashboard"; }, 600);
     } catch {
       setLoading(false);
       setMsg("Network error. Please try again.");

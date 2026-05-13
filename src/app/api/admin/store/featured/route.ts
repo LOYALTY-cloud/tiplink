@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   try {
     const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    requireRole(session.role, ["owner", "super_admin"]);
+    requireRole(session.role, ["owner", "super_admin", "moderator"]);
 
     let body: { store_id?: unknown; featured?: unknown };
     try {

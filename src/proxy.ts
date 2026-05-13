@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 import { jwtVerify } from "jose";
 import { isOwnerEliteEmail } from "@/lib/creatorAccess";
 
@@ -111,23 +110,12 @@ export async function proxy(req: NextRequest) {
   // ── Dashboard route protection ──────────────────────────────────────────
   if (pathname.startsWith("/dashboard")) {
     const res = NextResponse.next({ request: { headers: requestHeaders } });
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() { return req.cookies.getAll(); },
-          setAll(cookiesToSet) {
-            for (const { name, value, options } of cookiesToSet) {
-              req.cookies.set(name, value);
-              res.cookies.set(name, value, options);
-            }
-          },
-        },
-      }
-    );
 
-    const { data: { user } } = await supabase.auth.getUser();
+    // Read session directly from the cookie written by the login API.
+    // The login API encodes: "base64-" + base64url(JSON.stringify(session)).
+    // No network call — avoids __loadSession() / _callRefreshToken() / GET /user
+    // races that cause the middleware to intermittently see no session.
+    const user = getSessionUser(req);
 
     if (!user) {
       const loginUrl = req.nextUrl.clone();
@@ -170,6 +158,48 @@ export async function proxy(req: NextRequest) {
   }
 
   return NextResponse.next({ request: { headers: requestHeaders } });
+}
+
+/**
+ * Decode the session cookie written by the login API and return the user.
+ * The login API writes: "base64-" + base64url(JSON.stringify({ access_token, refresh_token, expires_at, token_type }))
+ * We decode this locally — no network call, no Supabase SSR client, no refresh-token logic.
+ * Each API route independently validates auth with the service-role key, so
+ * skipping JWT signature verification here is safe for a page-routing guard.
+ */
+function getSessionUser(req: NextRequest): { id: string; email?: string } | null {
+  const KEY = "supabase.auth.token";
+  let raw = req.cookies.get(KEY)?.value ?? null;
+  // Handle chunked cookies (.0, .1, …) just in case
+  if (!raw) {
+    const parts: string[] = [];
+    for (let i = 0; ; i++) {
+      const c = req.cookies.get(`${KEY}.${i}`)?.value;
+      if (!c) break;
+      parts.push(c);
+    }
+    if (parts.length) raw = parts.join("");
+  }
+  if (!raw) return null;
+  try {
+    const json = raw.startsWith("base64-")
+      ? Buffer.from(raw.slice(7), "base64url").toString("utf-8")
+      : decodeURIComponent(raw);
+    const session = JSON.parse(json) as { access_token?: string; expires_at?: number } | null;
+    if (!session?.access_token || !session?.expires_at) return null;
+    // Reject tokens within the 90 s expiry margin
+    if (session.expires_at * 1000 - Date.now() < 90_000) return null;
+    // Decode JWT payload (base64url middle segment) to get sub + email
+    const payloadB64 = session.access_token.split(".")[1];
+    if (!payloadB64) return null;
+    const payload = JSON.parse(
+      Buffer.from(payloadB64, "base64url").toString("utf-8")
+    ) as { sub?: string; email?: string } | null;
+    if (!payload?.sub) return null;
+    return { id: payload.sub, email: payload.email };
+  } catch {
+    return null;
+  }
 }
 
 export const config = {

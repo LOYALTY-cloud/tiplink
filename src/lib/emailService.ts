@@ -37,8 +37,8 @@ export type EmailType =
   | "PASSWORD_RESET"
   | "EMAIL_VERIFICATION"
   | "NEW_DEVICE_LOGIN"
-  | "ACCOUNT_FREEZE"
-  /* ── Money ───────────────────────────────────────── */
+  | "ACCOUNT_FREEZE"  | "EMAIL_CHANGED_ALERT"
+  | "EMAIL_CHANGED_CONFIRMATION"  /* ── Money ───────────────────────────────────────── */
   | "TIP_RECEIVED"
   | "TIP_RECEIPT"
   | "WITHDRAWAL_SUCCESS"
@@ -54,6 +54,7 @@ export type EmailType =
   | "ELITE_CREATOR_REJECTED"
   /* ── Theme Store ─────────────────────────────────── */
   | "MARKETPLACE_STRIKE"
+  | "THEME_REJECTED"
   /* ── Notification engine (passthrough) ───────────── */
   | "NOTIFICATION";
 
@@ -71,6 +72,8 @@ const TYPE_TO_CATEGORY: Record<EmailType, EmailCategory> = {
   EMAIL_VERIFICATION: "security",
   NEW_DEVICE_LOGIN: "security",
   ACCOUNT_FREEZE: "security",
+  EMAIL_CHANGED_ALERT: "security",
+  EMAIL_CHANGED_CONFIRMATION: "security",
   // Money
   TIP_RECEIVED: "receipts",
   TIP_RECEIPT: "receipts",
@@ -87,6 +90,7 @@ const TYPE_TO_CATEGORY: Record<EmailType, EmailCategory> = {
   ELITE_CREATOR_REJECTED: "alerts",
   // Theme Store
   MARKETPLACE_STRIKE: "alerts",
+  THEME_REJECTED: "support",
   // Notification engine passthrough
   NOTIFICATION: "security", // overridden at call site
 };
