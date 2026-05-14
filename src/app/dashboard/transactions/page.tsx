@@ -23,7 +23,14 @@ type Transaction = {
 }
 
 function formatType(type: string) {
-  return type.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
+  switch (type) {
+    case "withdrawal_express": return "Stripe Express Payout"
+    case "withdrawal_reversal": return "Withdrawal Reversed"
+    case "tip_received": return "Tip Received"
+    case "tip_refunded": return "Tip Refunded"
+    case "theme_purchase": return "Theme Purchase"
+    default: return type.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
+  }
 }
 
 function getIcon(type: string) {
@@ -33,6 +40,8 @@ function getIcon(type: string) {
     case "deposit":
       return <ArrowDownCircle size={20} />
     case "withdrawal":
+    case "withdrawal_express":
+    case "withdrawal_reversal":
     case "payout":
     case "payout_debit":
       return <ArrowUpCircle size={20} />
