@@ -26,6 +26,7 @@ const TYPE_OPTIONS = [
   "tip_received",
   "tip_refunded",
   "withdrawal",
+  "withdrawal_express",
   "payout",
   "card_charge",
   "card_refund",
@@ -45,6 +46,8 @@ function typeBadge(t: string) {
       return { bg: "bg-red-500/10", text: "text-red-400", icon: "⚠" };
     case "withdrawal":
       return { bg: "bg-orange-500/10", text: "text-orange-400", icon: "↓" };
+    case "withdrawal_express":
+      return { bg: "bg-amber-500/10", text: "text-amber-400", icon: "⚡" };
     case "payout":
       return { bg: "bg-orange-500/10", text: "text-orange-400", icon: "↗" };
     case "card_charge":

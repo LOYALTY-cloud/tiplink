@@ -960,11 +960,11 @@ export async function handleStripeEvent(
       const userId = payout.metadata?.user_id as string | undefined;
       const withdrawalId = payout.metadata?.withdrawal_id as string | undefined;
       const amount = payout.amount / 100;
-      if (userId) {
-        // DO NOT debit the ledger here — the withdrawal API already debited
-        // when it created the withdrawal. This handler only confirms delivery.
 
-        // Mark withdrawal row as paid
+      if (userId) {
+        // App-initiated payout — ledger was already debited at withdrawal creation.
+        // This handler only confirms delivery.
+
         if (withdrawalId) {
           await supabaseClient
             .from("withdrawals")
@@ -974,7 +974,6 @@ export async function handleStripeEvent(
 
         console.log(`Payout completed: $${amount} for user ${userId}`);
 
-        // Fire notification (best-effort)
         try {
           const { createNotification } = await import("@/lib/notifications");
           let fee = 0;
@@ -1000,6 +999,87 @@ export async function handleStripeEvent(
             meta: { amount, fee, net },
           });
         } catch (_) {}
+      } else {
+        // Express-initiated payout — user paid themselves via the Stripe Express
+        // dashboard, bypassing our withdrawal API. We must debit the platform
+        // ledger here so the DB balance stays in sync with Stripe.
+        const connectedAccountId = (event as any).account as string | undefined;
+        if (connectedAccountId) {
+          const { data: prof } = await supabaseClient
+            .from("profiles")
+            .select("user_id")
+            .eq("stripe_account_id", connectedAccountId)
+            .maybeSingle();
+
+          const expressUserId = prof?.user_id;
+          if (expressUserId) {
+            const lock = await acquireWalletLock(supabaseClient, expressUserId, "withdrawal", 300);
+            if (lock.ok) {
+              try {
+                // Cap deduction at current balance to prevent going negative
+                const { data: walletRow } = await supabaseClient
+                  .from("wallets")
+                  .select("balance")
+                  .eq("user_id", expressUserId)
+                  .maybeSingle();
+                const currentBalance = Number(walletRow?.balance ?? 0);
+                const deductAmount = Math.min(amount, currentBalance);
+
+                if (deductAmount > 0) {
+                  await ledgerFn({
+                    user_id: expressUserId,
+                    type: "withdrawal_express",
+                    amount: Number((-deductAmount).toFixed(2)),
+                    reference_id: payout.id,
+                    meta: {
+                      action: "express_payout",
+                      stripe_payout_id: payout.id,
+                      stripe_payout_amount: amount,
+                      method: "express_dashboard",
+                      currency: payout.currency,
+                      note: "User initiated payout from Stripe Express dashboard",
+                    },
+                  });
+
+                  await supabaseClient.from("withdrawals").insert({
+                    user_id: expressUserId,
+                    amount: deductAmount,
+                    fee: 0,
+                    net: deductAmount,
+                    status: "paid",
+                    stripe_payout_id: payout.id,
+                    payout_method: "express",
+                    payout_policy_reason: "Stripe Express dashboard payout",
+                  });
+
+                  console.log(`Express payout synced: -$${deductAmount} for user ${expressUserId} (Stripe: $${amount})`);
+
+                  try {
+                    const { createNotification } = await import("@/lib/notifications");
+                    await createNotification({
+                      userId: expressUserId,
+                      type: "payout",
+                      title: "🏦 Payout Sent",
+                      body: `$${deductAmount.toFixed(2)} has been sent to your bank via Stripe Express`,
+                      meta: { amount: deductAmount, fee: 0, net: deductAmount },
+                    });
+                  } catch (_) {}
+                } else {
+                  // Stripe paid out but our ledger already shows $0 — log for audit
+                  console.warn(`Express payout: no balance to deduct for user ${expressUserId}. Stripe paid $${amount}, platform balance $${currentBalance}`);
+                  sendAdminAlert({
+                    subject: "Express payout balance mismatch",
+                    body: `User ${expressUserId} received a $${amount} Stripe Express payout but their platform balance is already $${currentBalance}. Manual reconciliation may be needed.`,
+                    severity: "warning",
+                    meta: { user_id: expressUserId, stripe_payout_id: payout.id, stripe_amount: amount, platform_balance: currentBalance },
+                  });
+                }
+              } finally {
+                try { await releaseWalletLock(supabaseClient, expressUserId, "withdrawal"); } catch (_) {}
+              }
+            }
+          }
+        }
       }
       break;
     }

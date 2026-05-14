@@ -8,6 +8,7 @@ export type LedgerEntryType =
   | "payout_reversal"
   | "adjustment"
   | "withdrawal"
+  | "withdrawal_express"
   | "withdrawal_reversal"
   | "deposit"
   | "fee"

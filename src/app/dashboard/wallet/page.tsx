@@ -55,6 +55,7 @@ export default function WalletPage() {
     freeze_signals: string[];
     temp_unfreeze_until: string | null;
   } | null>(null);
+  const [instantAvailable, setInstantAvailable] = useState<number | null>(null);
   const { toasts, show: showToast, dismiss } = useToast(4000);
   const router = useRouter();
   
@@ -293,6 +294,22 @@ export default function WalletPage() {
     }
   };
 
+  const loadStripeBalance = async () => {
+    const token = await getAuthToken();
+    if (!token) return;
+    try {
+      const res = await fetch("/api/stripe/balance", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setInstantAvailable(typeof json.instantAvailable === "number" ? json.instantAvailable : null);
+      }
+    } catch {
+      // Non-blocking — wallet still works without Stripe balance
+    }
+  };
+
   const loadLatestWithdrawal = async () => {
     const token = await getAuthToken();
     if (!token) return;
@@ -383,6 +400,7 @@ export default function WalletPage() {
       loadLatestWithdrawal();
       loadTodayEarnings();
       loadFreezeState();
+      loadStripeBalance();
     })();
   }, []);
 
@@ -777,6 +795,13 @@ export default function WalletPage() {
         )}
         {!loadingWallet && totalWithdrawFees > 0 && (
           <p className="text-[11px] text-white/30">{formatMoney(totalWithdrawFees)} in fees paid lifetime</p>
+        )}
+        {!loadingWallet && instantAvailable !== null && (
+          <p className="text-xs text-white/45 mt-1">
+            <span className="text-white/30">Instant payout available · </span>
+            <span className="text-emerald-400/80 font-medium">{formatMoney(instantAvailable)}</span>
+            <span className="text-white/25 text-[10px]"> after fees</span>
+          </p>
         )}
       </div>
 
