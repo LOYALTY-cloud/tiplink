@@ -47,9 +47,16 @@ export async function GET(req: Request) {
     userId = data?.user?.id ?? null;
   }
 
+  // Fetch blocked creator user_ids so their content is hidden from the marketplace
+  const { data: blockedRows } = await supabaseAdmin
+    .from("profiles")
+    .select("user_id")
+    .not("account_status", "eq", "active");
+  const blockedUserIds = new Set((blockedRows ?? []).map((r) => r.user_id));
+
   const { data: themeRows, error: themesErr } = await supabaseAdmin
     .from("themes")
-    .select("id, name, base_price, price, upgrade_price, unlock_count, is_verified, created_at, config, category:theme_categories(name, slug), store:creator_stores(store_name, slug, featured, total_sales, is_active)")
+    .select("user_id, id, name, base_price, price, upgrade_price, unlock_count, is_verified, created_at, config, category:theme_categories(name, slug), store:creator_stores(store_name, slug, featured, total_sales, is_active)")
     .eq("is_public", true)
     .eq("is_market_active", true)
     .not("status", "in", '("rejected","pending_review","flagged")')
@@ -67,8 +74,9 @@ export async function GET(req: Request) {
       const store = one(row.store as StoreJoin | StoreJoin[] | null);
       const cat = one(row.category as CategoryJoin | CategoryJoin[] | null);
 
-      // Only surface themes from stores with an active subscription
+      // Only surface themes from stores with an active subscription and non-blocked creators
       if (!store?.slug || !store?.is_active) return null;
+      if (row.user_id && blockedUserIds.has(row.user_id)) return null;
 
       return {
         id: row.id,
@@ -152,7 +160,7 @@ export async function GET(req: Request) {
   if (tab === "stores") {
     const { data: storeRows } = await supabaseAdmin
       .from("creator_stores")
-      .select("slug, store_name, featured, category, avatar_url, banner_url")
+      .select("user_id, slug, store_name, featured, category, avatar_url, banner_url")
       .eq("is_active", true)
       .not("slug", "is", null)
       .not("store_name", "is", null)
@@ -160,7 +168,7 @@ export async function GET(req: Request) {
       .limit(200);
 
     const rawStores = ((storeRows ?? []) as CreatorStoreRow[]).filter(
-      (s) => Boolean(s.slug) && Boolean(s.store_name)
+      (s) => Boolean(s.slug) && Boolean(s.store_name) && !blockedUserIds.has((s as { user_id?: string }).user_id ?? "")
     );
 
     // Fetch public themes once: get slug + config for count + preview
