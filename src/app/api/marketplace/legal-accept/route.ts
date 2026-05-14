@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
-import { createSupabaseRouteClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
 /** POST /api/marketplace/legal-accept */
 export async function POST(req: Request) {
-  const supabase = await createSupabaseRouteClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const authHeader = req.headers.get("authorization") ?? "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { data: { user } } = await supabaseAdmin.auth.getUser(token);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   let policyVersion: string;
@@ -19,7 +22,7 @@ export async function POST(req: Request) {
   }
 
   // Upsert — idempotent if called twice
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from("creator_legal_acceptance")
     .upsert(
       { user_id: user.id, policy_version: policyVersion },
