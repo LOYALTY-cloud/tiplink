@@ -34,6 +34,38 @@ const STATUS_COLORS: Record<string, string> = {
   rejected: "bg-red-400/15 text-red-400",
 };
 
+/** Split a free-text social_links field into individual URL tokens. */
+function parseSocialLinks(raw: string): string[] {
+  return raw
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function SocialLinks({ raw }: { raw: string }) {
+  const parts = parseSocialLinks(raw);
+  return (
+    <div className="space-y-0.5">
+      {parts.map((part, i) => {
+        const isUrl = /^https?:\/\//i.test(part);
+        return isUrl ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block text-blue-400 hover:text-blue-300 underline underline-offset-2 break-all transition-colors"
+          >
+            {part}
+          </a>
+        ) : (
+          <p key={i} className="text-white/70 break-all">{part}</p>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function CreatorApplicationsPage() {
   const [items, setItems] = useState<Application[]>([]);
   const [counts, setCounts] = useState<Counts>({ pending: 0, approved: 0, rejected: 0 });
@@ -170,7 +202,7 @@ export default function CreatorApplicationsPage() {
             return (
               <div key={app.id} className="bg-white/[0.03] border border-white/10 rounded-2xl p-5 space-y-4">
                 {/* Header row */}
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="flex items-center gap-3">
                     {app.profile?.avatar_url ? (
                       <img src={app.profile.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover" />
@@ -184,11 +216,11 @@ export default function CreatorApplicationsPage() {
                       <p className="text-xs text-white/40">{handle ?? ""}{handle && email ? " · " : ""}{email ?? ""}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                     <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_COLORS[app.status]}`}>
                       {app.status.charAt(0).toUpperCase() + app.status.slice(1)}
                     </span>
-                    <span className="text-xs text-white/30">
+                    <span className="text-xs text-white/30 whitespace-nowrap">
                       {new Date(app.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </span>
                   </div>
@@ -206,7 +238,7 @@ export default function CreatorApplicationsPage() {
                     {app.social_links && (
                       <div>
                         <p className="text-xs text-white/40 mb-0.5">Social Links</p>
-                        <p className="text-white/70 break-all">{app.social_links}</p>
+                        <SocialLinks raw={app.social_links} />
                       </div>
                     )}
                     {app.audience_size != null && (
