@@ -362,24 +362,29 @@ function ThemePreviewModal({
 function ThemeCard({
   theme,
   isBanned,
+  hasStore,
   onApply,
   onRemove,
   onDelete,
   onToggleMarketActive,
+  onOpenStore,
   onPreview,
 }: {
   theme: SavedTheme;
   isBanned?: boolean;
+  hasStore: boolean;
   onApply: (id: string) => Promise<void>;
   onRemove: () => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onToggleMarketActive: (id: string, nextActive: boolean) => Promise<void>;
+  onOpenStore: () => void;
   onPreview: (theme: SavedTheme) => void;
 }) {
   const [applying, setApplying] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [togglingMarket, setTogglingMarket] = useState(false);
+  const [showNoStoreModal, setShowNoStoreModal] = useState(false);
   const isMarketActive = theme.is_market_active !== false;
   return (
     <div className="bg-[#111] border border-white/[0.08] rounded-2xl p-3 flex flex-col gap-3 hover:scale-[1.02] transition-transform duration-150">
@@ -405,6 +410,28 @@ function ThemeCard({
         </div>
       </div>
       <div className="flex flex-col gap-2">
+        {showNoStoreModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className="bg-[#18181b] border border-white/10 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-xl">
+              <h2 className="text-base font-semibold text-white">Theme Store Required</h2>
+              <p className="text-sm text-white/60">You need an active Theme Store to list themes for sale. Set up your store first, then activate themes for sale.</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setShowNoStoreModal(false); onOpenStore(); }}
+                  className="flex-1 py-2 rounded-xl bg-blue-500 hover:bg-blue-400 text-white text-xs font-semibold transition"
+                >
+                  Go to Store Setup
+                </button>
+                <button
+                  onClick={() => setShowNoStoreModal(false)}
+                  className="flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white/70 text-xs font-medium transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <button onClick={() => onPreview(theme)} className="w-full py-2 rounded-xl bg-white/[0.07] hover:bg-white/15 transition text-xs font-medium">Preview</button>
         {theme.is_public ? (
           <span
@@ -418,6 +445,10 @@ function ThemeCard({
         )}
         <button
           onClick={async () => {
+            if (!isMarketActive && !hasStore) {
+              setShowNoStoreModal(true);
+              return;
+            }
             setTogglingMarket(true);
             try {
               await onToggleMarketActive(theme.id, !isMarketActive);
@@ -1034,10 +1065,12 @@ export default function ThemeBuilderDashboard() {
                   key={t.id}
                   theme={t}
                   isBanned={isBanned}
+                  hasStore={!!store}
                   onApply={applyTheme}
                   onRemove={removeTheme}
                   onDelete={deleteTheme}
                   onToggleMarketActive={toggleThemeMarketActive}
+                  onOpenStore={() => setTab("store")}
                   onPreview={setPreviewTheme}
                 />
               ))}
