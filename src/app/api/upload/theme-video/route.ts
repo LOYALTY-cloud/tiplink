@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createSupabaseRouteClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rateLimit } from "@/lib/rateLimit";
 import { getCreatorLimits } from "@/lib/creatorLimits";
@@ -166,13 +165,26 @@ export async function POST(req: Request) {
   let workingDir: string | null = null;
 
   try {
-    const supabaseAuth = await createSupabaseRouteClient();
-    const { data: authData, error: authErr } = await supabaseAuth.auth.getUser();
-    if (authErr || !authData?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Authenticate via Bearer token (sent by theme builder) or cookie fallback
+    const authHeader = req.headers.get("authorization") ?? "";
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+    let userId: string;
+    if (bearerToken) {
+      const { data: userData, error: authErr } = await supabaseAdmin.auth.getUser(bearerToken);
+      if (authErr || !userData?.user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      userId = userData.user.id;
+    } else {
+      const { createSupabaseRouteClient } = await import("@/lib/supabase/server");
+      const supabaseAuth = await createSupabaseRouteClient();
+      const { data: authData, error: authErr } = await supabaseAuth.auth.getUser();
+      if (authErr || !authData?.user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      userId = authData.user.id;
     }
 
-    const userId = authData.user.id;
 
     const limits = getCreatorLimits();
 
