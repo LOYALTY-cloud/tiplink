@@ -43,7 +43,7 @@ export async function syncStripeAccount(
     // ── 2. Find creator profile ─────────────────────────────────────────────
     const { data: creator, error: creatorError } = await supabaseAdmin
       .from("profiles")
-      .select("id, user_id, restriction_level, stripe_alert_sent_at")
+      .select("id, user_id, restriction_level, stripe_alert_sent_at, stripe_user_notified_at")
       .eq("stripe_account_id", stripeAccountId)
       .maybeSingle();
 
@@ -294,14 +294,30 @@ export async function syncStripeAccount(
     }
 
     // ── 12. Notify creator if requirements changed and notifyCreator=true ────
+    // Cap at 2 emails per day: only send if 8+ hours have passed since the last one.
     if (opts.notifyCreator && currentlyDue.length > 0 && userId) {
-      await createNotification({
-        userId,
-        type:     "verification_needed",
-        title:    "Action required on your account",
-        body:     "Your Stripe account has pending requirements. Please complete them to keep receiving tips and payouts.",
-        category: "security",
-      }).catch(() => {});
+      const lastUserNotifiedAt = creator.stripe_user_notified_at
+        ? new Date(creator.stripe_user_notified_at as string)
+        : null;
+      const hoursSinceLastUserNotification = lastUserNotifiedAt
+        ? (Date.now() - lastUserNotifiedAt.getTime()) / (1000 * 60 * 60)
+        : Infinity;
+
+      if (hoursSinceLastUserNotification >= 8) {
+        await createNotification({
+          userId,
+          type:     "verification_needed",
+          title:    "Action required on your account",
+          body:     "Your Stripe account has pending requirements. Please complete them to keep receiving tips and payouts.",
+          category: "security",
+        }).catch(() => {});
+
+        // Record send time for the next cooldown check
+        await supabaseAdmin
+          .from("profiles")
+          .update({ stripe_user_notified_at: new Date().toISOString() })
+          .eq("id", creatorId);
+      }
     }
 
     console.log(
