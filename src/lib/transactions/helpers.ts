@@ -5,6 +5,7 @@ export function formatType(type: string) {
     case "tip_received": return "Tip Received"
     case "tip_refunded": return "Tip Refunded"
     case "theme_purchase": return "Theme Purchase"
+    case "theme_sale": return "Theme Sale"
     default: return type.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
   }
 }
@@ -24,6 +25,8 @@ export function getTransactionIcon(type: string) {
     case "tip_refunded":
     case "refund":
       return "↩️"
+    case "theme_sale":
+      return "🎨"
     default:
       return "💸"
   }

@@ -32,6 +32,8 @@ const TYPE_OPTIONS = [
   "card_refund",
   "dispute",
   "adjustment",
+  "theme_purchase",
+  "theme_sale",
 ] as const;
 
 /* ── HELPERS ───────────────────────────────────────────────────────────────── */
@@ -56,6 +58,10 @@ function typeBadge(t: string) {
       return { bg: "bg-purple-500/10", text: "text-purple-400", icon: "↩" };
     case "adjustment":
       return { bg: "bg-white/5", text: "text-white/65", icon: "±" };
+    case "theme_purchase":
+      return { bg: "bg-purple-500/10", text: "text-purple-400", icon: "🎨" };
+    case "theme_sale":
+      return { bg: "bg-violet-500/10", text: "text-violet-400", icon: "🎨" };
     default:
       return { bg: "bg-white/5", text: "text-white/65", icon: "•" };
   }
