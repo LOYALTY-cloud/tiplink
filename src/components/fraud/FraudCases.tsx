@@ -30,6 +30,8 @@ export default function FraudCases() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [unfreezing, setUnfreezing] = useState<string | null>(null);
+  const [tempUnfreezing, setTempUnfreezing] = useState<string | null>(null);
+  const [tempHours, setTempHours] = useState<number>(4);
   const [error, setError] = useState<string | null>(null);
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
 
@@ -77,6 +79,37 @@ export default function FraudCases() {
       setError("Network error");
     }
     setUnfreezing(null);
+  }
+
+  async function handleTempUnfreeze(userId: string) {
+    setTempUnfreezing(userId);
+    setError(null);
+    try {
+      const headers = getAdminHeaders();
+      const res = await fetch("/api/admin/temp-unfreeze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ user_id: userId, hours: tempHours }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setError(body.error ?? "Temp unfreeze failed");
+      } else {
+        const exp = new Date(body.expires_at).toLocaleTimeString();
+        setError(null);
+        // Show inline confirmation by briefly flashing the error area as success
+        setCases((prev) =>
+          prev.map((c) =>
+            c.user_id === userId
+              ? { ...c, freeze_reason: `[Temp window open until ${exp}] ${c.freeze_reason ?? ""}` }
+              : c
+          )
+        );
+      }
+    } catch {
+      setError("Network error");
+    }
+    setTempUnfreezing(null);
   }
 
   const selected = cases.find((c) => c.user_id === selectedId);
@@ -210,20 +243,46 @@ export default function FraudCases() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex gap-2 mt-3">
-                  <button
-                    onClick={() => handleUnfreeze(selected.user_id)}
-                    disabled={unfreezing === selected.user_id}
-                    className="rounded-lg px-3 py-2 text-sm font-semibold text-green-400 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 transition disabled:opacity-50"
-                  >
-                    {unfreezing === selected.user_id ? "Unfreezing…" : "Unfreeze Account"}
-                  </button>
-                  <Link
-                    href={`/admin/users/${selected.user_id}`}
-                    className="rounded-lg px-3 py-2 text-sm font-semibold text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 transition text-center"
-                  >
-                    View Profile
-                  </Link>
+                <div className="space-y-2 mt-3">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleUnfreeze(selected.user_id)}
+                      disabled={unfreezing === selected.user_id}
+                      className="rounded-lg px-3 py-2 text-sm font-semibold text-green-400 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 transition disabled:opacity-50"
+                    >
+                      {unfreezing === selected.user_id ? "Unfreezing…" : "Unfreeze Account"}
+                    </button>
+                    <Link
+                      href={`/admin/users/${selected.user_id}`}
+                      className="rounded-lg px-3 py-2 text-sm font-semibold text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 transition text-center"
+                    >
+                      View Profile
+                    </Link>
+                  </div>
+
+                  {/* Temporary unfreeze window */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <select
+                      value={tempHours}
+                      onChange={(e) => setTempHours(Number(e.target.value))}
+                      className="rounded-lg bg-zinc-900 border border-white/10 text-xs text-white/80 px-2 py-1.5 focus:outline-none"
+                    >
+                      <option value={1}>1 hour</option>
+                      <option value={2}>2 hours</option>
+                      <option value={4}>4 hours</option>
+                      <option value={6}>6 hours</option>
+                      <option value={12}>12 hours</option>
+                      <option value={24}>24 hours</option>
+                    </select>
+                    <button
+                      onClick={() => handleTempUnfreeze(selected.user_id)}
+                      disabled={tempUnfreezing === selected.user_id}
+                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition disabled:opacity-50"
+                    >
+                      {tempUnfreezing === selected.user_id ? "Opening…" : "⏱ Temp Unfreeze"}
+                    </button>
+                    <span className="text-[10px] text-white/35">Account stays frozen after window</span>
+                  </div>
                 </div>
               </div>
 

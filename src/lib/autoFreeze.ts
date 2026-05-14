@@ -75,14 +75,17 @@ export async function executeAutoFreeze(
   level: "soft" | "hard" = "soft",
   signals: string[] = []
 ): Promise<void> {
-  // Check if already frozen to avoid duplicate logging
+  // Check if already frozen or in a temp-unfreeze window — avoid disrupting it
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("is_frozen")
+    .select("is_frozen, temp_unfreeze_until")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (profile?.is_frozen) return;
+
+  // Don't auto-freeze someone whose temp unfreeze window is still active
+  if (profile?.temp_unfreeze_until && new Date(profile.temp_unfreeze_until) > new Date()) return;
 
   const now = new Date().toISOString();
   const explanations = signals.length > 0 ? generateFreezeExplanation(signals) : [];
