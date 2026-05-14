@@ -15,14 +15,26 @@ export async function GET() {
     return NextResponse.json({ featured: [], stores: [], categories: ["general"] }, { status: 200 });
   }
 
+  // Fetch blocked creator user_ids so restricted/suspended stores are hidden
+  const { data: blockedRows } = await supabaseAdmin
+    .from("profiles")
+    .select("user_id")
+    .not("account_status", "eq", "active");
+  const blockedUserIds = new Set((blockedRows ?? []).map((r) => r.user_id));
+
   const { data, error } = await supabaseAdmin
     .from("creator_stores")
-    .select("id, store_name, slug, description, category, total_sales, total_revenue, followers, featured, avatar_url, banner_url, created_at")
+    .select("id, user_id, store_name, slug, description, category, total_sales, total_revenue, followers, featured, avatar_url, banner_url, created_at")
     .eq("is_active", true)
     .not("slug", "is", null)
     .not("store_name", "is", null);
 
   let rows = data;
+
+  // Filter out stores from restricted/suspended/closed creators
+  if (rows) {
+    rows = rows.filter((s) => !blockedUserIds.has((s as { user_id?: string }).user_id ?? ""));
+  }
 
   if (error) {
     if ((error.message ?? "").includes("Could not find the table 'public.creator_stores'")) {
