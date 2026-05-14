@@ -34,6 +34,38 @@ const STATUS_COLORS: Record<string, string> = {
   rejected: "bg-red-400/15 text-red-400",
 };
 
+/** Split a free-text social_links field into individual URL tokens. */
+function parseSocialLinks(raw: string): string[] {
+  return raw
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function SocialLinks({ raw }: { raw: string }) {
+  const parts = parseSocialLinks(raw);
+  return (
+    <div className="space-y-0.5">
+      {parts.map((part, i) => {
+        const isUrl = /^https?:\/\//i.test(part);
+        return isUrl ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block text-blue-400 hover:text-blue-300 underline underline-offset-2 break-all transition-colors"
+          >
+            {part}
+          </a>
+        ) : (
+          <p key={i} className="text-white/70 break-all">{part}</p>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function CreatorApplicationsPage() {
   const [items, setItems] = useState<Application[]>([]);
   const [counts, setCounts] = useState<Counts>({ pending: 0, approved: 0, rejected: 0 });
@@ -206,7 +238,7 @@ export default function CreatorApplicationsPage() {
                     {app.social_links && (
                       <div>
                         <p className="text-xs text-white/40 mb-0.5">Social Links</p>
-                        <p className="text-white/70 break-all">{app.social_links}</p>
+                        <SocialLinks raw={app.social_links} />
                       </div>
                     )}
                     {app.audience_size != null && (
