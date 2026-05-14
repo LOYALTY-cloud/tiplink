@@ -202,7 +202,7 @@ export default function CreatorApplicationsPage() {
             return (
               <div key={app.id} className="bg-white/[0.03] border border-white/10 rounded-2xl p-5 space-y-4">
                 {/* Header row */}
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="flex items-center gap-3">
                     {app.profile?.avatar_url ? (
                       <img src={app.profile.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover" />
@@ -216,11 +216,11 @@ export default function CreatorApplicationsPage() {
                       <p className="text-xs text-white/40">{handle ?? ""}{handle && email ? " · " : ""}{email ?? ""}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                     <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_COLORS[app.status]}`}>
                       {app.status.charAt(0).toUpperCase() + app.status.slice(1)}
                     </span>
-                    <span className="text-xs text-white/30">
+                    <span className="text-xs text-white/30 whitespace-nowrap">
                       {new Date(app.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </span>
                   </div>
