@@ -1,5 +1,127 @@
 "use client";
 
+/* ── Plain-English translations for Stripe API codes ─────────────────────── */
+
+const REQUIREMENT_LABELS: Record<string, string> = {
+  // Identity
+  "individual.first_name": "Your first name",
+  "individual.last_name": "Your last name",
+  "individual.dob.day": "Your date of birth",
+  "individual.dob.month": "Your date of birth",
+  "individual.dob.year": "Your date of birth",
+  "individual.dob": "Your date of birth",
+  "individual.address.line1": "Your street address",
+  "individual.address.city": "Your city",
+  "individual.address.state": "Your state / province",
+  "individual.address.postal_code": "Your zip / postal code",
+  "individual.address.country": "Your country",
+  "individual.ssn_last_4": "Last 4 digits of your SSN",
+  "individual.id_number": "Your government ID number",
+  "individual.phone": "Your phone number",
+  "individual.email": "Your email address",
+  // Verification documents
+  "individual.verification.document": "A photo of your government-issued ID",
+  "individual.verification.additional_document": "A secondary ID document",
+  "individual.verification.proof_of_liveness": "A selfie or live photo for identity confirmation",
+  // Business
+  "business_profile.url": "Your website or social media URL",
+  "business_profile.mcc": "Your business category",
+  "business_profile.product_description": "A short description of your content or services",
+  "business_type": "Your account type (individual or business)",
+  // Bank / payout
+  "external_account": "Your bank account details",
+  "bank_account": "Your bank account details",
+  "tos_acceptance.date": "Acceptance of the Terms of Service",
+  "tos_acceptance.ip": "Acceptance of the Terms of Service",
+  "tos_acceptance": "Acceptance of the Terms of Service",
+};
+
+const CAPABILITY_LABELS: Record<string, string> = {
+  card_payments: "Accepting card payments",
+  transfers: "Sending payouts to your bank",
+  us_bank_account_ach_payments: "ACH bank payments",
+  link_payments: "Link payments",
+  affirm_payments: "Affirm buy-now-pay-later",
+  klarna_payments: "Klarna payments",
+  afterpay_clearpay_payments: "Afterpay / Clearpay",
+  ideal_payments: "iDEAL payments",
+  sofort_payments: "Sofort payments",
+  sepa_debit_payments: "SEPA direct debit",
+  bacs_debit_payments: "Bacs direct debit",
+  bancontact_payments: "Bancontact payments",
+  giropay_payments: "Giropay payments",
+  p24_payments: "Przelewy24 payments",
+  eps_payments: "EPS payments",
+  paynow_payments: "PayNow payments",
+  grabpay_payments: "GrabPay payments",
+  oxxo_payments: "OXXO payments",
+  boleto_payments: "Boleto payments",
+  tax_reporting_us_1099_k: "US tax reporting (1099-K)",
+  tax_reporting_us_1099_misc: "US tax reporting (1099-MISC)",
+  treasury: "Financial account access",
+};
+
+const DISABLED_REASON_LABELS: Record<string, string> = {
+  "action_required.requested_capabilities":
+    "We need you to confirm which payment features you want enabled.",
+  "listed": "Your account has been flagged for review by our payments partner.",
+  "other": "Your account is under review. Our team will be in touch shortly.",
+  "platform_paused": "Payouts are temporarily paused on this platform.",
+  "rejected.fraud": "Your account was rejected due to suspected fraudulent activity. Please contact support.",
+  "rejected.listed": "Your account was rejected. Please contact support.",
+  "rejected.other": "Your account was rejected. Please contact support.",
+  "rejected.terms_of_service": "Your account was rejected due to a Terms of Service violation.",
+  "requirements.past_due": "Some required information is overdue. Please complete verification to restore access.",
+  "requirements.pending_verification": "Your submitted documents are being reviewed. This usually takes 1–2 business days.",
+  "under_review": "Your account is currently under review by our payments partner.",
+};
+
+const CAPABILITY_STATUS_LABELS: Record<string, string> = {
+  inactive: "Not yet active",
+  pending: "Under review",
+  restricted: "Restricted — action needed",
+  restricted_soon: "Will be restricted soon",
+  unrequested: "Not requested",
+};
+
+function friendlyRequirement(code: string): string {
+  if (REQUIREMENT_LABELS[code]) return REQUIREMENT_LABELS[code];
+  // Strip trailing field path and try again (e.g. "individual.verification.document.front")
+  const parts = code.split(".");
+  for (let i = parts.length - 1; i > 0; i--) {
+    const key = parts.slice(0, i).join(".");
+    if (REQUIREMENT_LABELS[key]) return REQUIREMENT_LABELS[key];
+  }
+  // Fallback: humanise the raw code
+  return code
+    .replace(/_/g, " ")
+    .replace(/\./g, " › ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function friendlyCapability(name: string): string {
+  return CAPABILITY_LABELS[name] ?? name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function friendlyCapabilityStatus(status: string): string {
+  return CAPABILITY_STATUS_LABELS[status] ?? status.replace(/_/g, " ");
+}
+
+function friendlyDisabledReason(reason: string): string {
+  return DISABLED_REASON_LABELS[reason] ?? reason.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function friendlyVerificationStatus(status: string): string {
+  const map: Record<string, string> = {
+    verified: "Verified",
+    unverified: "Not yet verified",
+    pending: "Verification in progress",
+    restricted: "Restricted",
+    unknown: "Unknown",
+  };
+  return map[status] ?? status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export default function StripeRestrictionModal({
   open,
   onClose,
@@ -48,6 +170,10 @@ export default function StripeRestrictionModal({
     ([, value]) => value !== "active"
   );
 
+  // Deduplicate requirements that map to the same human label
+  const uniqueDue = Array.from(new Set(currentlyDue.map(friendlyRequirement)));
+  const uniquePending = Array.from(new Set(pendingVerification.map(friendlyRequirement)));
+
   const onboardingLink =
     (creator?.stripe_onboarding_link as string | undefined) ??
     "/api/stripe/connect/refresh";
@@ -94,7 +220,7 @@ export default function StripeRestrictionModal({
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs sm:text-sm text-white/60">Verification Status</span>
               <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${badgeClass}`}>
-                {verificationStatus ?? "unknown"}
+                {friendlyVerificationStatus(verificationStatus ?? "unknown")}
               </span>
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-xs sm:text-sm text-white/70">
@@ -114,13 +240,14 @@ export default function StripeRestrictionModal({
           </div>
 
           {/* CURRENTLY DUE */}
-          {currentlyDue.length > 0 && (
+          {uniqueDue.length > 0 && (
             <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-3 sm:p-4">
               <h3 className="mb-2 text-xs sm:text-sm font-semibold text-yellow-300">
-                Information Required
+                Action Required
               </h3>
+              <p className="mb-2 text-xs text-yellow-200/60">Please provide the following to restore full access:</p>
               <ul className="space-y-1.5 text-xs sm:text-sm text-yellow-100/80">
-                {currentlyDue.map((item) => (
+                {uniqueDue.map((item) => (
                   <li key={item} className="flex gap-1.5"><span>•</span><span>{item}</span></li>
                 ))}
               </ul>
@@ -128,13 +255,14 @@ export default function StripeRestrictionModal({
           )}
 
           {/* PENDING VERIFICATION */}
-          {pendingVerification.length > 0 && (
+          {uniquePending.length > 0 && (
             <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3 sm:p-4">
               <h3 className="mb-2 text-xs sm:text-sm font-semibold text-blue-300">
-                Verification Pending
+                Under Review
               </h3>
+              <p className="mb-2 text-xs text-blue-200/60">These items have been submitted and are being reviewed — no action needed right now:</p>
               <ul className="space-y-1.5 text-xs sm:text-sm text-blue-100/80">
-                {pendingVerification.map((item) => (
+                {uniquePending.map((item) => (
                   <li key={item} className="flex gap-1.5"><span>•</span><span>{item}</span></li>
                 ))}
               </ul>
@@ -145,14 +273,14 @@ export default function StripeRestrictionModal({
           {inactiveCapabilities.length > 0 && (
             <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-3 sm:p-4">
               <h3 className="mb-2 text-xs sm:text-sm font-semibold text-red-300">
-                Restricted Features
+                Features Currently Unavailable
               </h3>
               <div className="space-y-1.5 text-xs sm:text-sm text-red-100/80">
                 {inactiveCapabilities.map(([name, status]) => (
                   <div key={name} className="flex items-center justify-between gap-2">
-                    <span className="truncate">{name}</span>
-                    <span className="shrink-0 rounded-full bg-red-500/20 px-2 py-0.5 text-xs uppercase">
-                      {status}
+                    <span className="truncate">{friendlyCapability(name)}</span>
+                    <span className="shrink-0 rounded-full bg-red-500/20 px-2 py-0.5 text-xs">
+                      {friendlyCapabilityStatus(status)}
                     </span>
                   </div>
                 ))}
@@ -163,8 +291,7 @@ export default function StripeRestrictionModal({
           {/* DISABLED REASON */}
           {disabledReason && (
             <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-3 sm:p-4 text-xs sm:text-sm text-red-100/80">
-              <span className="font-semibold text-red-300">Stripe Status:</span>{" "}
-              {disabledReason}
+              {friendlyDisabledReason(disabledReason)}
             </div>
           )}
 
