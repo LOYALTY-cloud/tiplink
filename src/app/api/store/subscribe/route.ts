@@ -176,7 +176,7 @@ export async function POST(req: Request) {
           currency: "usd",
           unit_amount: STORE_PRICE_CENTS,
           recurring: { interval: "month" },
-          product_data: { name: "TipLink Creator Store" },
+          product_data: { name: "1neLink Creator Store" },
         },
         quantity: 1,
       },
