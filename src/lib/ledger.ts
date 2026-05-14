@@ -13,7 +13,8 @@ export type LedgerEntryType =
   | "deposit"
   | "fee"
   | "system"
-  | "theme_purchase";
+  | "theme_purchase"
+  | "theme_sale";
 
 export interface LedgerEntry {
   user_id: string;

@@ -25,6 +25,7 @@ const ALLOWED_TYPES = [
   "refund",
   // theme marketplace
   "theme_purchase",
+  "theme_sale",
 ];
 
 export const runtime = "nodejs";

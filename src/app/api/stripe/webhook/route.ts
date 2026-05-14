@@ -1878,6 +1878,34 @@ export async function handleStripeEvent(
               // Increment unlock counter (best-effort)
               await supabaseClient.rpc("increment_theme_unlock", { theme_id_input: themeId });
 
+              // ── Credit creator's wallet with their earnings ──────────────────
+              if (creatorEarns > 0) {
+                try {
+                  await ledgerFn({
+                    user_id: payoutSellerId,
+                    type: "theme_sale",
+                    amount: creatorEarns,
+                    reference_id: session.id,
+                    meta: {
+                      theme_id: themeId,
+                      theme_name: snapshotTheme?.name ?? null,
+                      buyer_id: buyerId,
+                      gross: amountDollars,
+                      platform_fee: platformFee,
+                      stripe_session_id: session.id,
+                    },
+                  });
+                } catch (ledgerErr) {
+                  console.error("Failed to credit creator wallet for theme sale", {
+                    sessionId: session.id,
+                    sellerId: payoutSellerId,
+                    themeId,
+                    creatorEarns,
+                    error: ledgerErr,
+                  });
+                }
+              }
+
               // Notify creator: their theme was sold
               void createNotification({
                 userId: payoutSellerId,

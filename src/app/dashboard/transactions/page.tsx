@@ -29,6 +29,7 @@ function formatType(type: string) {
     case "tip_received": return "Tip Received"
     case "tip_refunded": return "Tip Refunded"
     case "theme_purchase": return "Theme Purchase"
+    case "theme_sale": return "Theme Sale"
     default: return type.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
   }
 }
@@ -61,6 +62,8 @@ function getIcon(type: string) {
     case "system":
       return <Settings2 size={20} />
     case "theme_purchase":
+      return <Palette size={20} />
+    case "theme_sale":
       return <Palette size={20} />
     default:
       return <ArrowDownCircle size={20} />
@@ -302,6 +305,7 @@ export default function TransactionsPage() {
             const isBigTip = tx.type === "tip_received" && tx.amount >= 100
             const isTip = tx.type === "tip_received"
             const isThemePurchase = tx.type === "theme_purchase"
+            const isThemeSale = tx.type === "theme_sale"
             const supporterName = isTip
               ? (tx.meta?.is_anonymous ? "Anonymous" : (tx.meta as any)?.supporter_name || (tx.meta as any)?.tipper_name || "Supporter")
               : null
@@ -338,6 +342,9 @@ export default function TransactionsPage() {
                     )}
                     {isThemePurchase && (tx.meta as any)?.theme_name && (
                       <p className="text-xs text-white/50">{(tx.meta as any).theme_name}</p>
+                    )}
+                    {isThemeSale && (tx.meta as any)?.theme_name && (
+                      <p className="text-xs text-white/50">{(tx.meta as any).theme_name} · Theme Sale</p>
                     )}
                     {tx.type === "fee" && (tx.meta as any)?.payment_method === "wallet_balance" && (tx.meta as any)?.store_id && (
                       <p className="text-xs text-white/50">Store Subscription · from balance</p>
