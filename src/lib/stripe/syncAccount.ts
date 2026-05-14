@@ -43,7 +43,7 @@ export async function syncStripeAccount(
     // ── 2. Find creator profile ─────────────────────────────────────────────
     const { data: creator, error: creatorError } = await supabaseAdmin
       .from("profiles")
-      .select("id, user_id")
+      .select("id, user_id, restriction_level, stripe_alert_sent_at")
       .eq("stripe_account_id", stripeAccountId)
       .maybeSingle();
 
@@ -190,6 +190,24 @@ export async function syncStripeAccount(
 
     // ── 11. Admin alerts for high-risk ───────────────────────────────────────
     if (restrictionLevel === "high_risk") {
+      // Only alert if:
+      //  a) account was NOT already high_risk before this sync (newly restricted), OR
+      //  b) last alert was sent >24h ago (daily re-reminder cap)
+      const wasAlreadyHighRisk = creator.restriction_level === "high_risk";
+      const lastAlertAt = creator.stripe_alert_sent_at
+        ? new Date(creator.stripe_alert_sent_at as string)
+        : null;
+      const hoursSinceLastAlert = lastAlertAt
+        ? (Date.now() - lastAlertAt.getTime()) / (1000 * 60 * 60)
+        : Infinity;
+      const shouldAlert = !wasAlreadyHighRisk || hoursSinceLastAlert >= 24;
+
+      if (shouldAlert) {
+        // Record when we sent the alert so we can deduplicate next time
+        await supabaseAdmin
+          .from("profiles")
+          .update({ stripe_alert_sent_at: new Date().toISOString() })
+          .eq("id", creatorId);
       // ── Human-readable translations for Stripe field codes ──────────────
       const stripeFieldLabels: Record<string, string> = {
         "individual.id_number":            "Government ID number (SSN / National ID)",
@@ -272,6 +290,7 @@ export async function syncStripeAccount(
           payouts_enabled:     payoutsEnabled ? "Yes" : "No",
         },
       });
+      } // end shouldAlert
     }
 
     // ── 12. Notify creator if requirements changed and notifyCreator=true ────
