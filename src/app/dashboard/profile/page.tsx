@@ -297,7 +297,8 @@ export default function ProfilePage() {
             try {
               const bucket = cropTarget === "avatars" ? "avatars" : "banners";
               const oldUrl = cropTarget === "avatars" ? avatarUrl || undefined : bannerUrl || undefined;
-              const url = await uploadImage(file, bucket, user.id, oldUrl);
+              const token = (await supabase.auth.getSession()).data.session?.access_token;
+              const url = await uploadImage(file, bucket, user.id, oldUrl, token);
 
               await supabase.from("profiles").upsert(
                 cropTarget === "avatars" ? { user_id: user.id, avatar_url: url } : { user_id: user.id, banner_url: url },

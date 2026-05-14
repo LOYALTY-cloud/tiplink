@@ -3,7 +3,8 @@ export async function uploadImage(
   file: Blob | File,
   bucket: "avatars" | "banners",
   userId: string,
-  oldPublicUrl?: string
+  oldPublicUrl?: string,
+  token?: string
 ) {
   const inputFile = file instanceof File ? file : new File([file], "upload.jpg", { type: (file as Blob).type || "image/jpeg" });
 
@@ -28,9 +29,12 @@ export async function uploadImage(
   const arrayBuffer = await resizedBlob.arrayBuffer();
   const base64 = bufferToBase64(new Uint8Array(arrayBuffer));
 
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   const res = await fetch("/api/upload", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ bucket, fileName, fileBase64: base64, oldPublicUrl }),
   });
 
