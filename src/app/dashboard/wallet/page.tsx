@@ -53,6 +53,7 @@ export default function WalletPage() {
     freeze_reason: string | null;
     freeze_level: "soft" | "hard" | null;
     freeze_signals: string[];
+    temp_unfreeze_until: string | null;
   } | null>(null);
   const { toasts, show: showToast, dismiss } = useToast(4000);
   const router = useRouter();
@@ -260,7 +261,7 @@ export default function WalletPage() {
 
     const { data } = await supabase
       .from("profiles")
-      .select("is_frozen, freeze_reason, freeze_level")
+      .select("is_frozen, freeze_reason, freeze_level, temp_unfreeze_until")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -287,6 +288,7 @@ export default function WalletPage() {
         freeze_reason: data.freeze_reason,
         freeze_level: data.freeze_level,
         freeze_signals: signals,
+        temp_unfreeze_until: (data as Record<string, unknown>).temp_unfreeze_until as string | null ?? null,
       });
     }
   };
@@ -942,15 +944,49 @@ export default function WalletPage() {
         )}
 
         {/* CTA */}
+        {freezeState?.is_frozen && (() => {
+          const tempUntil = freezeState.temp_unfreeze_until ? new Date(freezeState.temp_unfreeze_until) : null;
+          const tempActive = tempUntil && tempUntil > new Date();
+          if (tempActive) {
+            return (
+              <div className="flex items-start gap-2.5 bg-amber-500/10 border border-amber-400/20 rounded-xl px-4 py-3 mb-2">
+                <span className="text-amber-400 mt-0.5 shrink-0">⏱</span>
+                <p className="text-sm text-amber-300/80">
+                  Temporary withdrawal window open until{" "}
+                  <strong className="text-amber-300">{tempUntil.toLocaleTimeString()}</strong>.
+                  Please withdraw your funds before the window closes.
+                </p>
+              </div>
+            );
+          }
+          return (
+            <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-400/20 rounded-xl px-4 py-3">
+              <span className="text-red-400 mt-0.5 shrink-0">🔒</span>
+              <p className="text-sm text-red-300/80">
+                Withdrawals are unavailable while your account is under review.{" "}
+                {freezeState.freeze_level !== "hard"
+                  ? "Verify your identity from your dashboard to restore access."
+                  : "Contact support for assistance."}
+              </p>
+            </div>
+          );
+        })()}
         <button
           onClick={onWithdraw}
-          disabled={(invalid && !amountTooHigh) || withdrawing || !hasCard}
+          disabled={(() => {
+            const tempUntil = freezeState?.temp_unfreeze_until ? new Date(freezeState.temp_unfreeze_until) : null;
+            const frozen = !!freezeState?.is_frozen && !(tempUntil && tempUntil > new Date());
+            return (invalid && !amountTooHigh) || withdrawing || !hasCard || frozen;
+          })()}
           className={`w-full py-3 rounded-xl font-semibold transition-all relative shimmer-btn ${
-            amountTooHigh
-              ? "bg-red-500/20 border border-red-400/30 text-red-400 cursor-pointer"
-              : invalid || !hasCard
-              ? "bg-white/10 text-white/40 cursor-not-allowed"
-              : `${ui.btnPrimary}`
+            (() => {
+              const tempUntil = freezeState?.temp_unfreeze_until ? new Date(freezeState.temp_unfreeze_until) : null;
+              const frozen = !!freezeState?.is_frozen && !(tempUntil && tempUntil > new Date());
+              if (frozen) return "bg-white/10 text-white/40 cursor-not-allowed";
+              if (amountTooHigh) return "bg-red-500/20 border border-red-400/30 text-red-400 cursor-pointer";
+              if (invalid || !hasCard) return "bg-white/10 text-white/40 cursor-not-allowed";
+              return ui.btnPrimary;
+            })()
           }`}
         >
           {withdrawing ? (

@@ -14,7 +14,7 @@ export type SoftRestriction = {
 export async function checkSoftRestrictions(userId: string): Promise<SoftRestriction> {
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("is_flagged, risk_score, risk_level, verification_required, verification_reason, withdrawal_locked, account_status, is_frozen, freeze_reason, freeze_level")
+    .select("is_flagged, risk_score, risk_level, verification_required, verification_reason, withdrawal_locked, account_status, is_frozen, freeze_reason, freeze_level, temp_unfreeze_until")
     .eq("user_id", userId)
     .maybeSingle()
 
@@ -23,17 +23,24 @@ export async function checkSoftRestrictions(userId: string): Promise<SoftRestric
   }
 
   // Hard block: account frozen by auto-freeze system
+  // Exception: admin granted a temporary unfreeze window that hasn't expired yet
   if (profile.is_frozen) {
-    const canSelfServe = profile.freeze_level !== "hard";
+    const tempUntil = profile.temp_unfreeze_until ? new Date(profile.temp_unfreeze_until) : null;
+    const tempActive = tempUntil && tempUntil > new Date();
 
-    return {
-      blocked: true,
-      reason: canSelfServe
-        ? `Account restricted: ${profile.freeze_reason ?? "Suspicious activity detected"}. Verify your identity from your dashboard to restore access.`
-        : `Account restricted: ${profile.freeze_reason ?? "Suspicious activity detected"}. Contact support for assistance.`,
-      verification_required: false,
-      verification_reason: null,
+    if (!tempActive) {
+      const canSelfServe = profile.freeze_level !== "hard";
+
+      return {
+        blocked: true,
+        reason: canSelfServe
+          ? `Account restricted: ${profile.freeze_reason ?? "Suspicious activity detected"}. Verify your identity from your dashboard to restore access.`
+          : `Account restricted: ${profile.freeze_reason ?? "Suspicious activity detected"}. Contact support for assistance.`,
+        verification_required: false,
+        verification_reason: null,
+      }
     }
+    // else: temp window is active — fall through and allow
   }
 
   // Hard block: withdrawal locked or account suspended/closed

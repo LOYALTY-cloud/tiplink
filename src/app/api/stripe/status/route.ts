@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { syncStripeAccount } from "@/lib/stripe/syncAccount";
 import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
@@ -33,6 +34,33 @@ export async function GET(req: Request) {
   if (error) {
     console.error("stripe/status", error);
     return NextResponse.json({ error: "Failed to load status" }, { status: 500 });
+  }
+
+  // If the user has a Stripe account, sync live from Stripe so the status is never stale.
+  // This is called right before a withdrawal attempt, so one Stripe API call here is acceptable.
+  if (prof?.stripe_account_id) {
+    await syncStripeAccount(prof.stripe_account_id).catch((e) =>
+      console.warn("stripe/status: live sync failed, falling back to cache", e)
+    );
+
+    // Re-read the freshly-synced values
+    const { data: fresh } = await supabaseAdmin
+      .from("profiles")
+      .select("stripe_payouts_enabled, stripe_onboarding_complete, stripe_restriction_state, stripe_verification_status, stripe_disabled_reason")
+      .eq("user_id", userId)
+      .maybeSingle()
+      .returns<Partial<ProfileRow> | null>();
+
+    if (fresh) {
+      return NextResponse.json({
+        connected: true,
+        payoutsEnabled: !!fresh.stripe_payouts_enabled,
+        onboardingComplete: !!fresh.stripe_onboarding_complete,
+        restrictionState: fresh.stripe_restriction_state ?? "safe",
+        verificationStatus: fresh.stripe_verification_status ?? "pending",
+        disabledReason: fresh.stripe_disabled_reason ?? null,
+      });
+    }
   }
 
   const connected = !!prof?.stripe_account_id;

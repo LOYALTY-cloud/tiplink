@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
 import { logFreezeEvent } from "@/lib/freezeAudit";
+import { sendUnfreezeEmail } from "@/lib/sendUnfreezeEmail";
 
 export const runtime = "nodejs";
 
@@ -19,10 +20,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
     }
 
-    // Verify user is actually frozen
+    // Verify user is actually frozen + fetch email/handle for notification
     const { data: profile, error: fetchErr } = await supabaseAdmin
       .from("profiles")
-      .select("is_frozen, account_status")
+      .select("is_frozen, account_status, email, handle")
       .eq("user_id", user_id)
       .single();
 
@@ -69,6 +70,13 @@ export async function POST(req: Request) {
       adminId: session.userId,
       metadata: { previous_status: profile.account_status },
     });
+
+    // Email the user to confirm their account is fully restored
+    if (profile.email) {
+      sendUnfreezeEmail({ email: profile.email, handle: profile.handle }).catch(
+        (e) => console.error("[unfreeze] sendUnfreezeEmail failed:", e)
+      );
+    }
 
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
