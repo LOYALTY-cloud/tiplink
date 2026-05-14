@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseRouteClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createClient } from "@supabase/supabase-js";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
 
@@ -14,13 +14,25 @@ const ALLOWED_BUCKETS = ["avatars", "banners", "theme-backgrounds"];
 
 export async function POST(req: Request) {
   try {
-    // Authenticate the caller
-    const supabaseAuth = await createSupabaseRouteClient();
-    const { data: authData, error: authErr } = await supabaseAuth.auth.getUser();
-    if (authErr || !authData?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Authenticate via Bearer token (sent by theme builder) or cookie fallback
+    const authHeader = req.headers.get("authorization") ?? "";
+    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+    let userId: string;
+    if (bearerToken) {
+      const { data: userData, error: authErr } = await supabaseAdmin.auth.getUser(bearerToken);
+      if (authErr || !userData?.user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      userId = userData.user.id;
+    } else {
+      const { createSupabaseRouteClient } = await import("@/lib/supabase/server");
+      const supabaseAuth = await createSupabaseRouteClient();
+      const { data: authData, error: authErr } = await supabaseAuth.auth.getUser();
+      if (authErr || !authData?.user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      userId = authData.user.id;
     }
-    const userId = authData.user.id;
 
     const body: Body = await req.json();
     const { bucket, fileName, fileBase64, oldPublicUrl } = body;
