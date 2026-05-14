@@ -37,7 +37,10 @@ export type EmailType =
   | "PASSWORD_RESET"
   | "EMAIL_VERIFICATION"
   | "NEW_DEVICE_LOGIN"
-  | "ACCOUNT_FREEZE"  | "EMAIL_CHANGED_ALERT"
+  | "ACCOUNT_FREEZE"
+  | "ACCOUNT_UNFREEZE"
+  | "ACCOUNT_TEMP_UNFREEZE"
+  | "EMAIL_CHANGED_ALERT"
   | "EMAIL_CHANGED_CONFIRMATION"  /* ── Money ───────────────────────────────────────── */
   | "TIP_RECEIVED"
   | "TIP_RECEIPT"
@@ -72,6 +75,8 @@ const TYPE_TO_CATEGORY: Record<EmailType, EmailCategory> = {
   EMAIL_VERIFICATION: "security",
   NEW_DEVICE_LOGIN: "security",
   ACCOUNT_FREEZE: "security",
+  ACCOUNT_UNFREEZE: "security",
+  ACCOUNT_TEMP_UNFREEZE: "security",
   EMAIL_CHANGED_ALERT: "security",
   EMAIL_CHANGED_CONFIRMATION: "security",
   // Money

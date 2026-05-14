@@ -4,6 +4,7 @@ import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
 import { logFreezeEvent } from "@/lib/freezeAudit";
 import { createNotification } from "@/lib/notifications";
+import { sendTempUnfreezeEmail } from "@/lib/sendUnfreezeEmail";
 
 export const runtime = "nodejs";
 
@@ -39,10 +40,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // Confirm the account is actually frozen
+    // Confirm the account is actually frozen + grab email/handle for notification
     const { data: profile, error: fetchErr } = await supabaseAdmin
       .from("profiles")
-      .select("is_frozen, freeze_reason, freeze_level")
+      .select("is_frozen, freeze_reason, freeze_level, email, handle")
       .eq("user_id", user_id)
       .single();
 
@@ -88,7 +89,7 @@ export async function POST(req: Request) {
       metadata: { type: "temp_unfreeze", hours: parsedHours, expires_at: expiresAt },
     });
 
-    // Notify the user
+    // In-app notification
     await createNotification({
       userId: user_id,
       type: "security",
@@ -96,6 +97,16 @@ export async function POST(req: Request) {
       body: `An admin has temporarily enabled withdrawals on your account for ${parsedHours} hour${parsedHours !== 1 ? "s" : ""}. Please withdraw your funds before the window closes.`,
       meta: { action: "temp_unfreeze", expires_at: expiresAt },
     });
+
+    // Email notification
+    if (profile.email) {
+      sendTempUnfreezeEmail({
+        email: profile.email,
+        handle: profile.handle,
+        hours: parsedHours,
+        expiresAt,
+      }).catch((e) => console.error("[temp-unfreeze] sendTempUnfreezeEmail failed:", e));
+    }
 
     return NextResponse.json({ ok: true, expires_at: expiresAt });
   } catch (e: unknown) {
