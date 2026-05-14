@@ -942,11 +942,24 @@ export default function WalletPage() {
         )}
 
         {/* CTA */}
+        {freezeState?.is_frozen && (
+          <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-400/20 rounded-xl px-4 py-3">
+            <span className="text-red-400 mt-0.5 shrink-0">🔒</span>
+            <p className="text-sm text-red-300/80">
+              Withdrawals are unavailable while your account is under review.{" "}
+              {freezeState.freeze_level !== "hard"
+                ? "Verify your identity from your dashboard to restore access."
+                : "Contact support for assistance."}
+            </p>
+          </div>
+        )}
         <button
           onClick={onWithdraw}
-          disabled={(invalid && !amountTooHigh) || withdrawing || !hasCard}
+          disabled={(invalid && !amountTooHigh) || withdrawing || !hasCard || !!freezeState?.is_frozen}
           className={`w-full py-3 rounded-xl font-semibold transition-all relative shimmer-btn ${
-            amountTooHigh
+            freezeState?.is_frozen
+              ? "bg-white/10 text-white/40 cursor-not-allowed"
+              : amountTooHigh
               ? "bg-red-500/20 border border-red-400/30 text-red-400 cursor-pointer"
               : invalid || !hasCard
               ? "bg-white/10 text-white/40 cursor-not-allowed"
