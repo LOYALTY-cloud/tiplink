@@ -1897,14 +1897,16 @@ export async function handleStripeEvent(
                 try {
                   const { data: sellerProfile } = await supabaseClient
                     .from("profiles")
-                    .select("stripe_account_id, stripe_payouts_enabled")
+                    .select("stripe_account_id, stripe_charges_enabled")
                     .eq("id", payoutSellerId)
                     .maybeSingle();
 
                   const connectedAccountId = sellerProfile?.stripe_account_id as string | null;
-                  const payoutsEnabled = sellerProfile?.stripe_payouts_enabled === true;
+                  // Only need charges_enabled (transfers capability active) —
+                  // payouts_enabled is about bank payouts, NOT about receiving transfers.
+                  const canReceiveTransfer = sellerProfile?.stripe_charges_enabled === true;
 
-                  if (connectedAccountId && payoutsEnabled) {
+                  if (connectedAccountId && canReceiveTransfer) {
                     const { stripe: stripeClient } = await import("@/lib/stripe/server");
                     const transfer = await stripeClient.transfers.create({
                       amount: Math.round(creatorEarns * 100),
