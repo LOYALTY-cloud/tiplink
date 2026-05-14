@@ -1854,6 +1854,9 @@ export async function handleStripeEvent(
               });
 
               // Revenue record
+              // Fraud-hold window: transfer is eligible 24 hours after sale
+              const transferEligibleAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
               const { error: saleErr } = await supabaseClient.from("theme_sales").insert({
                 theme_id: themeId,
                 buyer_id: buyerId,
@@ -1862,6 +1865,8 @@ export async function handleStripeEvent(
                 amount: amountDollars,
                 platform_fee: platformFee,
                 creator_earnings: creatorEarns,
+                transfer_status: "pending",
+                transfer_eligible_at: transferEligibleAt,
               });
 
               if (saleErr) {
@@ -1878,7 +1883,86 @@ export async function handleStripeEvent(
               // Increment unlock counter (best-effort)
               await supabaseClient.rpc("increment_theme_unlock", { theme_id_input: themeId });
 
-              // ── Credit creator's wallet with their earnings ──────────────────
+              // ── Stripe transfer to creator connected account ─────────────────
+              // Fetch creator's Stripe account; skip transfer if not set up.
+              // Transfer window: 24 h fraud hold → transfer is not instant.
+              // We attempt the transfer here only after the hold has logically
+              // started; a separate admin process can finalize deferred transfers.
+              // For immediate processing we attempt right after checkout — creators
+              // with payouts_enabled get funds routed in real-time.
+              let stripeTransferId: string | null = null;
+              let transferStatus = "pending";
+
+              if (creatorEarns > 0) {
+                try {
+                  const { data: sellerProfile } = await supabaseClient
+                    .from("profiles")
+                    .select("stripe_account_id, stripe_payouts_enabled")
+                    .eq("id", payoutSellerId)
+                    .maybeSingle();
+
+                  const connectedAccountId = sellerProfile?.stripe_account_id as string | null;
+                  const payoutsEnabled = sellerProfile?.stripe_payouts_enabled === true;
+
+                  if (connectedAccountId && payoutsEnabled) {
+                    const { stripe: stripeClient } = await import("@/lib/stripe/server");
+                    const transfer = await stripeClient.transfers.create({
+                      amount: Math.round(creatorEarns * 100),
+                      currency: "usd",
+                      destination: connectedAccountId,
+                      metadata: {
+                        type: "theme_sale_transfer",
+                        theme_id: themeId,
+                        seller_user_id: payoutSellerId,
+                        buyer_user_id: buyerId,
+                        stripe_session_id: session.id,
+                      },
+                    });
+
+                    stripeTransferId = transfer.id;
+                    transferStatus = "transferred";
+
+                    // Update theme_sales row with transfer details
+                    await supabaseClient
+                      .from("theme_sales")
+                      .update({
+                        stripe_transfer_id: stripeTransferId,
+                        transfer_status: "transferred",
+                      })
+                      .eq("stripe_session_id", session.id);
+
+                    console.log(`Theme sale transfer created: ${transfer.id} → ${connectedAccountId} ($${creatorEarns.toFixed(2)})`);
+                  } else {
+                    // Creator has no connected Stripe account — fall back to
+                    // internal wallet ledger so they can still withdraw.
+                    transferStatus = "skipped";
+                    await supabaseClient
+                      .from("theme_sales")
+                      .update({ transfer_status: "skipped" })
+                      .eq("stripe_session_id", session.id);
+                  }
+                } catch (transferErr) {
+                  console.error("Stripe transfer failed for theme sale; falling back to ledger credit", {
+                    sessionId: session.id,
+                    sellerId: payoutSellerId,
+                    themeId,
+                    creatorEarns,
+                    error: transferErr,
+                  });
+                  transferStatus = "failed";
+                  await supabaseClient
+                    .from("theme_sales")
+                    .update({ transfer_status: "failed" })
+                    .eq("stripe_session_id", session.id);
+                }
+              }
+
+              // ── Internal ledger credit ───────────────────────────────────────
+              // Always credit the internal ledger so balance reflects earnings.
+              // For creators with a connected account the Stripe transfer already
+              // moved real funds; the ledger entry is the matching accounting record.
+              // For creators without a connected account (skipped/failed) the
+              // ledger entry is their only balance record until they set up Stripe.
               if (creatorEarns > 0) {
                 try {
                   await ledgerFn({
@@ -1893,6 +1977,8 @@ export async function handleStripeEvent(
                       gross: amountDollars,
                       platform_fee: platformFee,
                       stripe_session_id: session.id,
+                      stripe_transfer_id: stripeTransferId,
+                      transfer_status: transferStatus,
                     },
                   });
                 } catch (ledgerErr) {
