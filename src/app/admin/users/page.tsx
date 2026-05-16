@@ -84,6 +84,10 @@ function AdminUsersContent() {
     if (filter === "flagged") {
       // Flagged = non-active OR owed > 0 OR is_flagged
       // We can't do an OR at the Supabase level easily, so fetch broader and filter client-side
+    } else if (filter === "restricted") {
+      // Match account_status = 'restricted' OR stripe restriction_level in (high_risk, restricted)
+      // because existing accounts may not have been backfilled yet
+      query = query.or("account_status.eq.restricted,restriction_level.in.(high_risk,restricted)");
     } else if (filter !== "all") {
       query = query.eq("account_status", filter);
     }
