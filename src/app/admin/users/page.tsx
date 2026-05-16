@@ -60,6 +60,7 @@ function AdminUsersContent() {
   const [restrictedUntil, setRestrictedUntil] = useState("");
   const [suspendedUntil, setSuspendedUntil] = useState("");
   const [syncingStripe, setSyncingStripe] = useState<string | null>(null);
+  const [queryError, setQueryError] = useState<string | null>(null);
   const isInitialLoad = useState(true);
   const canAssignRoles = (() => {
     const s = getAdminSession();
@@ -78,29 +79,43 @@ function AdminUsersContent() {
 
   async function fetchUsers(showLoader = false) {
     if (showLoader) setLoading(true);
-    let query = supabase
-      .from("profiles")
-      .select(
-        "id, user_id, handle, display_name, email, account_status, owed_balance, is_flagged, role, first_name, last_name, created_at, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_account_id, stripe_last_synced_at, stripe_requirements_due_count, stripe_past_requirements_due_count, stripe_currently_due, stripe_past_due"
-      )
-      .not("role", "in", '("owner","super_admin","finance_admin","support_admin")')
-      .order("created_at", { ascending: false })
-      .limit(100);
+    setQueryError(null);
 
-    if (filter === "flagged") {
-      // Flagged = non-active OR owed > 0 OR is_flagged
-      // We can't do an OR at the Supabase level easily, so fetch broader and filter client-side
-    } else if (filter === "restricted") {
-      // Match account_status = 'restricted' OR stripe restriction_level in (high_risk, restricted)
-      // because existing accounts may not have been backfilled yet
-      query = query.or("account_status.eq.restricted,restriction_level.in.(high_risk,restricted)");
-    } else if (filter !== "all") {
-      query = query.eq("account_status", filter);
+    const coreSelect = "id, user_id, handle, display_name, email, account_status, owed_balance, is_flagged, role, first_name, last_name, created_at, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_account_id";
+    const fullSelect = coreSelect + ", stripe_last_synced_at, stripe_requirements_due_count, stripe_past_requirements_due_count, stripe_currently_due, stripe_past_due";
+
+    const buildQuery = (select: string) => {
+      let q = supabase
+        .from("profiles")
+        .select(select)
+        .not("role", "in", '("owner","super_admin","finance_admin","support_admin")')
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      if (filter === "flagged") {
+        // broad fetch, filter client-side
+      } else if (filter === "restricted") {
+        q = q.or("account_status.eq.restricted,restriction_level.in.(high_risk,restricted)");
+      } else if (filter !== "all") {
+        q = q.eq("account_status", filter);
+      }
+      return q;
+    };
+
+    // Try full query (with new Stripe columns); fall back to core if columns missing
+    let { data, error } = await buildQuery(fullSelect);
+    if (error) {
+      console.warn("fetchUsers: full query failed, trying core columns only:", error.message);
+      ({ data, error } = await buildQuery(coreSelect));
+      if (error) {
+        console.error("fetchUsers: core query also failed:", error.message);
+        setQueryError(error.message);
+        setLoading(false);
+        return;
+      }
     }
 
-    const { data } = await query;
-    let result = data ?? [];
-
+    let result = (data ?? []) as User[];
     if (filter === "flagged") {
       result = result.filter(isUserFlagged);
     }
@@ -286,6 +301,12 @@ function AdminUsersContent() {
       {/* USER LIST */}
       {loading ? (
         <p className={ui.muted}>Loading…</p>
+      ) : queryError ? (
+        <div className="rounded-lg border border-red-400/20 bg-red-500/10 p-4">
+          <p className="text-sm text-red-400 font-semibold mb-1">Failed to load users</p>
+          <p className="text-xs text-red-300/70 font-mono break-all">{queryError}</p>
+          <p className="text-xs text-white/40 mt-2">A required database column may be missing. Run the pending migrations in Supabase and refresh.</p>
+        </div>
       ) : sorted.length === 0 ? (
         <p className={ui.muted}>No users found.</p>
       ) : (
