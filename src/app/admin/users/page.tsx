@@ -22,6 +22,13 @@ type User = {
   first_name: string | null;
   last_name: string | null;
   created_at: string;
+  // Stripe fields
+  stripe_charges_enabled: boolean | null;
+  stripe_payouts_enabled: boolean | null;
+  restriction_level: string | null;
+  stripe_verification_status: string | null;
+  stripe_disabled_reason: string | null;
+  stripe_account_id: string | null;
 };
 
 const STATUS_OPTIONS = ["active", "restricted", "suspended", "closed"] as const;
@@ -68,7 +75,7 @@ function AdminUsersContent() {
     let query = supabase
       .from("profiles")
       .select(
-        "id, user_id, handle, display_name, email, account_status, owed_balance, is_flagged, role, first_name, last_name, created_at"
+        "id, user_id, handle, display_name, email, account_status, owed_balance, is_flagged, role, first_name, last_name, created_at, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_account_id"
       )
       .not("role", "in", '("owner","super_admin","finance_admin","support_admin")')
       .order("created_at", { ascending: false })
@@ -303,6 +310,45 @@ function AdminUsersContent() {
                   )}
                 </div>
               </div>
+
+              {/* STRIPE STATUS STRIP */}
+              {u.stripe_account_id && (
+                <div className="flex flex-wrap gap-2 px-1">
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                    u.stripe_charges_enabled ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
+                  }`}>
+                    {u.stripe_charges_enabled ? "✓" : "✗"} Charges
+                  </span>
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                    u.stripe_payouts_enabled ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
+                  }`}>
+                    {u.stripe_payouts_enabled ? "✓" : "✗"} Payouts
+                  </span>
+                  {u.restriction_level && u.restriction_level !== "none" && (
+                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                      u.restriction_level === "high_risk" ? "bg-red-500/15 text-red-300" :
+                      u.restriction_level === "restricted" ? "bg-orange-500/15 text-orange-300" :
+                      "bg-yellow-500/15 text-yellow-300"
+                    }`}>
+                      {u.restriction_level === "high_risk" ? "⚠ High Risk" :
+                       u.restriction_level === "restricted" ? "⚠ Restricted" : "⚠ Warning"}
+                    </span>
+                  )}
+                  {u.stripe_verification_status && u.stripe_verification_status !== "verified" && (
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-white/50 font-medium">
+                      {u.stripe_verification_status}
+                    </span>
+                  )}
+                  {u.stripe_disabled_reason && (
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-300 font-medium" title={u.stripe_disabled_reason}>
+                      {u.stripe_disabled_reason.replace(/_/g, " ")}
+                    </span>
+                  )}
+                </div>
+              )}
+              {!u.stripe_account_id && (
+                <p className="text-[11px] text-white/25 px-1">No Stripe account connected</p>
+              )}
 
               {/* ACTION ROW */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/5">
