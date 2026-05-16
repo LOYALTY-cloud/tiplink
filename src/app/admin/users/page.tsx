@@ -29,6 +29,11 @@ type User = {
   stripe_verification_status: string | null;
   stripe_disabled_reason: string | null;
   stripe_account_id: string | null;
+  stripe_last_synced_at: string | null;
+  stripe_requirements_due_count: number | null;
+  stripe_past_requirements_due_count: number | null;
+  stripe_currently_due: string[] | null;
+  stripe_past_due: string[] | null;
 };
 
 const STATUS_OPTIONS = ["active", "restricted", "suspended", "closed"] as const;
@@ -54,6 +59,7 @@ function AdminUsersContent() {
   const [actionReason, setActionReason] = useState("");
   const [restrictedUntil, setRestrictedUntil] = useState("");
   const [suspendedUntil, setSuspendedUntil] = useState("");
+  const [syncingStripe, setSyncingStripe] = useState<string | null>(null);
   const isInitialLoad = useState(true);
   const canAssignRoles = (() => {
     const s = getAdminSession();
@@ -75,7 +81,7 @@ function AdminUsersContent() {
     let query = supabase
       .from("profiles")
       .select(
-        "id, user_id, handle, display_name, email, account_status, owed_balance, is_flagged, role, first_name, last_name, created_at, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_account_id"
+        "id, user_id, handle, display_name, email, account_status, owed_balance, is_flagged, role, first_name, last_name, created_at, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_account_id, stripe_last_synced_at, stripe_requirements_due_count, stripe_past_requirements_due_count, stripe_currently_due, stripe_past_due"
       )
       .not("role", "in", '("owner","super_admin","finance_admin","support_admin")')
       .order("created_at", { ascending: false })
@@ -97,6 +103,24 @@ function AdminUsersContent() {
 
     setUsers(result);
     setLoading(false);
+  }
+
+  async function syncStripeForUser(userId: string) {
+    setSyncingStripe(userId);
+    try {
+      const headers = getAdminHeaders();
+      await fetch("/api/admin/stripe-sync", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      // Refresh list so the updated stripe data is shown
+      await fetchUsers(false);
+    } catch (e) {
+      console.error("stripe sync failed", e);
+    } finally {
+      setSyncingStripe(null);
+    }
   }
 
   async function updateStatus(userId: string, status: string, reason?: string, duration?: string) {
@@ -311,44 +335,105 @@ function AdminUsersContent() {
                 </div>
               </div>
 
-              {/* STRIPE STATUS STRIP */}
-              {u.stripe_account_id && (
-                <div className="flex flex-wrap gap-2 px-1">
-                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
-                    u.stripe_charges_enabled ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
-                  }`}>
-                    {u.stripe_charges_enabled ? "✓" : "✗"} Charges
-                  </span>
-                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
-                    u.stripe_payouts_enabled ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
-                  }`}>
-                    {u.stripe_payouts_enabled ? "✓" : "✗"} Payouts
-                  </span>
-                  {u.restriction_level && u.restriction_level !== "none" && (
-                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
-                      u.restriction_level === "high_risk" ? "bg-red-500/15 text-red-300" :
-                      u.restriction_level === "restricted" ? "bg-orange-500/15 text-orange-300" :
-                      "bg-yellow-500/15 text-yellow-300"
-                    }`}>
-                      {u.restriction_level === "high_risk" ? "⚠ High Risk" :
-                       u.restriction_level === "restricted" ? "⚠ Restricted" : "⚠ Warning"}
-                    </span>
-                  )}
-                  {u.stripe_verification_status && u.stripe_verification_status !== "verified" && (
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-white/50 font-medium">
-                      {u.stripe_verification_status}
-                    </span>
-                  )}
-                  {u.stripe_disabled_reason && (
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-300 font-medium" title={u.stripe_disabled_reason}>
-                      {u.stripe_disabled_reason.replace(/_/g, " ")}
-                    </span>
-                  )}
+              {/* TRUST & RISK PROFILE */}
+              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-white/30">Trust &amp; Risk Profile</span>
+                  <div className="flex items-center gap-2">
+                    {u.stripe_last_synced_at && (
+                      <span className="text-[10px] text-white/25">
+                        synced {(() => {
+                          const diff = Date.now() - new Date(u.stripe_last_synced_at).getTime();
+                          const mins = Math.floor(diff / 60000);
+                          if (mins < 1) return "just now";
+                          if (mins < 60) return `${mins}m ago`;
+                          const hrs = Math.floor(mins / 60);
+                          if (hrs < 24) return `${hrs}h ago`;
+                          return `${Math.floor(hrs / 24)}d ago`;
+                        })()}
+                      </span>
+                    )}
+                    {u.stripe_account_id && (
+                      <button
+                        onClick={() => syncStripeForUser(u.user_id)}
+                        disabled={syncingStripe === u.user_id}
+                        className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-white/40 hover:text-white/70 hover:border-white/20 transition disabled:opacity-40"
+                        title="Force pull fresh data from Stripe"
+                      >
+                        {syncingStripe === u.user_id ? "syncing…" : "↻ Sync"}
+                      </button>
+                    )}
+                  </div>
                 </div>
-              )}
-              {!u.stripe_account_id && (
-                <p className="text-[11px] text-white/25 px-1">No Stripe account connected</p>
-              )}
+
+                {u.stripe_account_id ? (
+                  <>
+                    {/* Status pills row */}
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                        u.stripe_charges_enabled ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
+                      }`}>
+                        {u.stripe_charges_enabled ? "✓" : "✗"} Charges
+                      </span>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                        u.stripe_payouts_enabled ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
+                      }`}>
+                        {u.stripe_payouts_enabled ? "✓" : "✗"} Payouts
+                      </span>
+                      {u.restriction_level && u.restriction_level !== "none" && u.restriction_level !== "healthy" && (
+                        <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${
+                          u.restriction_level === "high_risk" ? "bg-red-500/20 text-red-300 border border-red-400/20" :
+                          u.restriction_level === "restricted" ? "bg-orange-500/15 text-orange-300" :
+                          "bg-yellow-500/15 text-yellow-300"
+                        }`}>
+                          {u.restriction_level === "high_risk" ? "⚠️ High Risk" :
+                           u.restriction_level === "restricted" ? "⚠ Restricted" : "⚠ Warning"}
+                        </span>
+                      )}
+                      {u.stripe_verification_status && u.stripe_verification_status !== "verified" && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-300 font-medium">
+                          🔓 {u.stripe_verification_status.replace(/_/g, " ")}
+                        </span>
+                      )}
+                      {u.stripe_disabled_reason && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-300 font-medium" title={u.stripe_disabled_reason}>
+                          {u.stripe_disabled_reason.replace(/_/g, " ")}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Requirements breakdown */}
+                    {((u.stripe_requirements_due_count ?? 0) > 0 || (u.stripe_past_requirements_due_count ?? 0) > 0) && (
+                      <div className="flex flex-wrap gap-3 pt-0.5">
+                        {(u.stripe_requirements_due_count ?? 0) > 0 && (
+                          <div>
+                            <span className="text-[10px] text-white/30 block">Currently Due</span>
+                            <span className="text-[11px] text-yellow-400 font-semibold">{u.stripe_requirements_due_count} item{(u.stripe_requirements_due_count ?? 0) !== 1 ? "s" : ""}</span>
+                            {u.stripe_currently_due && u.stripe_currently_due.length > 0 && (
+                              <p className="text-[10px] text-white/25 mt-0.5 max-w-[200px] truncate" title={u.stripe_currently_due.join(", ")}>
+                                {u.stripe_currently_due[0].replace(/_/g, " ")}{u.stripe_currently_due.length > 1 ? ` +${u.stripe_currently_due.length - 1}` : ""}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {(u.stripe_past_requirements_due_count ?? 0) > 0 && (
+                          <div>
+                            <span className="text-[10px] text-white/30 block">Past Due</span>
+                            <span className="text-[11px] text-red-400 font-semibold">{u.stripe_past_requirements_due_count} item{(u.stripe_past_requirements_due_count ?? 0) !== 1 ? "s" : ""}</span>
+                            {u.stripe_past_due && u.stripe_past_due.length > 0 && (
+                              <p className="text-[10px] text-white/25 mt-0.5 max-w-[200px] truncate" title={u.stripe_past_due.join(", ")}>
+                                {u.stripe_past_due[0].replace(/_/g, " ")}{u.stripe_past_due.length > 1 ? ` +${u.stripe_past_due.length - 1}` : ""}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-[11px] text-white/25">No Stripe account connected</p>
+                )}
+              </div>
 
               {/* ACTION ROW */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/5">
