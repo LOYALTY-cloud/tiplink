@@ -483,7 +483,13 @@ export default function AdminUserDetailPage() {
     try {
       const bal = Number(wallet?.balance ?? 0);
       const ow = Number(profile.owed_balance ?? 0);
-      const sev = disputeCount >= 3 ? "high" : disputeCount >= 1 ? "medium" : "low";
+      const sev = (() => {
+        const rl = profile.restriction_level;
+        const as = profile.account_status;
+        if (rl === "high_risk" || rl === "restricted" || as === "suspended" || as === "closed" || as === "closed_finalized" || profile.is_frozen || disputeCount >= 3) return "high";
+        if (rl === "warning" || as === "restricted" || ow > 0 || disputeCount >= 1 || profile.is_flagged || (profile.stripe_account_id && !profile.stripe_charges_enabled) || (profile.stripe_account_id && !profile.stripe_payouts_enabled)) return "medium";
+        return "low";
+      })();
 
       const caseData = {
         userId: profile.user_id,
@@ -531,6 +537,8 @@ export default function AdminUserDetailPage() {
     disputeCount >= 1 ? "medium" :
     "low";
 
+  // Note: full severity recalculated below after profile loads
+
   if (loading) {
     return <p className={ui.muted}>Loading user…</p>;
   }
@@ -547,7 +555,28 @@ export default function AdminUserDetailPage() {
   const balance = Number(wallet?.balance ?? 0);
   const owed = Number(profile.owed_balance ?? 0);
 
-  const isFlagged =
+  // Real severity — accounts for Stripe restriction, account status, frozen, disputes, owed balance
+  const severity = (() => {
+    const rl = profile.restriction_level;
+    const as = profile.account_status;
+    if (
+      rl === "high_risk" || rl === "restricted" ||
+      as === "suspended" || as === "closed" || as === "closed_finalized" ||
+      profile.is_frozen ||
+      disputeCount >= 3
+    ) return "high";
+    if (
+      rl === "warning" ||
+      as === "restricted" ||
+      owed > 0 ||
+      disputeCount >= 1 ||
+      profile.is_flagged ||
+      (profile.stripe_account_id && !profile.stripe_charges_enabled) ||
+      (profile.stripe_account_id && !profile.stripe_payouts_enabled)
+    ) return "medium";
+    return "low";
+  })();
+    severity !== "low" ||
     (profile.account_status && profile.account_status !== "active") ||
     owed > 0 ||
     disputeCount >= 1 ||
@@ -602,6 +631,10 @@ export default function AdminUserDetailPage() {
             <p className={`text-xs ${ui.muted} mt-0.5`}>
               {[
                 profile.account_status !== "active" && `Status: ${profile.account_status}`,
+                (profile.restriction_level === "high_risk" || profile.restriction_level === "restricted") && `Stripe: ${profile.restriction_level === "high_risk" ? "High Risk" : "Restricted"}`,
+                profile.restriction_level === "warning" && "Stripe: Warning",
+                profile.stripe_account_id && !profile.stripe_charges_enabled && "Charges disabled",
+                profile.stripe_account_id && !profile.stripe_payouts_enabled && "Payouts disabled",
                 owed > 0 && `Owed balance: $${owed.toFixed(2)}`,
                 disputeCount > 0 && `${disputeCount} dispute(s)`,
                 profile.is_flagged && "Manually flagged",
