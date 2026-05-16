@@ -12,6 +12,7 @@ import AdminConfirmModal from "@/components/AdminConfirmModal";
 import AdminRiskCard from "@/components/AdminRiskCard";
 import ActivityCalendar from "@/components/admin/ActivityCalendar";
 import { getAdminWarnings } from "@/lib/adminWarnings";
+import { stripeFieldLabel } from "@/lib/stripe/fieldLabels";
 
 type Profile = {
   id: string;
@@ -748,7 +749,7 @@ export default function AdminUserDetailPage() {
                           : Array(profile.stripe_requirements_due_count).fill(null)
                         ).map((item: string | null, i: number) => (
                           <span key={i} className="text-[11px] text-yellow-200/70 font-mono break-all">
-                            · {item ? item.replace(/[_.]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "—"}
+                            · {item ? stripeFieldLabel(item) : "—"}
                           </span>
                         ))}
                       </div>
@@ -768,7 +769,7 @@ export default function AdminUserDetailPage() {
                           : Array(profile.stripe_past_requirements_due_count).fill(null)
                         ).map((item: string | null, i: number) => (
                           <span key={i} className="text-[11px] text-red-200/70 font-mono break-all">
-                            · {item ? item.replace(/[_.]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "—"}
+                            · {item ? stripeFieldLabel(item) : "—"}
                           </span>
                         ))}
                       </div>

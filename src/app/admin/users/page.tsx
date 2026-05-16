@@ -8,6 +8,7 @@ import { ui } from "@/lib/ui";
 import { getAdminSession, getAdminHeaders } from "@/lib/auth/adminSession";
 import AdminConfirmModal from "@/components/AdminConfirmModal";
 import type { ConfirmVariant } from "@/components/AdminConfirmModal";
+import { stripeFieldLabel } from "@/lib/stripe/fieldLabels";
 
 type User = {
   id: string;
