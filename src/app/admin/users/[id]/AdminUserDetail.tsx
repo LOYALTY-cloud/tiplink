@@ -33,6 +33,18 @@ type Profile = {
   last_risk_check: string | null;
   is_frozen: boolean | null;
   freeze_reason: string | null;
+  // Stripe
+  stripe_account_id: string | null;
+  stripe_charges_enabled: boolean | null;
+  stripe_payouts_enabled: boolean | null;
+  restriction_level: string | null;
+  stripe_verification_status: string | null;
+  stripe_disabled_reason: string | null;
+  stripe_last_synced_at: string | null;
+  stripe_requirements_due_count: number | null;
+  stripe_past_requirements_due_count: number | null;
+  stripe_currently_due: string[] | null;
+  stripe_past_due: string[] | null;
 };
 
 type Wallet = { balance: number };
@@ -95,6 +107,24 @@ export default function AdminUserDetailPage() {
   const [supportHistory, setSupportHistory] = useState<Array<{ id: string; ticket_id: string; issue_type: string; summary: string; resolution: string; outcome: string; created_at: string }>>([]);
 
   const [exporting, setExporting] = useState(false);
+  const [syncingStripe, setSyncingStripe] = useState(false);
+
+  async function syncStripe() {
+    setSyncingStripe(true);
+    try {
+      const headers = getAdminHeaders();
+      await fetch("/api/admin/stripe-sync", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      await loadUser();
+    } catch (e) {
+      console.error("stripe sync failed", e);
+    } finally {
+      setSyncingStripe(false);
+    }
+  }
 
   // Override system state
   const [overrideModal, setOverrideModal] = useState<{ type: string; label: string } | null>(null);
@@ -176,7 +206,7 @@ export default function AdminUserDetailPage() {
     // profiles is publicly readable — safe to query directly
     const profileRes = await supabase
       .from("profiles")
-      .select("id, user_id, handle, display_name, email, first_name, last_name, account_status, status_reason, owed_balance, is_flagged, created_at, closed_at, role, trust_score, risk_level, last_risk_check, is_frozen, freeze_reason")
+      .select("id, user_id, handle, display_name, email, first_name, last_name, account_status, status_reason, owed_balance, is_flagged, created_at, closed_at, role, trust_score, risk_level, last_risk_check, is_frozen, freeze_reason, stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_last_synced_at, stripe_requirements_due_count, stripe_past_requirements_due_count, stripe_currently_due, stripe_past_due")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -646,6 +676,111 @@ export default function AdminUserDetailPage() {
               )}
             </div>
           </div>
+
+          {/* STRIPE TRUST & RISK PROFILE */}
+          {profile.stripe_account_id ? (
+            <div className={`${ui.card} p-5 space-y-4`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[10px] text-white/40 uppercase tracking-wider">Stripe Trust & Risk Profile</p>
+                <div className="flex items-center gap-3">
+                  {profile.stripe_last_synced_at && (
+                    <span className="text-[10px] text-white/25">
+                      synced {Math.round((Date.now() - new Date(profile.stripe_last_synced_at).getTime()) / 60000)}m ago
+                    </span>
+                  )}
+                  <button
+                    onClick={syncStripe}
+                    disabled={syncingStripe}
+                    className={`text-[10px] px-2 py-1 rounded border border-white/10 text-white/40 hover:text-white/70 hover:border-white/20 transition disabled:opacity-40`}
+                  >
+                    {syncingStripe ? "Syncing…" : "↻ Sync"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Status pills */}
+              <div className="flex flex-wrap gap-2">
+                <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                  profile.stripe_charges_enabled ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
+                }`}>
+                  {profile.stripe_charges_enabled ? "✓ Charges" : "✗ Charges"}
+                </span>
+                <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                  profile.stripe_payouts_enabled ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
+                }`}>
+                  {profile.stripe_payouts_enabled ? "✓ Payouts" : "✗ Payouts"}
+                </span>
+                {(profile.restriction_level === "high_risk" || profile.restriction_level === "restricted") && (
+                  <span className="text-xs px-2.5 py-1 rounded-full font-semibold bg-red-500/10 text-red-400">
+                    ⚠ {profile.restriction_level === "high_risk" ? "High Risk" : "Restricted"}
+                  </span>
+                )}
+                {profile.restriction_level === "warning" && (
+                  <span className="text-xs px-2.5 py-1 rounded-full font-semibold bg-orange-500/10 text-orange-400">
+                    ⚠ Warning
+                  </span>
+                )}
+                {profile.stripe_verification_status && (
+                  <span className="text-xs px-2.5 py-1 rounded-full font-semibold bg-white/5 text-white/50">
+                    🔓 {profile.stripe_verification_status}
+                  </span>
+                )}
+              </div>
+
+              {profile.stripe_disabled_reason && (
+                <p className="text-xs text-red-300/70">Disabled: {profile.stripe_disabled_reason.replace(/_/g, " ")}</p>
+              )}
+
+              {/* Requirements breakdown */}
+              {((profile.stripe_requirements_due_count ?? 0) > 0 || (profile.stripe_past_requirements_due_count ?? 0) > 0) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {(profile.stripe_requirements_due_count ?? 0) > 0 && (
+                    <div>
+                      <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">
+                        Currently Due — {profile.stripe_requirements_due_count} item{profile.stripe_requirements_due_count !== 1 ? "s" : ""}
+                      </p>
+                      <div className="flex flex-col gap-1">
+                        {(profile.stripe_currently_due && profile.stripe_currently_due.length > 0
+                          ? profile.stripe_currently_due
+                          : Array(profile.stripe_requirements_due_count).fill(null)
+                        ).map((item: string | null, i: number) => (
+                          <span key={i} className="text-[11px] bg-yellow-400/10 text-yellow-300 rounded px-2 py-1 font-mono break-all">
+                            {item ? item.replace(/[_.]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "—"}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(profile.stripe_past_requirements_due_count ?? 0) > 0 && (
+                    <div>
+                      <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">
+                        Past Due — {profile.stripe_past_requirements_due_count} item{profile.stripe_past_requirements_due_count !== 1 ? "s" : ""}
+                      </p>
+                      <div className="flex flex-col gap-1">
+                        {(profile.stripe_past_due && profile.stripe_past_due.length > 0
+                          ? profile.stripe_past_due
+                          : Array(profile.stripe_past_requirements_due_count).fill(null)
+                        ).map((item: string | null, i: number) => (
+                          <span key={i} className="text-[11px] bg-red-400/10 text-red-300 rounded px-2 py-1 font-mono break-all">
+                            {item ? item.replace(/[_.]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "—"}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {(profile.stripe_requirements_due_count ?? 0) === 0 && (profile.stripe_past_requirements_due_count ?? 0) === 0 && (
+                <p className="text-xs text-green-400/70">✓ No outstanding requirements</p>
+              )}
+            </div>
+          ) : (
+            <div className={`${ui.card} p-4`}>
+              <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Stripe Trust & Risk Profile</p>
+              <p className="text-xs text-white/25">No Stripe account connected</p>
+            </div>
+          )}
 
           {/* TRUST SCORE & RISK CARD */}
           {profile.trust_score != null && (
