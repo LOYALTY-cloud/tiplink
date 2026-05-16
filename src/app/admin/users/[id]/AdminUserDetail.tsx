@@ -532,12 +532,7 @@ export default function AdminUserDetailPage() {
     }
   }
 
-  const severity =
-    disputeCount >= 3 ? "high" :
-    disputeCount >= 1 ? "medium" :
-    "low";
-
-  // Note: full severity recalculated below after profile loads
+  // severity calculated below after profile loads
 
   if (loading) {
     return <p className={ui.muted}>Loading user…</p>;
