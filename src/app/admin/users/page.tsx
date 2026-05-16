@@ -406,38 +406,18 @@ function AdminUsersContent() {
                       )}
                     </div>
 
-                    {/* Requirements breakdown */}
+                    {/* Requirements count badges only */}
                     {((u.stripe_requirements_due_count ?? 0) > 0 || (u.stripe_past_requirements_due_count ?? 0) > 0) && (
-                      <div className="flex flex-wrap gap-3 pt-0.5">
+                      <div className="flex flex-wrap gap-2 pt-0.5">
                         {(u.stripe_requirements_due_count ?? 0) > 0 && (
-                          <div className="min-w-0">
-                            <span className="text-[10px] text-white/30 block mb-1">Currently Due</span>
-                            <div className="flex flex-col gap-0.5">
-                              {(u.stripe_currently_due && u.stripe_currently_due.length > 0
-                                ? u.stripe_currently_due
-                                : Array(u.stripe_requirements_due_count).fill(null)
-                              ).map((item, i) => (
-                                <span key={i} className="text-[10px] bg-yellow-400/10 text-yellow-300 rounded px-1.5 py-0.5 font-mono leading-tight">
-                                  {item ? item.replace(/[_.]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "—"}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
+                          <span className="text-[10px] bg-yellow-400/10 text-yellow-300 rounded-full px-2 py-0.5 font-semibold">
+                            {u.stripe_requirements_due_count} currently due
+                          </span>
                         )}
                         {(u.stripe_past_requirements_due_count ?? 0) > 0 && (
-                          <div className="min-w-0">
-                            <span className="text-[10px] text-white/30 block mb-1">Past Due</span>
-                            <div className="flex flex-col gap-0.5">
-                              {(u.stripe_past_due && u.stripe_past_due.length > 0
-                                ? u.stripe_past_due
-                                : Array(u.stripe_past_requirements_due_count).fill(null)
-                              ).map((item, i) => (
-                                <span key={i} className="text-[10px] bg-red-400/10 text-red-300 rounded px-1.5 py-0.5 font-mono leading-tight">
-                                  {item ? item.replace(/[_.]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "—"}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
+                          <span className="text-[10px] bg-red-400/10 text-red-300 rounded-full px-2 py-0.5 font-semibold">
+                            {u.stripe_past_requirements_due_count} past due
+                          </span>
                         )}
                       </div>
                     )}
