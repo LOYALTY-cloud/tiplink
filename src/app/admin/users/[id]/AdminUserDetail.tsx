@@ -571,6 +571,8 @@ export default function AdminUserDetailPage() {
     ) return "medium";
     return "low";
   })();
+
+  const isFlagged =
     severity !== "low" ||
     (profile.account_status && profile.account_status !== "active") ||
     owed > 0 ||
