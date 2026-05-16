@@ -190,6 +190,22 @@ export async function syncStripeAccount(
 
     // ── 11. Admin alerts for high-risk ───────────────────────────────────────
     if (restrictionLevel === "high_risk") {
+      // Deduplicate: skip if we already sent an alert for this account in the last 24 hours
+      const cooldownCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: recentAlert } = await supabaseAdmin
+        .from("admin_alerts")
+        .select("id")
+        .eq("type", "stripe_account_restricted")
+        .eq("stripe_account_id", stripeAccountId)
+        .gte("created_at", cooldownCutoff)
+        .limit(1)
+        .maybeSingle();
+
+      if (recentAlert) {
+        // Already alerted within 24 h — skip email and DB insert to prevent spam
+        console.log(`syncStripeAccount: suppressing duplicate alert for ${stripeAccountId} (within 24 h cooldown)`);
+      } else {
+
       // ── Human-readable translations for Stripe field codes ──────────────
       const stripeFieldLabels: Record<string, string> = {
         "individual.id_number":            "Government ID number (SSN / National ID)",
@@ -272,6 +288,7 @@ export async function syncStripeAccount(
           payouts_enabled:     payoutsEnabled ? "Yes" : "No",
         },
       });
+      } // end 24 h deduplication else
     }
 
     // ── 12. Notify creator if requirements changed and notifyCreator=true ────
