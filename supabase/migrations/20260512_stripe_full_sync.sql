@@ -50,6 +50,7 @@ CREATE INDEX IF NOT EXISTS idx_creator_capabilities_creator
 ALTER TABLE creator_capabilities ENABLE ROW LEVEL SECURITY;
 
 -- Service role has full access; no user-facing policies needed
+DROP POLICY IF EXISTS "service_role_all" ON creator_capabilities;
 CREATE POLICY "service_role_all" ON creator_capabilities
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
@@ -76,5 +77,6 @@ CREATE INDEX IF NOT EXISTS idx_admin_alerts_unresolved
 
 ALTER TABLE admin_alerts ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service_role_all" ON admin_alerts;
 CREATE POLICY "service_role_all" ON admin_alerts
   FOR ALL TO service_role USING (true) WITH CHECK (true);
