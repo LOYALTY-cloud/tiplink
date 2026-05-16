@@ -169,6 +169,27 @@ export async function syncStripeAccount(
       })
       .eq("id", creatorId);
 
+    // ── 8b. Sync account_status from Stripe restriction level ────────────────
+    // Only touch account_status when it is "active" — never override a manual
+    // admin "suspended" or "closed". Auto-clear back to active only when Stripe
+    // lifts a restriction (i.e. current status is "restricted" and account is now clean).
+    if (restrictionLevel === "high_risk" || restrictionLevel === "restricted") {
+      await supabaseAdmin
+        .from("profiles")
+        .update({ account_status: "restricted" })
+        .eq("id", creatorId)
+        .eq("account_status", "active");
+    } else if (
+      restrictionLevel !== "warning" &&
+      chargesEnabled && payoutsEnabled && pastDue.length === 0 && !disabledReason
+    ) {
+      await supabaseAdmin
+        .from("profiles")
+        .update({ account_status: "active" })
+        .eq("id", creatorId)
+        .eq("account_status", "restricted");
+    }
+
     // ── 9. Upsert per-capability rows ────────────────────────────────────────
     for (const [capName, capStatus] of Object.entries(capabilities)) {
       await supabaseAdmin
