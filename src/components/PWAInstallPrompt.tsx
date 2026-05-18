@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -58,12 +59,12 @@ export default function PWAInstallPrompt() {
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-20 left-0 right-0 z-50 px-4 pointer-events-none">
+    <div className="fixed top-4 left-0 right-0 z-50 px-4 pointer-events-none">
       <div className="max-w-lg mx-auto pointer-events-auto">
         <div className="rounded-2xl border border-white/10 bg-[#0f1623]/95 backdrop-blur-xl shadow-2xl p-4 flex items-start gap-3">
           {/* App icon */}
-          <div className="shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg">
-            <span className="text-white text-sm font-bold">1L</span>
+          <div className="shrink-0 w-10 h-10 rounded-xl overflow-hidden shadow-lg">
+            <Image src="/icon-192.png" alt="1neLink" width={40} height={40} className="w-full h-full object-cover" />
           </div>
 
           {/* Content */}
