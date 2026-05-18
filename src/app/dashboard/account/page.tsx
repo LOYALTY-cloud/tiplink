@@ -135,12 +135,6 @@ function AccountContent() {
                     ? "Charges disabled"
                     : "Payouts disabled"}
                 </span>
-                <a
-                  href="/dashboard/onboarding"
-                  className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 text-xs font-medium hover:bg-amber-500/25 transition"
-                >
-                  Fix →
-                </a>
               </div>
             ) : (
               <span className="text-emerald-400 font-medium">Active</span>
@@ -192,23 +186,23 @@ function AccountContent() {
             >
               Verify Identity
             </Link>
-            <a
-              href="mailto:support@1nelink.com"
+            <Link
+              href="/dashboard/support"
               className={`text-sm font-medium ${ui.muted} hover:text-white underline underline-offset-2 transition`}
             >
               Contact Support
-            </a>
+            </Link>
           </div>
         )}
 
         {status === "suspended" && (
           <div className="pt-2">
-            <a
-              href="mailto:support@1nelink.com"
+            <Link
+              href="/dashboard/support"
               className="text-sm font-medium text-amber-300 hover:text-amber-200 underline underline-offset-2 transition"
             >
               Contact Support to resolve →
-            </a>
+            </Link>
           </div>
         )}
 

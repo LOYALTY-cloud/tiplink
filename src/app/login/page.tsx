@@ -4,6 +4,7 @@ import { useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import PWAInstallPrompt from "@/components/PWAInstallPrompt";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -84,6 +85,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#050816] relative overflow-hidden px-4">
+      <PWAInstallPrompt />
 
       {/* Animated background */}
       <div className="absolute inset-0 z-0 pointer-events-none">
