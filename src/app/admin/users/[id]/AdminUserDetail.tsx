@@ -12,6 +12,7 @@ import AdminConfirmModal from "@/components/AdminConfirmModal";
 import AdminRiskCard from "@/components/AdminRiskCard";
 import ActivityCalendar from "@/components/admin/ActivityCalendar";
 import { getAdminWarnings } from "@/lib/adminWarnings";
+import { stripeFieldLabel } from "@/lib/stripe/fieldLabels";
 
 type Profile = {
   id: string;
@@ -482,7 +483,13 @@ export default function AdminUserDetailPage() {
     try {
       const bal = Number(wallet?.balance ?? 0);
       const ow = Number(profile.owed_balance ?? 0);
-      const sev = disputeCount >= 3 ? "high" : disputeCount >= 1 ? "medium" : "low";
+      const sev = (() => {
+        const rl = profile.restriction_level;
+        const as = profile.account_status;
+        if (rl === "high_risk" || rl === "restricted" || as === "suspended" || as === "closed" || as === "closed_finalized" || profile.is_frozen || disputeCount >= 3) return "high";
+        if (rl === "warning" || as === "restricted" || ow > 0 || disputeCount >= 1 || profile.is_flagged || (profile.stripe_account_id && !profile.stripe_charges_enabled) || (profile.stripe_account_id && !profile.stripe_payouts_enabled)) return "medium";
+        return "low";
+      })();
 
       const caseData = {
         userId: profile.user_id,
@@ -525,10 +532,7 @@ export default function AdminUserDetailPage() {
     }
   }
 
-  const severity =
-    disputeCount >= 3 ? "high" :
-    disputeCount >= 1 ? "medium" :
-    "low";
+  // severity calculated below after profile loads
 
   if (loading) {
     return <p className={ui.muted}>Loading user…</p>;
@@ -546,7 +550,30 @@ export default function AdminUserDetailPage() {
   const balance = Number(wallet?.balance ?? 0);
   const owed = Number(profile.owed_balance ?? 0);
 
+  // Real severity — accounts for Stripe restriction, account status, frozen, disputes, owed balance
+  const severity = (() => {
+    const rl = profile.restriction_level;
+    const as = profile.account_status;
+    if (
+      rl === "high_risk" || rl === "restricted" ||
+      as === "suspended" || as === "closed" || as === "closed_finalized" ||
+      profile.is_frozen ||
+      disputeCount >= 3
+    ) return "high";
+    if (
+      rl === "warning" ||
+      as === "restricted" ||
+      owed > 0 ||
+      disputeCount >= 1 ||
+      profile.is_flagged ||
+      (profile.stripe_account_id && !profile.stripe_charges_enabled) ||
+      (profile.stripe_account_id && !profile.stripe_payouts_enabled)
+    ) return "medium";
+    return "low";
+  })();
+
   const isFlagged =
+    severity !== "low" ||
     (profile.account_status && profile.account_status !== "active") ||
     owed > 0 ||
     disputeCount >= 1 ||
@@ -601,6 +628,10 @@ export default function AdminUserDetailPage() {
             <p className={`text-xs ${ui.muted} mt-0.5`}>
               {[
                 profile.account_status !== "active" && `Status: ${profile.account_status}`,
+                (profile.restriction_level === "high_risk" || profile.restriction_level === "restricted") && `Stripe: ${profile.restriction_level === "high_risk" ? "High Risk" : "Restricted"}`,
+                profile.restriction_level === "warning" && "Stripe: Warning",
+                profile.stripe_account_id && !profile.stripe_charges_enabled && "Charges disabled",
+                profile.stripe_account_id && !profile.stripe_payouts_enabled && "Payouts disabled",
                 owed > 0 && `Owed balance: $${owed.toFixed(2)}`,
                 disputeCount > 0 && `${disputeCount} dispute(s)`,
                 profile.is_flagged && "Manually flagged",
@@ -731,42 +762,48 @@ export default function AdminUserDetailPage() {
                 <p className="text-xs text-red-300/70">Disabled: {profile.stripe_disabled_reason.replace(/_/g, " ")}</p>
               )}
 
-              {/* Requirements breakdown */}
+              {/* Requirements breakdown — collapsible */}
               {((profile.stripe_requirements_due_count ?? 0) > 0 || (profile.stripe_past_requirements_due_count ?? 0) > 0) && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {(profile.stripe_requirements_due_count ?? 0) > 0 && (
-                    <div>
-                      <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">
-                        Currently Due — {profile.stripe_requirements_due_count} item{profile.stripe_requirements_due_count !== 1 ? "s" : ""}
-                      </p>
-                      <div className="flex flex-col gap-1">
+                    <details className="group rounded-lg border border-yellow-400/15 bg-yellow-400/5 overflow-hidden">
+                      <summary className="flex items-center justify-between px-3 py-2 cursor-pointer select-none list-none">
+                        <span className="text-[11px] font-semibold text-yellow-300">
+                          Currently Due — {profile.stripe_requirements_due_count} item{profile.stripe_requirements_due_count !== 1 ? "s" : ""}
+                        </span>
+                        <span className="text-[10px] text-white/30 group-open:rotate-180 transition-transform">▼</span>
+                      </summary>
+                      <div className="px-3 pb-3 flex flex-col gap-1 border-t border-yellow-400/10 pt-2">
                         {(profile.stripe_currently_due && profile.stripe_currently_due.length > 0
                           ? profile.stripe_currently_due
                           : Array(profile.stripe_requirements_due_count).fill(null)
                         ).map((item: string | null, i: number) => (
-                          <span key={i} className="text-[11px] bg-yellow-400/10 text-yellow-300 rounded px-2 py-1 font-mono break-all">
-                            {item ? item.replace(/[_.]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "—"}
+                          <span key={i} className="text-[11px] text-yellow-200/70 font-mono break-all">
+                            · {item ? stripeFieldLabel(item) : "—"}
                           </span>
                         ))}
                       </div>
-                    </div>
+                    </details>
                   )}
                   {(profile.stripe_past_requirements_due_count ?? 0) > 0 && (
-                    <div>
-                      <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">
-                        Past Due — {profile.stripe_past_requirements_due_count} item{profile.stripe_past_requirements_due_count !== 1 ? "s" : ""}
-                      </p>
-                      <div className="flex flex-col gap-1">
+                    <details className="group rounded-lg border border-red-400/15 bg-red-400/5 overflow-hidden">
+                      <summary className="flex items-center justify-between px-3 py-2 cursor-pointer select-none list-none">
+                        <span className="text-[11px] font-semibold text-red-300">
+                          Past Due — {profile.stripe_past_requirements_due_count} item{profile.stripe_past_requirements_due_count !== 1 ? "s" : ""}
+                        </span>
+                        <span className="text-[10px] text-white/30 group-open:rotate-180 transition-transform">▼</span>
+                      </summary>
+                      <div className="px-3 pb-3 flex flex-col gap-1 border-t border-red-400/10 pt-2">
                         {(profile.stripe_past_due && profile.stripe_past_due.length > 0
                           ? profile.stripe_past_due
                           : Array(profile.stripe_past_requirements_due_count).fill(null)
                         ).map((item: string | null, i: number) => (
-                          <span key={i} className="text-[11px] bg-red-400/10 text-red-300 rounded px-2 py-1 font-mono break-all">
-                            {item ? item.replace(/[_.]/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "—"}
+                          <span key={i} className="text-[11px] text-red-200/70 font-mono break-all">
+                            · {item ? stripeFieldLabel(item) : "—"}
                           </span>
                         ))}
                       </div>
-                    </div>
+                    </details>
                   )}
                 </div>
               )}

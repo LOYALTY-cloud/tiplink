@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe/server";
 import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 import { getCreatorCategoryByName } from "@/lib/creatorCategoriesServer";
+import { isProhibitedCategory } from "@/lib/stripe/prohibitedCategories";
 
 export const runtime = "nodejs";
 
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
 
     const { data: profile, error } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_account_id, creator_activity_category, first_name, last_name")
+      .select("id, stripe_account_id, creator_activity_category, first_name, last_name")
       .eq("user_id", user_id)
       .maybeSingle();
 
@@ -64,6 +65,14 @@ export async function POST(req: Request) {
 
     if (!mode || mode === "onboarding") {
       if (requestedCreatorCategory) {
+        // Block prohibited businesses BEFORE touching Stripe
+        if (isProhibitedCategory(requestedCreatorCategory)) {
+          return NextResponse.json(
+            { error: "This business type is not permitted on the 1neLink platform.", _checkpoint: "prohibited_category" },
+            { status: 403 }
+          );
+        }
+
         const resolved = await getCreatorCategoryByName(requestedCreatorCategory);
         if (!resolved) {
           return NextResponse.json(
@@ -165,6 +174,26 @@ export async function POST(req: Request) {
       }
     }
 
+    // Fetch user's primary social/website URL for Stripe business_profile.url
+    let userBusinessUrl: string | undefined;
+    if (profile?.id) {
+      const { data: socialLinks } = await supabaseAdmin
+        .from("social_links")
+        .select("type, url")
+        .eq("profile_id", profile.id)
+        .order("sort_order", { ascending: true });
+      if (socialLinks && socialLinks.length > 0) {
+        // Prefer website type, then fall back to first link
+        const websiteLink = socialLinks.find((l: { type: string; url: string }) => l.type === "website");
+        const candidate = (websiteLink ?? socialLinks[0]).url as string;
+        // Only use if it looks like a valid URL
+        if (candidate && /^https?:\/\/.+/.test(candidate)) {
+          userBusinessUrl = candidate;
+        }
+      }
+    }
+    const stripeBusinessUrl = userBusinessUrl ?? "https://1nelink.com";
+
     // Keep account profile data aligned with selected creator activity for cleaner underwriting.
     if (creatorActivityCategory) {
       const creatorCategory = await getCreatorCategoryByName(creatorActivityCategory);
@@ -184,7 +213,7 @@ export async function POST(req: Request) {
         business_profile: {
           product_description: creatorCategory.stripe_description,
           mcc: "5815",
-          url: "https://1nelink.com",
+          url: stripeBusinessUrl,
         },
         individual: {
           email,

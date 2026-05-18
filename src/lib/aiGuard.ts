@@ -48,6 +48,29 @@ const BLOCKED_INPUT_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /export\s+(all\s+)?(user|admin|account)\s+(data|records)/i, label: "data_dump" },
   { pattern: /what\s+(is|are)\s+(the|our)\s+(fraud|risk)\s+(threshold|limit|algorithm)\s+(number|value|setting)/i, label: "algorithm_extraction" },
   { pattern: /what\s+exact\s+score\s+(triggers|causes|leads\s+to)/i, label: "algorithm_extraction" },
+  // Social engineering / impersonation
+  { pattern: /i\s+am\s+(an?\s+)?(admin|developer|staff|support\s+agent|moderator|ceo|founder)/i, label: "impersonation" },
+  { pattern: /(this\s+is|i'?m)\s+(an?\s+)?(admin|developer|ceo|founder|staff\s+member)/i, label: "impersonation" },
+  { pattern: /i\s+work\s+(for|at|on)\s+(the\s+)?(1nelink|tiplink|your\s+company|your\s+team)\s+(team|staff|support)/i, label: "impersonation" },
+  // Jailbreak roleplay
+  { pattern: /\bDAN\b/i, label: "jailbreak" },
+  { pattern: /do\s+anything\s+now/i, label: "jailbreak" },
+  { pattern: /jailbreak/i, label: "jailbreak" },
+  { pattern: /developer\s+mode/i, label: "jailbreak" },
+  { pattern: /no\s+restrictions?\s+(mode|enabled|on)/i, label: "jailbreak" },
+  { pattern: /without\s+(any\s+)?(rules|restrictions|limits|filters)/i, label: "jailbreak" },
+  { pattern: /simulate\s+(a\s+)?(different|unrestricted|uncensored)\s+(ai|assistant|mode)/i, label: "jailbreak" },
+  // Financial / PII data fishing
+  { pattern: /what\s+(is|are)\s+(my|the)\s+(card|credit\s+card|bank|account)\s+(number|details|info)/i, label: "pii_fishing" },
+  { pattern: /show\s+(me\s+)?(my\s+)?(ssn|social\s+security|bank\s+account|card\s+number|routing\s+number)/i, label: "pii_fishing" },
+  { pattern: /what\s+(ssn|social\s+security|card\s+number|bank\s+account)\s+(do\s+you\s+have|is\s+on\s+file)/i, label: "pii_fishing" },
+  // Other user data extraction
+  { pattern: /tell\s+me\s+about\s+(another|other|different|someone\s+else'?s?)\s+user/i, label: "user_data_extraction" },
+  { pattern: /show\s+(me\s+)?(another|other|someone\s+else)'?s?\s+(account|balance|data|info)/i, label: "user_data_extraction" },
+  { pattern: /what\s+is\s+(user|account)\s+[a-z0-9_@.+-]{3,}'?s?\s+(balance|status|data)/i, label: "user_data_extraction" },
+  // Restriction bypass
+  { pattern: /how\s+(do\s+i|can\s+i|to)\s+(bypass|get\s+around|circumvent|avoid)\s+(the\s+)?(restriction|ban|block|suspension)/i, label: "restriction_bypass" },
+  { pattern: /bypass\s+(my\s+)?(account\s+)?(restriction|ban|block|suspension)/i, label: "restriction_bypass" },
 ]
 
 export type InputGuardResult =
@@ -178,6 +201,10 @@ const ACTION_CLAIM_PATTERNS: RegExp[] = [
   /the\s+user\s+(has\s+been|is\s+now)\s+(suspended|restricted|deleted|banned|removed)/i,
   /I\s+(just\s+)?(took|made|applied)\s+(the\s+)?(action|change)/i,
   /successfully\s+(suspended|restricted|deleted|banned|removed|modified)/i,
+  // Admin authority claims
+  /I\s+have\s+(admin|elevated|special)\s+(access|privileges|permissions)/i,
+  /as\s+an?\s+(admin|administrator|support\s+lead|staff)\s+I\s+can/i,
+  /I\s+can\s+(override|bypass|lift|remove)\s+(the\s+)?(restriction|ban|block|suspension)/i,
 ]
 
 /** Phrases that indicate the AI is leaking system prompt or internal architecture */
@@ -199,6 +226,13 @@ const LEAK_PATTERNS: RegExp[] = [
   /guardInput\(\)|guardOutput\(\)/i,
   /risk.score\s+(threshold|is\s+set\s+to\s+\d|cutoff\s+is\s+\d)/i,
   /row.level.security\s+polic/i,
+  // Internal field names that should never appear verbatim in user-facing responses
+  /\brestriction_reason\b/i,
+  /\bis_frozen\b/i,
+  /\baccount_status\s*[:=]/i,
+  /\bstripe_account_id\b/i,
+  /\bstripe_charges_enabled\b/i,
+  /\bstripe_payouts_enabled\b/i,
 ]
 
 export type OutputGuardResult =
