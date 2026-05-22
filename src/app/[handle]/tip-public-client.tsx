@@ -414,39 +414,52 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
 
     setLoadingIntent(true);
 
-    const res = await fetch("/api/payments/create-intent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        creator_user_id: profile.user_id,
-        tip_amount: chosenAmount,
-        note,
-        supporter_name: isAnonymous ? null : supporterName,
-        message: note,
-        is_anonymous: isAnonymous,
-        supporter_email: receiptEmail.trim() || null,
-      }),
-    });
+    try {
+      const res = await fetch("/api/payments/create-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creator_user_id: profile.user_id,
+          tip_amount: chosenAmount,
+          note,
+          supporter_name: isAnonymous ? null : supporterName,
+          message: note,
+          is_anonymous: isAnonymous,
+          supporter_email: receiptEmail.trim() || null,
+        }),
+      });
 
-    const data = await res.json();
-    setLoadingIntent(false);
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
 
-    if (!res.ok) {
+      setLoadingIntent(false);
+
+      if (!res.ok) {
+        submittingRef.current = false;
+        alert(data?.error || "Could not start payment.");
+        return;
+      }
+
+      setClientSecret(data.clientSecret);
+      setReceiptId(data.receiptId);
+      setBreakdown(data.breakdown);
+      setShowPayment(true);
       submittingRef.current = false;
-      alert(data?.error || "Could not start payment.");
+
+      // smooth scroll to payment box
+      setTimeout(() => {
+        payRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
+    } catch {
+      setLoadingIntent(false);
+      submittingRef.current = false;
+      alert("Could not start payment. Please try again.");
       return;
     }
-
-    setClientSecret(data.clientSecret);
-    setReceiptId(data.receiptId);
-    setBreakdown(data.breakdown);
-    setShowPayment(true);
-    submittingRef.current = false;
-
-    // smooth scroll to payment box
-    setTimeout(() => {
-      payRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
   }
 
   const isArmyTheme = profile.theme?.startsWith("army");
