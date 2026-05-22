@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { ProfileRow } from "@/types/db";
 import { stripe } from "@/lib/stripe/server";
+import Stripe from "stripe";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { logCaughtError } from "@/lib/errorLogger";
 
@@ -428,10 +429,6 @@ export async function POST(req: Request) {
         // Ensure correct dispute routing and tax/reporting
         on_behalf_of: profile.stripe_account_id,
 
-        // Shown on supporter's bank/card statement instead of the
-        // connected account name. Max 22 chars, no special characters.
-        statement_descriptor: "1NELINK TIP",
-
         metadata: {
           receipt_id,
           creator_user_id,
@@ -463,6 +460,14 @@ export async function POST(req: Request) {
       },
     });
   } catch (e: unknown) {
+    if (e instanceof Stripe.errors.StripeError) {
+      logCaughtError("api/payments/create-intent:stripe", e);
+      const message =
+        e.type === "StripeCardError"
+          ? "Payment was declined. Please try another card or payment method."
+          : "Unable to start payment right now. Please try again.";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
     logCaughtError("api/payments/create-intent", e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
