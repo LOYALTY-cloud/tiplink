@@ -202,48 +202,26 @@ const DEMO_TIPS = [
 ];
 
 function LiveTipFeed() {
-  const [tips, setTips] = useState<typeof DEMO_TIPS>([]);
-
-  useEffect(() => {
-    let idx = 0;
-    const iv = setInterval(() => {
-      setTips((prev) => {
-        const next = [DEMO_TIPS[idx % DEMO_TIPS.length], ...prev].slice(0, 4);
-        idx++;
-        return next;
-      });
-    }, 2200);
-    // kick off first immediately
-    setTips([DEMO_TIPS[0]]);
-    idx = 1;
-    return () => clearInterval(iv);
-  }, []);
-
+  const staticTips = DEMO_TIPS.slice(0, 4);
   return (
-    <div className="space-y-2 mt-3 overflow-hidden" style={{ minHeight: 140 }}>
-      <AnimatePresence initial={false}>
-        {tips.map((t, i) => (
-          <motion.div
-            key={`${t.name}-${t.amount}-${i}`}
-            initial={{ opacity: 0, y: -20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.35, ease }}
-            className="flex items-center gap-3 rounded-xl bg-white/5 border border-white/8 px-3 py-2"
-          >
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-500/40 to-cyan-400/40 flex items-center justify-center text-[10px] font-bold text-white/80 shrink-0">
-              {t.name === "Anonymous" ? "?" : t.name[0]}
+    <div className="space-y-2 mt-3">
+      {staticTips.map((t, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-3 rounded-xl bg-white/5 border border-white/8 px-3 py-2"
+        >
+          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-500/40 to-cyan-400/40 flex items-center justify-center text-[10px] font-bold text-white/80 shrink-0">
+            {t.name === "Anonymous" ? "?" : t.name[0]}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-medium text-white/70 truncate">{t.name}</span>
+              <span className="text-xs font-bold text-emerald-400">{t.amount}</span>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-medium text-white/70 truncate">{t.name}</span>
-                <span className="text-xs font-bold text-emerald-400">{t.amount}</span>
-              </div>
-              {t.note && <p className="text-[10px] text-white/55 truncate">{t.note}</p>}
-            </div>
-          </motion.div>
-        ))}
-      </AnimatePresence>
+            {t.note && <p className="text-[10px] text-white/55 truncate">{t.note}</p>}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -386,47 +364,25 @@ const HOMEPAGE_TIPS = [
 ];
 
 function HomepageTipFeed() {
-  const [tips, setTips] = useState<(typeof HOMEPAGE_TIPS)[number][]>([]);
-
-  useEffect(() => {
-    let idx = 0;
-    const iv = setInterval(() => {
-      setTips((prev) => {
-        const next = [HOMEPAGE_TIPS[idx % HOMEPAGE_TIPS.length], ...prev].slice(0, 5);
-        idx++;
-        return next;
-      });
-    }, 2200);
-    setTips([HOMEPAGE_TIPS[0]]);
-    idx = 1;
-    return () => clearInterval(iv);
-  }, []);
-
   return (
-    <div className="space-y-2" style={{ minHeight: 200 }}>
-      <AnimatePresence initial={false}>
-        {tips.map((t, i) => (
-          <motion.div
-            key={`${t.name}-${t.amount}-${i}-${tips.length}`}
-            initial={{ opacity: 0, y: -24, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.35, ease }}
-            className="flex items-center gap-3 rounded-xl bg-white/5 border border-white/8 px-4 py-3"
-          >
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500/40 to-cyan-400/40 flex items-center justify-center text-sm font-bold text-white/80 shrink-0">
-              {t.name === "Anonymous" ? "?" : t.name[0]}
+    <div className="space-y-2">
+      {HOMEPAGE_TIPS.slice(0, 5).map((t, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-3 rounded-xl bg-white/5 border border-white/8 px-4 py-3"
+        >
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500/40 to-cyan-400/40 flex items-center justify-center text-sm font-bold text-white/80 shrink-0">
+            {t.name === "Anonymous" ? "?" : t.name[0]}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium text-white/70 truncate">{t.name}</span>
+              <span className="text-sm font-bold text-emerald-400">{t.amount}</span>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-white/70 truncate">{t.name}</span>
-                <span className="text-sm font-bold text-emerald-400">{t.amount}</span>
-              </div>
-              <p className="text-xs text-white/55">{t.name} tipped {t.emoji}</p>
-            </div>
-          </motion.div>
-        ))}
-      </AnimatePresence>
+            <p className="text-xs text-white/55">{t.name} tipped {t.emoji}</p>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -607,18 +563,6 @@ export default function HomePage() {
           </p>
         </FadeUp>
 
-        {/* hero earnings counter */}
-        <FadeUp delay={0.28}>
-          <div className="mt-6 flex items-center gap-2 text-sm text-white/50">
-            <motion.div
-              className="w-2 h-2 rounded-full bg-emerald-400"
-              animate={{ opacity: [0.4, 1, 0.4] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
-            />
-            <AnimatedNumber target={124847} prefix="$" suffix=" paid out to creators" decimals={0} duration={2.5} />
-          </div>
-        </FadeUp>
-
         <FadeUp delay={0.35} className="mt-6 sm:mt-8 flex flex-col sm:flex-row items-center justify-center gap-3 w-full px-2 sm:px-0 sm:w-auto">
           <Link
             href="/signup"
@@ -682,10 +626,9 @@ export default function HomePage() {
       {/* ━━━ SOCIAL PROOF TICKER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <section className="border-t border-b border-white/8 bg-white/[0.02] overflow-hidden">
         <div className="max-w-5xl mx-auto px-4 py-10">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 text-center">
+          <div className="grid grid-cols-3 gap-4 sm:gap-6 text-center">
             {[
               { icon: <Users size={18} />, value: 2384, suffix: "+", label: "Creators", color: "text-blue-400" },
-              { icon: <DollarSign size={18} />, value: 124847, prefix: "$", label: "Paid Out", color: "text-emerald-400" },
               { icon: <Heart size={18} />, value: 38400, suffix: "+", label: "Tips Sent", color: "text-pink-400" },
               { icon: <Sparkles size={18} />, value: 99, suffix: "%", label: "Uptime", color: "text-cyan-400" },
             ].map((s, i) => (
@@ -1012,7 +955,6 @@ export default function HomePage() {
         <div className="max-w-4xl mx-auto px-4 py-8">
           <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 md:gap-10">
             {[
-              { text: "$124K+ paid out", icon: <DollarSign size={14} />, color: "text-emerald-400" },
               { text: "2,300+ creators", icon: <Users size={14} />, color: "text-blue-400" },
               { text: "Growing daily", icon: <TrendingUp size={14} />, color: "text-cyan-400" },
               { text: "Instant payouts", icon: <Zap size={14} />, color: "text-yellow-400" },
