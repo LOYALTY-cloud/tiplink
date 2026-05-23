@@ -108,14 +108,18 @@ export async function POST(req: Request) {
       try {
         await stripe.accounts.del(stripeAccountId);
       } catch (e: unknown) {
-        console.error("Stripe account deletion failed:", e);
-        return NextResponse.json(
-          {
-            error:
-              "Stripe account could not be deleted yet. If there are pending funds/payouts, try again after settlement.",
-          },
-          { status: 409 }
-        );
+        // Stripe blocks deletion when there are pending funds/payouts on the Connect account.
+        // This is a Stripe constraint we cannot override. Don't block the user — log the
+        // orphaned account for manual admin cleanup and proceed with deleting from our system.
+        const stripeErr = e instanceof Error ? e.message : String(e ?? "Unknown Stripe error");
+        console.error("Stripe account deletion failed (orphaned):", stripeAccountId, stripeErr);
+        const { sendAdminAlert } = await import("@/lib/adminAlerts");
+        sendAdminAlert({
+          subject: "Orphaned Stripe Connect account after user deletion",
+          body: `User ${user.id} (${user.email}) deleted their account but the Stripe Connect account ${stripeAccountId} could not be deleted. Manual cleanup required.\n\nError: ${stripeErr}`,
+          severity: "medium",
+          meta: { user_id: user.id, stripe_account_id: stripeAccountId, error: stripeErr },
+        });
       }
     }
 
