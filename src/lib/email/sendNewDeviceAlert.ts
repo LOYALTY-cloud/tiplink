@@ -28,7 +28,7 @@ export async function sendNewDeviceEmail(params: NewDeviceEmailParams): Promise<
 
         <!-- Header -->
         <div style="text-align:center;margin-bottom:32px;">
-          <img src="https://1nelink.app/logo.png" alt="1neLink" width="44" style="margin-bottom:12px;" />
+          <img src="https://raw.githubusercontent.com/LOYALTY-cloud/tiplink/main/public/1nelink-logo.png" alt="1neLink" width="120" style="display:block;margin:0 auto 12px;height:auto;border-radius:10px;" />
           <h1 style="color:#f9fafb;font-size:22px;font-weight:600;margin:0;">New Device Login Detected</h1>
         </div>
 
