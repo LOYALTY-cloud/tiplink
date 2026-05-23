@@ -47,7 +47,7 @@ export async function POST(req: Request) {
 
     const { data: profile, error: profErr } = await supabaseAdmin
       .from("profiles")
-      .select("id, stripe_account_id")
+      .select("id, stripe_account_id, owed_balance")
       .eq("user_id", user.id)
       .maybeSingle()
       .returns<ProfileRow | null>();
@@ -71,13 +71,15 @@ export async function POST(req: Request) {
     }
 
     const balance = Number(wallet?.balance ?? 0);
-    const withdrawFee = Number(wallet?.withdraw_fee ?? 0);
+    const owedBalance = Number((profile as any)?.owed_balance ?? 0);
 
-    if (balance > 0 || withdrawFee > 0) {
+    if (balance > 0 || owedBalance > 0) {
       return NextResponse.json(
         {
-          error: "You can't delete your account while you have a balance or fees owed.",
-          details: { balance, withdrawFee },
+          error: balance > 0
+            ? "You can't delete your account while you have a remaining balance. Please withdraw your funds first."
+            : "You can't delete your account while you have an outstanding balance owed. Please contact support.",
+          details: { balance, owedBalance },
         },
         { status: 409 }
       );
