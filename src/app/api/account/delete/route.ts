@@ -132,6 +132,12 @@ export async function POST(req: Request) {
       supabaseAdmin.from("withdrawals").delete().eq("user_id", user.id),
       supabaseAdmin.from("tip_intents").delete().eq("creator_user_id", user.id),
       supabaseAdmin.from("wallets").delete().eq("user_id", user.id),
+      // FK to auth.users without ON DELETE CASCADE — must be removed before deleteUser
+      supabaseAdmin.from("user_baselines").delete().eq("user_id", user.id),
+      supabaseAdmin.from("fraud_cases").delete().eq("user_id", user.id),
+      supabaseAdmin.from("ledger_anomalies").delete().eq("user_id", user.id),
+      supabaseAdmin.from("admin_access_logs").delete().eq("user_id", user.id),
+      supabaseAdmin.from("vanity_handles").delete().eq("owner_id", user.id),
       ...(profileId
         ? [supabaseAdmin.from("social_links").delete().eq("profile_id", profileId)]
         : []),
