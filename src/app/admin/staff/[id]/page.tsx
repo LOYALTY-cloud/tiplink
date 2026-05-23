@@ -131,6 +131,8 @@ export default function AdminStaffDetailPage() {
 
   const session = getAdminSession();
   const isOwner = session?.role === "owner";
+  const isSuperAdmin = session?.role === "super_admin";
+  const canControl = isOwner || isSuperAdmin;
   const [authorized, setAuthorized] = useState(false);
   const canSendTicket = !!session && !!admin && session.id !== admin.user_id;
 
@@ -445,8 +447,8 @@ export default function AdminStaffDetailPage() {
         </div>
       )}
 
-      {/* Risk Assessment — owner-only view, not shown for owners */}
-      {risk && admin.role !== "owner" && isOwner && (
+      {/* Risk Assessment — owner/super_admin view, not shown for owners */}
+      {risk && admin.role !== "owner" && canControl && (
         <div className={`${ui.card} p-5 space-y-3 ${
           risk.level === "critical" ? "border-red-500/30" :
           risk.level === "high" ? "border-orange-500/30" :
@@ -499,8 +501,8 @@ export default function AdminStaffDetailPage() {
         </div>
       )}
 
-      {/* Control Panel — Owner only, not for other owners */}
-      {isOwner && admin.role !== "owner" && (
+      {/* Control Panel — owner + super_admin, not for owners */}
+      {canControl && admin.role !== "owner" && (
         <div className={`${ui.card} p-5 space-y-3`}>
           <h2 className="text-sm font-semibold text-red-400 uppercase tracking-wider">Control Panel</h2>
           <div className="flex flex-wrap gap-2">
