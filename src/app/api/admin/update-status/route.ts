@@ -80,9 +80,19 @@ export async function POST(req: Request) {
 
     // Notify all admins on status changes that need attention
     if (status === "restricted" || status === "suspended" || status === "closed") {
+      // Resolve handles so the notification body is human-readable
+      const { data: nameProfiles } = await supabaseAdmin
+        .from("profiles")
+        .select("user_id, handle, display_name")
+        .in("user_id", [adminId, user_id]);
+      const nameFor = (id: string) => {
+        const p = nameProfiles?.find((p) => p.user_id === id);
+        return p?.handle ?? p?.display_name ?? id.slice(0, 8);
+      };
+
       notifyAdmins({
         title: `Account ${status.charAt(0).toUpperCase() + status.slice(1)}`,
-        body: `Admin ${adminId} set user ${user_id} to ${status}. Reason: ${reason || "none"}`,
+        body: `Admin @${nameFor(adminId)} set @${nameFor(user_id)} to ${status}. Reason: ${reason || "none"}`,
       }).catch(() => {});
     }
 
