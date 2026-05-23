@@ -123,7 +123,10 @@ export async function POST(req: Request) {
       }
     }
 
-    // Clean up application data before deleting auth user
+    // ── Phase 1: delete all child records (parallel) ─────────────────────────
+    // profiles.delete() runs AFTER this block to avoid FK constraint failures.
+    // tables that reference profiles(id) without ON DELETE CASCADE must be
+    // explicitly removed here before profiles is deleted.
     const profileId = profile?.id;
     const cleanupResults = await Promise.allSettled([
       supabaseAdmin.from("login_logs").delete().eq("user_id", user.id),
@@ -131,22 +134,25 @@ export async function POST(req: Request) {
       supabaseAdmin.from("user_settings").delete().eq("user_id", user.id),
       supabaseAdmin.from("goals").delete().eq("user_id", user.id),
       supabaseAdmin.from("theme_purchases").delete().eq("user_id", user.id),
+      // transactions_ledger.user_id references profiles(id); trigger allows service_role deletes
       supabaseAdmin.from("transactions_ledger").delete().eq("user_id", user.id),
       supabaseAdmin.from("payout_methods").delete().eq("user_id", user.id),
       supabaseAdmin.from("withdrawals").delete().eq("user_id", user.id),
       supabaseAdmin.from("tip_intents").delete().eq("creator_user_id", user.id),
       supabaseAdmin.from("wallets").delete().eq("user_id", user.id),
-      // FK to auth.users without ON DELETE CASCADE — must be removed before deleteUser
+      // FK to auth.users without ON DELETE CASCADE
       supabaseAdmin.from("user_baselines").delete().eq("user_id", user.id),
       supabaseAdmin.from("fraud_cases").delete().eq("user_id", user.id),
       supabaseAdmin.from("ledger_anomalies").delete().eq("user_id", user.id),
       supabaseAdmin.from("admin_access_logs").delete().eq("user_id", user.id),
       supabaseAdmin.from("vanity_handles").delete().eq("owner_id", user.id),
       supabaseAdmin.from("theme_sales").delete().eq("seller_id", user.id),
+      // FK to profiles(id) without ON DELETE CASCADE
+      supabaseAdmin.from("issuing_logs").delete().eq("user_id", user.id),
+      supabaseAdmin.from("card_declines").delete().eq("user_id", user.id),
       ...(profileId
         ? [supabaseAdmin.from("social_links").delete().eq("profile_id", profileId)]
         : []),
-      supabaseAdmin.from("profiles").delete().eq("user_id", user.id),
     ]);
 
     const failedCleanups = cleanupResults
@@ -156,6 +162,18 @@ export async function POST(req: Request) {
       console.error(`[account/delete] ${failedCleanups.length} cleanup step(s) failed for user ${user.id}:`, JSON.stringify(failedCleanups));
     }
 
+    // ── Phase 2: delete the profile row ──────────────────────────────────────
+    // Must run after all child records are gone to satisfy FK constraints.
+    const { error: profDelErr } = await supabaseAdmin
+      .from("profiles")
+      .delete()
+      .eq("user_id", user.id);
+    if (profDelErr) {
+      console.error(`[account/delete] profiles.delete failed for ${user.id}:`, profDelErr.message);
+      return NextResponse.json({ error: "Failed to delete account. Please try again." }, { status: 500 });
+    }
+
+    // ── Phase 3: delete the auth user ────────────────────────────────────────
     const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(user.id);
     if (delErr) {
       console.error(`[account/delete] deleteUser failed for ${user.id}:`, delErr.message);
