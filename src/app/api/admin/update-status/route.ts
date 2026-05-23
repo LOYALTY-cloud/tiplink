@@ -119,11 +119,18 @@ export async function POST(req: Request) {
         ? restricted_until // e.g. "24h", "7d"
         : undefined;
 
+      const reasonText = reason ? ` Reason: ${reason}.` : "";
+      const bodyMap: Record<string, string> = {
+        restricted: `Your account has been temporarily restricted.${reasonText}`,
+        suspended: `Your account has been suspended.${reasonText}`,
+        closed: `Your account has been closed.${reasonText}`,
+      };
+
       createNotification({
         userId: user_id,
         type: "security",
         title: titleMap[status] ?? "Account status updated",
-        body: "Your account status has changed. Please check your dashboard.",
+        body: bodyMap[status] ?? `Your account status has changed.${reasonText}`,
         meta: {
           action: actionMap[status] as "restricted_temp" | "restricted_permanent" | "suspended" | "closed",
           reason: reason || update.status_reason || undefined,
