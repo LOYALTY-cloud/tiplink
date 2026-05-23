@@ -74,6 +74,29 @@ type TipIntent = {
 
 const STATUS_OPTIONS = ["active", "restricted", "suspended", "closed"] as const;
 
+const PREDEFINED_REASONS: Record<string, string[]> = {
+  closed: [
+    "Failed to provide information",
+    "Terms of Service violation",
+    "Fraudulent activity",
+    "Identity verification failed",
+    "User requested closure",
+    "Duplicate account",
+  ],
+  suspended: [
+    "Suspicious activity under review",
+    "Chargeback / dispute filed",
+    "Fraudulent transactions detected",
+    "Terms of Service violation",
+  ],
+  restricted: [
+    "Unusual activity detected",
+    "Multiple failed payment attempts",
+    "Pending identity verification",
+    "High refund / chargeback rate",
+  ],
+};
+
 export default function AdminUserDetailPage() {
   const params = useParams();
   const userId = params.id as string;
@@ -809,7 +832,7 @@ export default function AdminUserDetailPage() {
                       <div className="px-3 pb-3 flex flex-col gap-1 border-t border-yellow-400/10 pt-2">
                         {(profile.stripe_currently_due && profile.stripe_currently_due.length > 0
                           ? profile.stripe_currently_due
-                          : Array(profile.stripe_requirements_due_count).fill(null)
+                          : (Array(profile.stripe_requirements_due_count).fill(null) as null[])
                         ).map((item: string | null, i: number) => (
                           <span key={i} className="text-[11px] text-yellow-200/70 font-mono break-all">
                             · {item ? stripeFieldLabel(item) : "—"}
@@ -829,7 +852,7 @@ export default function AdminUserDetailPage() {
                       <div className="px-3 pb-3 flex flex-col gap-1 border-t border-red-400/10 pt-2">
                         {(profile.stripe_past_due && profile.stripe_past_due.length > 0
                           ? profile.stripe_past_due
-                          : Array(profile.stripe_past_requirements_due_count).fill(null)
+                          : (Array(profile.stripe_past_requirements_due_count).fill(null) as null[])
                         ).map((item: string | null, i: number) => (
                           <span key={i} className="text-[11px] text-red-200/70 font-mono break-all">
                             · {item ? stripeFieldLabel(item) : "—"}
@@ -1353,10 +1376,30 @@ export default function AdminUserDetailPage() {
               );
             })()}
 
-            <div>
-              <p className="text-xs text-gray-400 mb-2">Reason (required):</p>
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400">Reason (required):</p>
+              {(PREDEFINED_REASONS[dangerAction] ?? []).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {(PREDEFINED_REASONS[dangerAction] ?? []).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setActionReason(r)}
+                      className={`text-[11px] px-2.5 py-1 rounded-full border transition ${
+                        actionReason === r
+                          ? dangerAction === "restricted"
+                            ? "bg-yellow-500/20 border-yellow-400/40 text-yellow-300"
+                            : "bg-red-500/20 border-red-400/40 text-red-300"
+                          : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white/70"
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              )}
               <textarea value={actionReason} onChange={(e) => setActionReason(e.target.value)}
-                placeholder="Why are you taking this action?" rows={2}
+                placeholder="Or type a custom reason…" rows={2}
                 className={`${ui.input} !py-2 !text-sm resize-none`}
                 autoFocus={dangerAction === "restricted"} />
             </div>
