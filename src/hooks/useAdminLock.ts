@@ -8,7 +8,7 @@ export type LockReason = "idle" | "tab_switch" | "manual";
 const LOCK_KEY        = "admin_lock_reason";  // sessionStorage
 const IDLE_LOCK_MS    = 5  * 60 * 1000;       // 5 min  → soft lock
 const WARN_MS         = 4  * 60 * 1000;       // 4 min  → warning event
-const HARD_LOGOUT_MS  = 60 * 60 * 1000;       // 60 min → full logout
+const HARD_LOGOUT_MS  = 10 * 60 * 1000;       // 10 min → full logout
 const LAST_ACTIVE_KEY = "admin_last_active";   // sessionStorage
 
 function performLogout() {
