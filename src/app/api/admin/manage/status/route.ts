@@ -123,6 +123,24 @@ export async function POST(req: Request) {
       },
     }).then(() => {}, () => {});
 
+    // Record terminations in admin_assignments
+    if (status === "terminated") {
+      const { data: actorProfile } = await supabaseAdmin
+        .from("profiles")
+        .select("display_name")
+        .eq("user_id", session.userId)
+        .maybeSingle();
+      await supabaseAdmin.from("admin_assignments").insert({
+        user_id: target.user_id,
+        full_name: target.full_name,
+        role: target.role,
+        action: "removed",
+        performed_by: session.userId,
+        performed_by_name: actorProfile?.display_name ?? null,
+        reason: reason.trim(),
+      }).then(() => {}, () => {});
+    }
+
     // Fire anomaly detection for the acting admin (non-blocking)
     checkAdminAnomalies(session.userId).catch(() => {});
 

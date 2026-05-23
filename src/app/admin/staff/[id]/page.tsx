@@ -68,6 +68,15 @@ type TicketEntry = {
   from_admin: { id: string; full_name: string } | null;
 };
 
+type AssignmentEntry = {
+  id: string;
+  role: string;
+  action: "assigned" | "removed" | "role_changed";
+  performed_by_name: string | null;
+  reason: string | null;
+  created_at: string;
+};
+
 const STATUS_COLORS: Record<string, string> = {
   active: "text-green-400",
   restricted: "text-yellow-400",
@@ -113,8 +122,15 @@ export default function AdminStaffDetailPage() {
   const [lastAction, setLastAction] = useState<{ action: string; created_at: string; target_user: string | null } | null>(null);
   const [actions, setActions] = useState<ActionEntry[]>([]);
   const [tickets, setTickets] = useState<TicketEntry[]>([]);
+  const [assignments, setAssignments] = useState<AssignmentEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Remove Admin (fire) modal state
+  const [removeModal, setRemoveModal] = useState(false);
+  const [removeReason, setRemoveReason] = useState("");
+  const [removeConfirmText, setRemoveConfirmText] = useState("");
+  const [removeLoading, setRemoveLoading] = useState(false);
 
   // Action modal state
   const [actionType, setActionType] = useState("");
@@ -180,10 +196,31 @@ export default function AdminStaffDetailPage() {
       setLastAction(data.last_action ?? null);
       setActions(data.actions ?? []);
       setTickets(data.tickets ?? []);
+      setAssignments(data.assignments ?? []);
     } catch {
       setError("Failed to load admin profile");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRemoveAdmin() {
+    if (!admin || !removeReason.trim() || removeConfirmText !== "REMOVE") return;
+    setRemoveLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/admin/remove-admin", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", ...getAdminHeaders() },
+        body: JSON.stringify({ admin_id: admin.id, reason: removeReason }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? "Failed to remove admin"); return; }
+      router.push("/admin/staff");
+    } catch {
+      setError("Failed to remove admin");
+    } finally {
+      setRemoveLoading(false);
     }
   }
 
@@ -548,6 +585,15 @@ export default function AdminStaffDetailPage() {
                 Reactivate
               </button>
             )}
+            {/* Remove Admin — owner only */}
+            {isOwner && (
+              <button
+                onClick={() => { setRemoveModal(true); setRemoveReason(""); setRemoveConfirmText(""); }}
+                className={`${ui.btnGhost} ${ui.btnSmall} text-xs text-red-500 border-red-500/30 hover:border-red-500/60 ml-auto`}
+              >
+                🔥 Remove Admin Access
+              </button>
+            )}
           </div>
 
           {/* Inline reason input + confirm */}
@@ -712,6 +758,98 @@ export default function AdminStaffDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Admin Assignment History */}
+      <div className={`${ui.card} p-5 space-y-3`}>
+        <h2 className={`${ui.h2} text-base`}>Assignment History</h2>
+        {assignments.length === 0 ? (
+          <p className={`text-sm ${ui.muted2}`}>No assignment records found.</p>
+        ) : (
+          <div className="space-y-2">
+            {assignments.map((a) => (
+              <div
+                key={a.id}
+                className={`${ui.cardInner} p-3 border-l-2 ${
+                  a.action === "assigned" ? "border-green-500/40" :
+                  a.action === "removed" ? "border-red-500/40" : "border-blue-500/40"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-bold uppercase px-1.5 py-0.5 rounded ${
+                      a.action === "assigned" ? "bg-green-500/15 text-green-400" :
+                      a.action === "removed" ? "bg-red-500/15 text-red-400" :
+                      "bg-blue-500/15 text-blue-400"
+                    }`}>
+                      {a.action === "assigned" ? "Granted" : a.action === "removed" ? "Revoked" : "Changed"}
+                    </span>
+                    <span className="text-xs text-white/70 capitalize">{a.role.replace("_", " ")}</span>
+                  </div>
+                  <span className={`text-xs ${ui.muted2}`}>{formatTime(a.created_at)}</span>
+                </div>
+                {a.performed_by_name && (
+                  <p className={`text-xs ${ui.muted2} mt-0.5`}>By: <span className="text-white/60">{a.performed_by_name}</span></p>
+                )}
+                {a.reason && <p className={`text-xs ${ui.muted} mt-0.5`}>{a.reason}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Remove Admin Confirmation Modal */}
+      {removeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className={`${ui.card} p-6 max-w-md w-full mx-4 space-y-4 border border-red-500/30`}>
+            <h2 className={`${ui.h2} text-red-400`}>🔥 Remove Admin Access</h2>
+            <p className={`text-sm ${ui.muted}`}>
+              This will <strong className="text-red-300">permanently revoke admin access</strong> for{" "}
+              <strong>{admin?.full_name}</strong>. Their account will be demoted to a regular user.
+              This action is logged and cannot be undone.
+            </p>
+            <div>
+              <label className={`text-sm ${ui.muted} mb-1 block`}>Reason (required)</label>
+              <textarea
+                value={removeReason}
+                onChange={(e) => setRemoveReason(e.target.value)}
+                className={`${ui.input} min-h-[80px]`}
+                placeholder="Explain why this admin is being removed…"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-red-400 mb-1 block">
+                Type <span className="font-mono font-bold">REMOVE</span> to confirm
+              </label>
+              <input
+                value={removeConfirmText}
+                onChange={(e) => setRemoveConfirmText(e.target.value.toUpperCase())}
+                className={`${ui.input} border-red-500/30 focus:border-red-500/60 text-sm font-mono`}
+                placeholder="REMOVE"
+              />
+            </div>
+            {error && (
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-sm">
+                {error}
+              </div>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setRemoveModal(false); setRemoveReason(""); setRemoveConfirmText(""); setError(""); }}
+                className={`${ui.btnGhost} flex-1`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRemoveAdmin}
+                disabled={removeLoading || !removeReason.trim() || removeConfirmText !== "REMOVE"}
+                className={`${ui.btnPrimary} flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-40`}
+              >
+                {removeLoading ? "Removing…" : "Remove Admin Access"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Send Discipline Ticket Modal */}
       {ticketOpen && (
