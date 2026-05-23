@@ -156,7 +156,8 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
 
             {details && (
               <div className="mt-2 text-xs text-white/55">
-                Available: ${Number(details.available ?? 0).toFixed(2)} • Pending: ${Number(details.pending ?? 0).toFixed(2)} • Fees owed: ${Number(details.withdrawFee ?? 0).toFixed(2)}
+                {details.balance > 0 && <span>Available balance: ${Number(details.balance).toFixed(2)}</span>}
+                {details.owedBalance > 0 && <span>Amount owed: ${Number(details.owedBalance).toFixed(2)}</span>}
               </div>
             )}
           </div>

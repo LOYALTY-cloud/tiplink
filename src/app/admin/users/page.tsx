@@ -39,6 +39,29 @@ type User = {
 
 const STATUS_OPTIONS = ["active", "restricted", "suspended", "closed"] as const;
 
+const PREDEFINED_REASONS: Record<string, string[]> = {
+  closed: [
+    "Failed to provide information",
+    "Terms of Service violation",
+    "Fraudulent activity",
+    "Identity verification failed",
+    "User requested closure",
+    "Duplicate account",
+  ],
+  suspended: [
+    "Suspicious activity under review",
+    "Chargeback / dispute filed",
+    "Fraudulent transactions detected",
+    "Terms of Service violation",
+  ],
+  restricted: [
+    "Unusual activity detected",
+    "Multiple failed payment attempts",
+    "Pending identity verification",
+    "High refund / chargeback rate",
+  ],
+};
+
 function isUserFlagged(u: User) {
   return (
     (u.account_status != null && u.account_status !== "active") ||
@@ -548,13 +571,33 @@ function AdminUsersContent() {
             </div>
           </>
         )}
-        <div>
-          <label className="text-xs text-white/50 block mb-1">Reason for action <span className="text-red-400">*</span></label>
+        <div className="space-y-2">
+          <label className="text-xs text-white/50 block">Reason for action <span className="text-red-400">*</span></label>
+          {(PREDEFINED_REASONS[pendingAction?.status ?? ""] ?? []).length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {(PREDEFINED_REASONS[pendingAction?.status ?? ""] ?? []).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setActionReason(r)}
+                  className={`text-[11px] px-2.5 py-1 rounded-full border transition ${
+                    actionReason === r
+                      ? pendingAction?.status === "restricted"
+                        ? "bg-yellow-500/20 border-yellow-400/40 text-yellow-300"
+                        : "bg-red-500/20 border-red-400/40 text-red-300"
+                      : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white/70"
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          )}
           <textarea
             value={actionReason}
             onChange={(e) => setActionReason(e.target.value)}
-            placeholder="Enter reason for this action..."
-            rows={3}
+            placeholder="Or type a custom reason…"
+            rows={2}
             className="w-full rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/30 px-3 py-2 focus:outline-none focus:ring-1 focus:ring-white/20 resize-none"
           />
           {!actionReason.trim() && (

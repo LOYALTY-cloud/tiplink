@@ -78,17 +78,8 @@ export default function DashboardLayout({
         .eq("user_id", data.user.id)
         .maybeSingle();
 
-      const acctStatus = (prof as { account_status?: string } | null)?.account_status;
-      if (
-        (acctStatus === "restricted" || acctStatus === "suspended") &&
-        pathname !== "/dashboard/account" &&
-        pathname !== "/dashboard/account/verify" &&
-        pathname !== "/dashboard/wallet" &&
-        pathname !== "/dashboard/support" &&
-        !pathname?.startsWith("/dashboard/support/")
-      ) {
-        router.replace("/dashboard/account");
-      }
+      // Status is shown via AccountStatusBadge in the header.
+      // Restricted/suspended/closed users can still browse — interaction is blocked at the API level.
     })();
   }, [router, pathname]);
 

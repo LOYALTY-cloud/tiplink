@@ -46,6 +46,9 @@ type Profile = {
   stripe_past_requirements_due_count: number | null;
   stripe_currently_due: string[] | null;
   stripe_past_due: string[] | null;
+  // Verification reminder
+  stripe_reminder_sent_count: number | null;
+  stripe_reminder_last_sent_at: string | null;
 };
 
 type Wallet = { balance: number };
@@ -70,6 +73,29 @@ type TipIntent = {
 };
 
 const STATUS_OPTIONS = ["active", "restricted", "suspended", "closed"] as const;
+
+const PREDEFINED_REASONS: Record<string, string[]> = {
+  closed: [
+    "Failed to provide information",
+    "Terms of Service violation",
+    "Fraudulent activity",
+    "Identity verification failed",
+    "User requested closure",
+    "Duplicate account",
+  ],
+  suspended: [
+    "Suspicious activity under review",
+    "Chargeback / dispute filed",
+    "Fraudulent transactions detected",
+    "Terms of Service violation",
+  ],
+  restricted: [
+    "Unusual activity detected",
+    "Multiple failed payment attempts",
+    "Pending identity verification",
+    "High refund / chargeback rate",
+  ],
+};
 
 export default function AdminUserDetailPage() {
   const params = useParams();
@@ -109,6 +135,36 @@ export default function AdminUserDetailPage() {
 
   const [exporting, setExporting] = useState(false);
   const [syncingStripe, setSyncingStripe] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState(false);
+  const [reminderMsg, setReminderMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function sendVerificationReminder() {
+    setSendingReminder(true);
+    setReminderMsg(null);
+    try {
+      const headers = getAdminHeaders();
+      if (!headers["X-Admin-Id"]) return;
+      const res = await fetch(`/api/admin/users/${userId}/stripe-reminder`, {
+        method: "POST",
+        headers,
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setReminderMsg({
+          ok: true,
+          text: `Reminder #${json.reminder_number} sent to ${json.sent_to}. ${json.reminders_remaining} remaining.`,
+        });
+        loadUser();
+      } else {
+        setReminderMsg({ ok: false, text: json.error ?? "Failed to send reminder" });
+      }
+    } catch {
+      setReminderMsg({ ok: false, text: "Network error — reminder not sent" });
+    } finally {
+      setSendingReminder(false);
+      setTimeout(() => setReminderMsg(null), 8000);
+    }
+  }
 
   async function syncStripe() {
     setSyncingStripe(true);
@@ -207,7 +263,7 @@ export default function AdminUserDetailPage() {
     // profiles is publicly readable — safe to query directly
     const profileRes = await supabase
       .from("profiles")
-      .select("id, user_id, handle, display_name, email, first_name, last_name, account_status, status_reason, owed_balance, is_flagged, created_at, closed_at, role, trust_score, risk_level, last_risk_check, is_frozen, freeze_reason, stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_last_synced_at, stripe_requirements_due_count, stripe_past_requirements_due_count, stripe_currently_due, stripe_past_due")
+      .select("id, user_id, handle, display_name, email, first_name, last_name, account_status, status_reason, owed_balance, is_flagged, created_at, closed_at, role, trust_score, risk_level, last_risk_check, is_frozen, freeze_reason, stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_last_synced_at, stripe_requirements_due_count, stripe_past_requirements_due_count, stripe_currently_due, stripe_past_due, stripe_reminder_sent_count, stripe_reminder_last_sent_at")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -776,7 +832,7 @@ export default function AdminUserDetailPage() {
                       <div className="px-3 pb-3 flex flex-col gap-1 border-t border-yellow-400/10 pt-2">
                         {(profile.stripe_currently_due && profile.stripe_currently_due.length > 0
                           ? profile.stripe_currently_due
-                          : Array(profile.stripe_requirements_due_count).fill(null)
+                          : (Array(profile.stripe_requirements_due_count).fill(null) as null[])
                         ).map((item: string | null, i: number) => (
                           <span key={i} className="text-[11px] text-yellow-200/70 font-mono break-all">
                             · {item ? stripeFieldLabel(item) : "—"}
@@ -796,7 +852,7 @@ export default function AdminUserDetailPage() {
                       <div className="px-3 pb-3 flex flex-col gap-1 border-t border-red-400/10 pt-2">
                         {(profile.stripe_past_due && profile.stripe_past_due.length > 0
                           ? profile.stripe_past_due
-                          : Array(profile.stripe_past_requirements_due_count).fill(null)
+                          : (Array(profile.stripe_past_requirements_due_count).fill(null) as null[])
                         ).map((item: string | null, i: number) => (
                           <span key={i} className="text-[11px] text-red-200/70 font-mono break-all">
                             · {item ? stripeFieldLabel(item) : "—"}
@@ -811,6 +867,51 @@ export default function AdminUserDetailPage() {
               {(profile.stripe_requirements_due_count ?? 0) === 0 && (profile.stripe_past_requirements_due_count ?? 0) === 0 && (
                 <p className="text-xs text-green-400/70">✓ No outstanding requirements</p>
               )}
+
+              {/* ── Send Verification Reminder ── */}
+              {((profile.stripe_requirements_due_count ?? 0) > 0 || (profile.stripe_past_requirements_due_count ?? 0) > 0) && (() => {
+                const sentCount = profile.stripe_reminder_sent_count ?? 0;
+                const lastSent = profile.stripe_reminder_last_sent_at
+                  ? new Date(profile.stripe_reminder_last_sent_at)
+                  : null;
+                const cooldownMs = 72 * 60 * 60 * 1000;
+                const inCooldown = lastSent ? (Date.now() - lastSent.getTime()) < cooldownMs : false;
+                const maxReached = sentCount >= 2;
+                const isDisabled = sendingReminder || maxReached || inCooldown;
+                const nextAllowed = lastSent ? new Date(lastSent.getTime() + cooldownMs) : null;
+
+                return (
+                  <div className="mt-3 pt-3 border-t border-white/8 flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[11px] font-semibold text-white/50">Verification Reminder Email</span>
+                        <span className="text-[10px] text-white/30">
+                          {sentCount}/2 sent
+                          {lastSent && ` · Last: ${lastSent.toLocaleDateString()}`}
+                          {inCooldown && nextAllowed && ` · Next allowed: ${nextAllowed.toLocaleString()}`}
+                          {maxReached && " · Limit reached"}
+                        </span>
+                      </div>
+                      <button
+                        onClick={sendVerificationReminder}
+                        disabled={isDisabled}
+                        className={`text-[11px] font-semibold px-3 py-1.5 rounded-lg border transition-all ${
+                          isDisabled
+                            ? "bg-white/5 border-white/10 text-white/25 cursor-not-allowed"
+                            : "bg-blue-500/15 border-blue-400/30 text-blue-300 hover:bg-blue-500/25"
+                        }`}
+                      >
+                        {sendingReminder ? "Sending…" : maxReached ? "Limit Reached" : inCooldown ? "In Cooldown" : `Send Reminder${sentCount === 1 ? " (Final)" : ""}`}
+                      </button>
+                    </div>
+                    {reminderMsg && (
+                      <p className={`text-[11px] px-2 py-1.5 rounded-lg ${reminderMsg.ok ? "bg-green-500/10 text-green-300" : "bg-red-500/10 text-red-300"}`}>
+                        {reminderMsg.text}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div className={`${ui.card} p-4`}>
@@ -1275,10 +1376,30 @@ export default function AdminUserDetailPage() {
               );
             })()}
 
-            <div>
-              <p className="text-xs text-gray-400 mb-2">Reason (required):</p>
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400">Reason (required):</p>
+              {(PREDEFINED_REASONS[dangerAction] ?? []).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {(PREDEFINED_REASONS[dangerAction] ?? []).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setActionReason(r)}
+                      className={`text-[11px] px-2.5 py-1 rounded-full border transition ${
+                        actionReason === r
+                          ? dangerAction === "restricted"
+                            ? "bg-yellow-500/20 border-yellow-400/40 text-yellow-300"
+                            : "bg-red-500/20 border-red-400/40 text-red-300"
+                          : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white/70"
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              )}
               <textarea value={actionReason} onChange={(e) => setActionReason(e.target.value)}
-                placeholder="Why are you taking this action?" rows={2}
+                placeholder="Or type a custom reason…" rows={2}
                 className={`${ui.input} !py-2 !text-sm resize-none`}
                 autoFocus={dangerAction === "restricted"} />
             </div>

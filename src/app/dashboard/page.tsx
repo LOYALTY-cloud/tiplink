@@ -302,16 +302,7 @@ export default function DashboardPage() {
     window.open(fullUrl, "_blank");
   };
 
-  if (accountStatus === "closed_finalized") {
-    return (
-      <div className="flex flex-col items-center justify-center p-12 text-center">
-        <h1 className="text-xl font-semibold text-white">Account Closed</h1>
-        <p className="mt-2 text-white/70">Your account has been fully closed and all funds have been withdrawn. Contact support if you have questions.</p>
-      </div>
-    );
-  }
-
-  const isClosed = accountStatus === "closed";
+  const isClosed = accountStatus === "closed" || accountStatus === "closed_finalized";
 
   return (
     <div className="space-y-5">
@@ -388,7 +379,11 @@ export default function DashboardPage() {
       {isClosed && (
         <div className="bg-yellow-500/10 border border-yellow-400/20 p-4 rounded-xl">
           <p className="text-yellow-300 text-sm font-medium">Your account is closed.</p>
-          <p className="text-yellow-300/60 text-sm mt-1">You can still withdraw your remaining balance. All other features are disabled.</p>
+          <p className="text-yellow-300/60 text-sm mt-1">
+            {accountStatus === "closed_finalized"
+              ? "Your account has been fully closed and all funds have been withdrawn. Contact support if you have questions."
+              : "You can still withdraw your remaining balance. All other features are disabled."}
+          </p>
         </div>
       )}
 
