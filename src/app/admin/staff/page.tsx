@@ -16,6 +16,7 @@ type AdminEntry = {
   role: string;
   status: string;
   restricted_until: string | null;
+  suspended_until: string | null;
   created_at: string;
   last_login_at: string | null;
   action_count: number;
@@ -126,7 +127,7 @@ export default function AdminStaffPage() {
         body: JSON.stringify({
           adminId: actionTarget.id,
           status: actionType,
-          duration: actionType === "restricted" ? actionDuration : undefined,
+          duration: (actionType === "restricted" || actionType === "suspended") ? actionDuration : undefined,
           reason: actionReason.trim(),
         }),
       });
@@ -144,6 +145,19 @@ export default function AdminStaffPage() {
     } finally {
       setActionLoading(false);
     }
+  }
+
+  function formatRemaining(iso: string | null): string | null {
+    if (!iso) return null;
+    const ms = new Date(iso).getTime() - Date.now();
+    if (ms <= 0) return null;
+    const totalMins = Math.floor(ms / 60_000);
+    if (totalMins < 60) return `${totalMins}m left`;
+    const hours = Math.floor(totalMins / 60);
+    if (hours < 24) return `${hours}h left`;
+    const days = Math.floor(hours / 24);
+    const remHours = hours % 24;
+    return remHours > 0 ? `${days}d ${remHours}h left` : `${days}d left`;
   }
 
   function formatTime(iso: string | null) {
@@ -195,7 +209,7 @@ export default function AdminStaffPage() {
             {/* Header */}
             <div className="flex items-start justify-between">
               <div>
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                   {admin.admin_id_display && (
                     <span className="text-xs font-mono bg-white/10 px-2 py-0.5 rounded">
                       {admin.admin_id_display}
@@ -206,6 +220,18 @@ export default function AdminStaffPage() {
                   {admin.full_name || "Unnamed Admin"}
                 </h3>
                 <p className={`text-sm ${ui.muted2} capitalize`}>{admin.role}</p>
+                {/* Suspension / restriction countdown */}
+                {(admin.status === "suspended" || admin.status === "restricted") && (() => {
+                  const until = admin.status === "suspended" ? admin.suspended_until : admin.restricted_until;
+                  const remaining = formatRemaining(until);
+                  const color = admin.status === "suspended" ? "bg-red-500/15 border-red-500/30 text-red-300" : "bg-yellow-500/15 border-yellow-500/30 text-yellow-300";
+                  return (
+                    <div className={`mt-1 inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full border ${color}`}>
+                      <span>⏱</span>
+                      {remaining ? remaining : "Indefinite"}
+                    </div>
+                  );
+                })()}
               </div>
               <div className="flex items-center gap-1.5">
                 <span className={`h-2 w-2 rounded-full ${STATUS_DOT[admin.status] ?? "bg-white/30"}`} />
@@ -331,7 +357,7 @@ export default function AdminStaffPage() {
               {actionType === "active" && "This admin will regain full access."}
             </p>
 
-            {actionType === "restricted" && (
+            {(actionType === "restricted" || actionType === "suspended") && (
               <div>
                 <label className={`text-sm ${ui.muted} mb-1 block`}>Duration</label>
                 <select
@@ -342,6 +368,8 @@ export default function AdminStaffPage() {
                   <option value="1h">1 Hour</option>
                   <option value="24h">24 Hours</option>
                   <option value="7d">7 Days</option>
+                  <option value="30d">30 Days</option>
+                  <option value="indefinite">Indefinite</option>
                 </select>
               </div>
             )}
