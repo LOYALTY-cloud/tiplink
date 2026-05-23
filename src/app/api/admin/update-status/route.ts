@@ -98,6 +98,20 @@ export async function POST(req: Request) {
 
     // Notify the USER immediately via email + in-app
     if (status === "restricted" || status === "suspended" || status === "closed") {
+      // Cap restriction emails at 2 — no point spamming users with repeated alerts
+      if (status === "restricted") {
+        const { count: prevRestrictionNotifs } = await supabaseAdmin
+          .from("notifications")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user_id)
+          .eq("type", "security")
+          .ilike("title", "%restricted%");
+
+        if ((prevRestrictionNotifs ?? 0) >= 2) {
+          return NextResponse.json({ ok: true, user_id, status });
+        }
+      }
+
       // Determine security action sub-type
       const isPermRestriction = status === "restricted" && !update.restricted_until;
       const actionMap: Record<string, string> = {
