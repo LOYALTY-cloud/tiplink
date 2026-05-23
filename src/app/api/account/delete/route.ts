@@ -174,10 +174,17 @@ export async function POST(req: Request) {
     }
 
     // ── Phase 3: delete the auth user ────────────────────────────────────────
+    const userEmail = user.email;
     const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(user.id);
     if (delErr) {
       console.error(`[account/delete] deleteUser failed for ${user.id}:`, delErr.message);
       return NextResponse.json({ error: "Failed to delete account. Please try again." }, { status: 500 });
+    }
+
+    // Send confirmation email (best-effort — user is already deleted at this point)
+    if (userEmail) {
+      const { sendAccountDeleted } = await import("@/lib/email/sendAccountDeleted");
+      sendAccountDeleted({ to: userEmail }).catch(() => {});
     }
 
     return NextResponse.json({ ok: true });

@@ -40,6 +40,7 @@ export type EmailType =
   | "ACCOUNT_FREEZE"
   | "ACCOUNT_UNFREEZE"
   | "ACCOUNT_TEMP_UNFREEZE"
+  | "ACCOUNT_DELETED"
   | "EMAIL_CHANGED_ALERT"
   | "EMAIL_CHANGED_CONFIRMATION"  /* ── Money ───────────────────────────────────────── */
   | "TIP_RECEIVED"
@@ -77,6 +78,7 @@ const TYPE_TO_CATEGORY: Record<EmailType, EmailCategory> = {
   ACCOUNT_FREEZE: "security",
   ACCOUNT_UNFREEZE: "security",
   ACCOUNT_TEMP_UNFREEZE: "security",
+  ACCOUNT_DELETED: "security",
   EMAIL_CHANGED_ALERT: "security",
   EMAIL_CHANGED_CONFIRMATION: "security",
   // Money
