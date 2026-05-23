@@ -141,7 +141,7 @@ export function useAdminLock(enabled: boolean) {
   }, [enabled, onActivity]);
 
   // ── Unlock ────────────────────────────────────────────────────────────────
-  const unlock = useCallback(async (passcode: string): Promise<{ ok: boolean; error?: string }> => {
+  const unlock = useCallback(async (passcode: string): Promise<{ ok: boolean; error?: string; logout?: boolean }> => {
     try {
       const res = await fetch("/api/admin/verify-passcode", {
         method: "POST",
@@ -149,7 +149,9 @@ export function useAdminLock(enabled: boolean) {
         body: JSON.stringify({ passcode }),
       });
       const data = await res.json();
-      if (!res.ok) return { ok: false, error: data.error ?? "Invalid passcode" };
+      if (!res.ok) {
+        return { ok: false, error: data.error ?? "Invalid passcode", logout: data.logout === true };
+      }
 
       // Unlock success
       sessionStorage.removeItem(LOCK_KEY);

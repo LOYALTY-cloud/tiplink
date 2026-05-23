@@ -52,6 +52,16 @@ export default function AdminLockScreen({ lockReason, onUnlock, adminName, admin
       return;
     }
 
+    // Server signals forced logout (rate limit exhausted)
+    if (result.logout) {
+      sessionStorage.clear();
+      localStorage.removeItem("admin_session");
+      localStorage.removeItem("admin_token");
+      fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
+      window.location.href = "/admin/login";
+      return;
+    }
+
     const next = attempts + 1;
     setAttempts(next);
     setError(result.error ?? "Invalid passcode");
