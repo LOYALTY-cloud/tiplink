@@ -1138,6 +1138,7 @@ export async function handleStripeEvent(
           const { createNotification } = await import("@/lib/notifications");
           const { humanizePayoutFailure } = await import("@/lib/payoutErrors");
           const friendlyMessage = humanizePayoutFailure(payout.failure_code, payout.failure_message);
+          const refAmt = (payout.amount ?? 0) / 100;
           await createNotification({
             userId,
             type: "payout_failed",
@@ -1145,6 +1146,21 @@ export async function handleStripeEvent(
             body: `${friendlyMessage} The funds have been returned to your balance.`,
             meta: { payout_id: payout.id, failure_message: payout.failure_message },
           });
+          // Send dedicated payout-failed email with full details
+          try {
+            const { data: authUser } = await supabaseClient.auth.admin.getUserById(userId);
+            const userEmail = authUser?.user?.email;
+            if (userEmail) {
+              const { sendPayoutFailed } = await import("@/lib/email/sendPayoutFailed");
+              sendPayoutFailed({
+                to: userEmail,
+                amountUsd: `$${refAmt.toFixed(2)}`,
+                friendlyReason: friendlyMessage,
+                payoutId: payout.id,
+                withdrawalId: withdrawalId,
+              }).catch(() => {});
+            }
+          } catch (_) {}
         } catch (_) {}
       }
       break;

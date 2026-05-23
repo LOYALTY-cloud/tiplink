@@ -8,8 +8,7 @@ export function emailFooter(): string {
 
     <!-- Brand -->
     <div style="text-align:center;margin-bottom:16px;">
-      <img src="https://1nelink.app/logo.png" alt="1neLink" width="36" style="margin-bottom:8px;" />
-      <div style="font-size:16px;font-weight:600;color:#22c55e;">1neLink</div>
+      <img src="https://raw.githubusercontent.com/LOYALTY-cloud/tiplink/main/public/1nelink-logo.png" alt="1neLink" width="120" style="display:block;margin:0 auto 8px;height:auto;border-radius:10px;" />
     </div>
 
     <!-- Fintech Badge -->
