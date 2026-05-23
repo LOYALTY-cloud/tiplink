@@ -46,6 +46,9 @@ type Profile = {
   stripe_past_requirements_due_count: number | null;
   stripe_currently_due: string[] | null;
   stripe_past_due: string[] | null;
+  // Verification reminder
+  stripe_reminder_sent_count: number | null;
+  stripe_reminder_last_sent_at: string | null;
 };
 
 type Wallet = { balance: number };
@@ -109,6 +112,36 @@ export default function AdminUserDetailPage() {
 
   const [exporting, setExporting] = useState(false);
   const [syncingStripe, setSyncingStripe] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState(false);
+  const [reminderMsg, setReminderMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function sendVerificationReminder() {
+    setSendingReminder(true);
+    setReminderMsg(null);
+    try {
+      const headers = getAdminHeaders();
+      if (!headers["X-Admin-Id"]) return;
+      const res = await fetch(`/api/admin/users/${userId}/stripe-reminder`, {
+        method: "POST",
+        headers,
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setReminderMsg({
+          ok: true,
+          text: `Reminder #${json.reminder_number} sent to ${json.sent_to}. ${json.reminders_remaining} remaining.`,
+        });
+        loadUser();
+      } else {
+        setReminderMsg({ ok: false, text: json.error ?? "Failed to send reminder" });
+      }
+    } catch {
+      setReminderMsg({ ok: false, text: "Network error — reminder not sent" });
+    } finally {
+      setSendingReminder(false);
+      setTimeout(() => setReminderMsg(null), 8000);
+    }
+  }
 
   async function syncStripe() {
     setSyncingStripe(true);
@@ -207,7 +240,7 @@ export default function AdminUserDetailPage() {
     // profiles is publicly readable — safe to query directly
     const profileRes = await supabase
       .from("profiles")
-      .select("id, user_id, handle, display_name, email, first_name, last_name, account_status, status_reason, owed_balance, is_flagged, created_at, closed_at, role, trust_score, risk_level, last_risk_check, is_frozen, freeze_reason, stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_last_synced_at, stripe_requirements_due_count, stripe_past_requirements_due_count, stripe_currently_due, stripe_past_due")
+      .select("id, user_id, handle, display_name, email, first_name, last_name, account_status, status_reason, owed_balance, is_flagged, created_at, closed_at, role, trust_score, risk_level, last_risk_check, is_frozen, freeze_reason, stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_last_synced_at, stripe_requirements_due_count, stripe_past_requirements_due_count, stripe_currently_due, stripe_past_due, stripe_reminder_sent_count, stripe_reminder_last_sent_at")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -811,6 +844,51 @@ export default function AdminUserDetailPage() {
               {(profile.stripe_requirements_due_count ?? 0) === 0 && (profile.stripe_past_requirements_due_count ?? 0) === 0 && (
                 <p className="text-xs text-green-400/70">✓ No outstanding requirements</p>
               )}
+
+              {/* ── Send Verification Reminder ── */}
+              {((profile.stripe_requirements_due_count ?? 0) > 0 || (profile.stripe_past_requirements_due_count ?? 0) > 0) && (() => {
+                const sentCount = profile.stripe_reminder_sent_count ?? 0;
+                const lastSent = profile.stripe_reminder_last_sent_at
+                  ? new Date(profile.stripe_reminder_last_sent_at)
+                  : null;
+                const cooldownMs = 72 * 60 * 60 * 1000;
+                const inCooldown = lastSent ? (Date.now() - lastSent.getTime()) < cooldownMs : false;
+                const maxReached = sentCount >= 2;
+                const isDisabled = sendingReminder || maxReached || inCooldown;
+                const nextAllowed = lastSent ? new Date(lastSent.getTime() + cooldownMs) : null;
+
+                return (
+                  <div className="mt-3 pt-3 border-t border-white/8 flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[11px] font-semibold text-white/50">Verification Reminder Email</span>
+                        <span className="text-[10px] text-white/30">
+                          {sentCount}/2 sent
+                          {lastSent && ` · Last: ${lastSent.toLocaleDateString()}`}
+                          {inCooldown && nextAllowed && ` · Next allowed: ${nextAllowed.toLocaleString()}`}
+                          {maxReached && " · Limit reached"}
+                        </span>
+                      </div>
+                      <button
+                        onClick={sendVerificationReminder}
+                        disabled={isDisabled}
+                        className={`text-[11px] font-semibold px-3 py-1.5 rounded-lg border transition-all ${
+                          isDisabled
+                            ? "bg-white/5 border-white/10 text-white/25 cursor-not-allowed"
+                            : "bg-blue-500/15 border-blue-400/30 text-blue-300 hover:bg-blue-500/25"
+                        }`}
+                      >
+                        {sendingReminder ? "Sending…" : maxReached ? "Limit Reached" : inCooldown ? "In Cooldown" : `Send Reminder${sentCount === 1 ? " (Final)" : ""}`}
+                      </button>
+                    </div>
+                    {reminderMsg && (
+                      <p className={`text-[11px] px-2 py-1.5 rounded-lg ${reminderMsg.ok ? "bg-green-500/10 text-green-300" : "bg-red-500/10 text-red-300"}`}>
+                        {reminderMsg.text}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div className={`${ui.card} p-4`}>

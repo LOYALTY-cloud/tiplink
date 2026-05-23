@@ -57,8 +57,8 @@ export type EmailType =
   | "ELITE_CREATOR_REJECTED"
   /* ── Theme Store ─────────────────────────────────── */
   | "MARKETPLACE_STRIKE"
-  | "THEME_REJECTED"
-  /* ── Notification engine (passthrough) ───────────── */
+  | "THEME_REJECTED"  /* ── Stripe / Payouts ───────────────────────────────────── */
+  | "STRIPE_VERIFICATION_REMINDER"  /* ── Notification engine (passthrough) ───────────── */
   | "NOTIFICATION";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -96,6 +96,8 @@ const TYPE_TO_CATEGORY: Record<EmailType, EmailCategory> = {
   // Theme Store
   MARKETPLACE_STRIKE: "alerts",
   THEME_REJECTED: "support",
+  // Stripe / Payouts
+  STRIPE_VERIFICATION_REMINDER: "security",
   // Notification engine passthrough
   NOTIFICATION: "security", // overridden at call site
 };
