@@ -5,11 +5,13 @@ import { getAdminHeaders } from "@/lib/auth/adminSession";
 
 export type LockReason = "idle" | "tab_switch" | "manual";
 
-const LOCK_KEY        = "admin_lock_reason";  // sessionStorage
-const IDLE_LOCK_MS    = 5  * 60 * 1000;       // 5 min  → soft lock
-const WARN_MS         = 4  * 60 * 1000;       // 4 min  → warning event
-const HARD_LOGOUT_MS  = 10 * 60 * 1000;       // 10 min → full logout
-const LAST_ACTIVE_KEY = "admin_last_active";   // sessionStorage
+const LOCK_KEY              = "admin_lock_reason";  // sessionStorage
+const IDLE_LOCK_MS          = 5  * 60 * 1000;       // 5 min  → soft lock
+const WARN_MS               = 4  * 60 * 1000;       // 4 min  → warning event
+const HARD_LOGOUT_MS        = 10 * 60 * 1000;       // 10 min → full logout
+const TAB_SWITCH_GRACE_MS   = 3  * 60 * 1000;       // 3 min  → grace before tab-switch lock
+const LAST_ACTIVE_KEY       = "admin_last_active";   // sessionStorage
+const TAB_HIDDEN_AT_KEY     = "admin_tab_hidden_at"; // sessionStorage
 
 function performLogout() {
   sessionStorage.removeItem(LOCK_KEY);
@@ -24,10 +26,11 @@ export function useAdminLock(enabled: boolean) {
   const [isLocked, setIsLocked]     = useState(false);
   const [lockReason, setLockReason] = useState<LockReason>("idle");
 
-  const idleLockRef    = useRef<ReturnType<typeof setTimeout>>();
-  const warnRef        = useRef<ReturnType<typeof setTimeout>>();
-  const hardLogoutRef  = useRef<ReturnType<typeof setTimeout>>();
-  const lastResetRef   = useRef(0);
+  const idleLockRef       = useRef<ReturnType<typeof setTimeout>>();
+  const warnRef           = useRef<ReturnType<typeof setTimeout>>();
+  const hardLogoutRef     = useRef<ReturnType<typeof setTimeout>>();
+  const tabSwitchLockRef  = useRef<ReturnType<typeof setTimeout>>();
+  const lastResetRef      = useRef(0);
 
   // ── Internal lock ─────────────────────────────────────────────────────────
   const lock = useCallback((reason: LockReason) => {
@@ -74,33 +77,43 @@ export function useAdminLock(enabled: boolean) {
     resetTimers();
   }, [enabled, resetTimers]);
 
-  // ── Visibility lock ───────────────────────────────────────────────────────
+  // ── Visibility lock (3-min grace period) ────────────────────────────────
   useEffect(() => {
     if (!enabled) return;
 
     function handleVisibility() {
       if (document.visibilityState === "hidden") {
-        // Mark lock but don't setState — timer already runs; lock fires on return
-        sessionStorage.setItem(LOCK_KEY, "tab_switch");
+        // Record when the tab was hidden
+        sessionStorage.setItem(TAB_HIDDEN_AT_KEY, String(Date.now()));
+        // Schedule lock after grace period
+        tabSwitchLockRef.current = setTimeout(() => {
+          sessionStorage.setItem(LOCK_KEY, "tab_switch");
+        }, TAB_SWITCH_GRACE_MS);
+        // Pause idle timers while hidden
         clearTimeout(idleLockRef.current);
         clearTimeout(warnRef.current);
       } else {
-        // Tab became visible — check if we should be locked
+        // Tab became visible — cancel pending tab-switch lock
+        clearTimeout(tabSwitchLockRef.current);
+        sessionStorage.removeItem(TAB_HIDDEN_AT_KEY);
+
+        // Check if lock was already set (grace period elapsed before return)
         const reason = sessionStorage.getItem(LOCK_KEY) as LockReason | null;
         if (reason) {
           setLockReason(reason);
           setIsLocked(true);
+          return;
+        }
+
+        // Check if idle timeout elapsed while tab was hidden
+        const last = parseInt(sessionStorage.getItem(LAST_ACTIVE_KEY) ?? "0", 10);
+        const elapsed = last ? Date.now() - last : Infinity;
+        if (elapsed >= HARD_LOGOUT_MS) {
+          performLogout();
+        } else if (elapsed >= IDLE_LOCK_MS) {
+          lock("idle");
         } else {
-          // Check if idle timeout elapsed while tab was hidden
-          const last = parseInt(sessionStorage.getItem(LAST_ACTIVE_KEY) ?? "0", 10);
-          const elapsed = last ? Date.now() - last : Infinity;
-          if (elapsed >= HARD_LOGOUT_MS) {
-            performLogout();
-          } else if (elapsed >= IDLE_LOCK_MS) {
-            lock("idle");
-          } else {
-            resetTimers();
-          }
+          resetTimers();
         }
       }
     }
