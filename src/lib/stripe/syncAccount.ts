@@ -43,7 +43,7 @@ export async function syncStripeAccount(
     // ── 2. Find creator profile ─────────────────────────────────────────────
     const { data: creator, error: creatorError } = await supabaseAdmin
       .from("profiles")
-      .select("id, user_id")
+      .select("id, user_id, handle, display_name, email")
       .eq("stripe_account_id", stripeAccountId)
       .maybeSingle();
 
@@ -54,6 +54,9 @@ export async function syncStripeAccount(
 
     const creatorId = creator.id;
     const userId = creator.user_id;
+    const creatorHandle = (creator as any).handle ?? null;
+    const creatorName = (creator as any).display_name ?? null;
+    const creatorEmail = (creator as any).email ?? null;
 
     // ── 3. Requirement arrays ────────────────────────────────────────────────
     const requirements = (account.requirements as unknown as Record<string, unknown>) ?? {};
@@ -283,11 +286,18 @@ export async function syncStripeAccount(
       }).then(() => {}, (_e: unknown) => {});
 
       // Also send live admin notification
+      const creatorLabel = [
+        creatorName,
+        creatorHandle ? `@${creatorHandle}` : null,
+        creatorEmail,
+      ].filter(Boolean).join(" · ") || creatorId;
+
       sendAdminAlert({
         subject: `Creator account restricted — action needed`,
         body:
           `A creator's Stripe account has been restricted and they can no longer receive tips or payouts.\n` +
           `\n` +
+          `Creator: ${creatorLabel}\n` +
           `Reason: ${reasonReadable}\n` +
           (pastDueReadable.length > 0
             ? `\nOverdue items (${pastDueReadable.length}):\n${pastDueReadable.map(i => `  • ${i}`).join("\n")}\n`
@@ -302,6 +312,9 @@ export async function syncStripeAccount(
         meta: {
           stripe_account_id:   stripeAccountId,
           creator_id:          creatorId,
+          creator_name:        creatorName ?? "—",
+          creator_handle:      creatorHandle ? `@${creatorHandle}` : "—",
+          creator_email:       creatorEmail ?? "—",
           restriction_reason:  reasonReadable,
           overdue_items:       pastDueReadable.length,
           items_to_complete:   currentlyDueReadable.length,
