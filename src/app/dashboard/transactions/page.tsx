@@ -362,7 +362,7 @@ export default function TransactionsPage() {
                     {tx.type === "tip_received" && (tx.meta as any)?.refund_status === "initiated" && (
                       <p className="text-xs text-orange-500 mt-0.5">Refund processing…</p>
                     )}
-                    {tx.meta?.fee != null && (
+                    {tx.meta?.fee != null && !isTip && (
                       <p className="text-xs text-white/70 mt-0.5">
                         Fee: {formatMoney(tx.meta.fee)}
                         {tx.meta.net != null && <> · Net: {formatMoney(tx.meta.net)}</>}
