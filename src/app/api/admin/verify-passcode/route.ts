@@ -23,18 +23,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Per-user rate limit: 5 attempts / 5 minutes
-    const { allowed } = await rateLimit(`admin-verify-passcode:${session.userId}`, 5, 300);
+    // Per-user rate limit: 10 attempts / 10 minutes
+    const { allowed } = await rateLimit(`admin-verify-passcode:${session.userId}`, 10, 600);
     if (!allowed) {
       return NextResponse.json(
-        { error: "Too many attempts. Wait 5 minutes before trying again." },
+        { error: "Too many attempts. Wait 10 minutes before trying again." },
         { status: 429 }
       );
     }
 
     const ip = getClientIp(req);
     // Also limit by IP to prevent distributed attacks
-    const { allowed: ipAllowed } = await rateLimit(`admin-verify-passcode-ip:${ip}`, 20, 300);
+    const { allowed: ipAllowed } = await rateLimit(`admin-verify-passcode-ip:${ip}`, 40, 600);
     if (!ipAllowed) {
       return NextResponse.json(
         { error: "Too many attempts from this network." },
