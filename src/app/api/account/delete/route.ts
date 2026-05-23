@@ -125,7 +125,7 @@ export async function POST(req: Request) {
 
     // Clean up application data before deleting auth user
     const profileId = profile?.id;
-    await Promise.allSettled([
+    const cleanupResults = await Promise.allSettled([
       supabaseAdmin.from("login_logs").delete().eq("user_id", user.id),
       supabaseAdmin.from("notifications").delete().eq("user_id", user.id),
       supabaseAdmin.from("user_settings").delete().eq("user_id", user.id),
@@ -142,14 +142,23 @@ export async function POST(req: Request) {
       supabaseAdmin.from("ledger_anomalies").delete().eq("user_id", user.id),
       supabaseAdmin.from("admin_access_logs").delete().eq("user_id", user.id),
       supabaseAdmin.from("vanity_handles").delete().eq("owner_id", user.id),
+      supabaseAdmin.from("theme_sales").delete().eq("seller_id", user.id),
       ...(profileId
         ? [supabaseAdmin.from("social_links").delete().eq("profile_id", profileId)]
         : []),
       supabaseAdmin.from("profiles").delete().eq("user_id", user.id),
     ]);
 
+    const failedCleanups = cleanupResults
+      .map((r, i) => (r.status === "rejected" ? { index: i, reason: r.reason } : null))
+      .filter(Boolean);
+    if (failedCleanups.length > 0) {
+      console.error(`[account/delete] ${failedCleanups.length} cleanup step(s) failed for user ${user.id}:`, JSON.stringify(failedCleanups));
+    }
+
     const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(user.id);
     if (delErr) {
+      console.error(`[account/delete] deleteUser failed for ${user.id}:`, delErr.message);
       return NextResponse.json({ error: "Failed to delete account. Please try again." }, { status: 500 });
     }
 
