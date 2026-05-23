@@ -151,7 +151,11 @@ export default function DeleteAccountModal({ open, onClose, email, onDeleted }: 
         {/* Errors */}
         {err && (
           <div className="mt-4 rounded-xl border border-white/[0.12] bg-white/5 p-3 text-sm text-white/85">
-            <div className="font-semibold text-white">Can’t delete yet</div>
+            <div className="font-semibold text-white">
+              {details || err.toLowerCase().includes("balance") || err.toLowerCase().includes("withdrawal") || err.toLowerCase().includes("stripe")
+                ? "Can't delete yet"
+                : "Something went wrong"}
+            </div>
             <div className="mt-1 text-white/70">{err}</div>
 
             {details && (
