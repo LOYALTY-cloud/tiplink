@@ -116,6 +116,14 @@ export async function GET(
       .eq("severity", "critical")
       .gte("created_at", sevenDaysAgo);
 
+    // ── Assignment history ──
+    const { data: assignments } = await supabaseAdmin
+      .from("admin_assignments")
+      .select("id, role, action, performed_by_name, reason, created_at")
+      .eq("user_id", admin.user_id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
     // ── Risk Score ──
     const risk = admin.role !== "owner"
       ? await calculateAdminRisk(admin.user_id)
@@ -164,6 +172,7 @@ export async function GET(
       last_action: lastAction ?? null,
       actions: actions ?? [],
       tickets: tickets ?? [],
+      assignments: assignments ?? [],
     });
   } catch {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });

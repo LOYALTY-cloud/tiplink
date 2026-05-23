@@ -70,11 +70,16 @@ export async function POST(req: Request) {
 
     if (status === "restricted" && duration) {
       const ms = parseDuration(duration);
-      if (ms) {
-        update.restricted_until = new Date(Date.now() + ms).toISOString();
-      }
+      update.restricted_until = ms ? new Date(Date.now() + ms).toISOString() : null;
     } else {
       update.restricted_until = null;
+    }
+
+    if (status === "suspended" && duration) {
+      const ms = parseDuration(duration);
+      update.suspended_until = ms ? new Date(Date.now() + ms).toISOString() : null;
+    } else {
+      update.suspended_until = null;
     }
 
     const { error: updateErr } = await supabaseAdmin
@@ -118,6 +123,24 @@ export async function POST(req: Request) {
       },
     }).then(() => {}, () => {});
 
+    // Record terminations in admin_assignments
+    if (status === "terminated") {
+      const { data: actorProfile } = await supabaseAdmin
+        .from("profiles")
+        .select("display_name")
+        .eq("user_id", session.userId)
+        .maybeSingle();
+      await supabaseAdmin.from("admin_assignments").insert({
+        user_id: target.user_id,
+        full_name: target.full_name,
+        role: target.role,
+        action: "removed",
+        performed_by: session.userId,
+        performed_by_name: actorProfile?.display_name ?? null,
+        reason: reason.trim(),
+      }).then(() => {}, () => {});
+    }
+
     // Fire anomaly detection for the acting admin (non-blocking)
     checkAdminAnomalies(session.userId).catch(() => {});
 
@@ -134,10 +157,12 @@ export async function POST(req: Request) {
 }
 
 function parseDuration(d: string): number | null {
+  if (d === "indefinite") return null;
   const map: Record<string, number> = {
-    "1h": 60 * 60 * 1000,
+    "1h":  1 * 60 * 60 * 1000,
     "24h": 24 * 60 * 60 * 1000,
-    "7d": 7 * 24 * 60 * 60 * 1000,
+    "7d":  7 * 24 * 60 * 60 * 1000,
+    "30d": 30 * 24 * 60 * 60 * 1000,
   };
   return map[d] ?? null;
 }

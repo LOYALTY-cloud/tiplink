@@ -42,7 +42,7 @@ export async function GET(req: Request) {
 
     const { data: admins, error } = await supabaseAdmin
       .from("admins")
-      .select("id, user_id, full_name, role, status, restricted_until, created_at, last_login_at")
+      .select("id, user_id, full_name, role, status, restricted_until, suspended_until, created_at, last_login_at")
       .order("created_at", { ascending: false });
 
     if (error) {

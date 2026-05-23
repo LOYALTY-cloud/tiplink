@@ -6,7 +6,8 @@ import { useEffect, useState, useRef, memo, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { ui } from "@/lib/ui";
 import SupportTransferModal from "@/components/admin/SupportTransferModal";
-import { useInactivity } from "@/hooks/useInactivity";
+import { useAdminLock } from "@/hooks/useAdminLock";
+import AdminLockScreen from "@/components/admin/AdminLockScreen";
 import SessionWarningModal from "@/components/SessionWarningModal";
 import AIAssistToggle from "@/components/admin/AIAssistToggle";
 import { clearAdminSession, getAdminHeaders } from "@/lib/auth/adminSession";
@@ -161,8 +162,9 @@ export default function AdminLayout({
   const drawerScrollRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Admin: tighter 5-min timeout, 4-min warning
-  useInactivity(5 * 60 * 1000, 4 * 60 * 1000);
+  // Admin: lock after 5 min idle or tab switch; hard-logout at 60 min
+  const lockEnabled = !loading && pathname !== "/admin/login" && pathname !== "/admin/blocked";
+  const { isLocked, lockReason, unlock } = useAdminLock(lockEnabled);
 
   useEffect(() => {
     const onWarning = () => setSessionWarning(true);
@@ -645,6 +647,18 @@ export default function AdminLayout({
   ];
 
   const adminNavItems = NAV_SECTIONS[0].items;
+
+  // Render lock screen over everything when locked
+  if (isLocked) {
+    return (
+      <AdminLockScreen
+        lockReason={lockReason}
+        onUnlock={unlock}
+        adminName={email || undefined}
+        adminRole={userRole || undefined}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen">

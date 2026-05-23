@@ -216,6 +216,23 @@ export async function POST(req: Request) {
       },
     }).then(() => {}, () => {});
 
+    // Record in admin_assignments audit trail
+    const { data: actorProfile } = await supabaseAdmin
+      .from("profiles")
+      .select("display_name, email")
+      .eq("user_id", session.userId)
+      .maybeSingle();
+    await supabaseAdmin.from("admin_assignments").insert({
+      user_id: userId,
+      full_name: displayName,
+      email: email.trim().toLowerCase(),
+      role,
+      action: "assigned",
+      performed_by: session.userId,
+      performed_by_name: actorProfile?.display_name ?? null,
+      reason: `Role ${roleName} assigned${targetUserId ? " (existing user)" : " (new account)"}`,
+    }).then(() => {}, () => {});
+
     return NextResponse.json({
       success: true,
       user_id: userId,
