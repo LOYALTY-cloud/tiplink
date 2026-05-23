@@ -13,6 +13,7 @@ import { shouldAutoFreeze, executeAutoFreeze, type FreezeContext } from "@/lib/a
 import { hasSuspiciousLogins, generateDeviceHash } from "@/lib/loginTracker";
 import { logFraudSignal, createFraudCase } from "@/lib/fraudSignals";
 import { logCaughtError } from "@/lib/errorLogger";
+import { sendWithdrawalSuccess } from "@/lib/email/sendWithdrawalSuccess";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { sendAdminAlert } from "@/lib/adminAlerts";
 import { triggerAIAlerts } from "@/lib/ai/alerts";
@@ -742,6 +743,23 @@ export async function POST(req: Request) {
         await supabaseAdmin.rpc("refresh_user_baseline", { p_user_id: userId });
       }
     } catch (_) {}
+
+    // Send withdrawal confirmation email (best-effort, non-blocking)
+    if (userRes.user.email) {
+      const releaseDateStr = releaseAt
+        ? new Date(releaseAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+        : undefined;
+      sendWithdrawalSuccess({
+        to: userRes.user.email,
+        withdrawalId: w.id,
+        amountUsd: `$${amt.toFixed(2)}`,
+        feeUsd: `$${withdrawalFee.toFixed(2)}`,
+        netUsd: `$${netAmount.toFixed(2)}`,
+        status: withdrawalStatus as "approved" | "pending" | "under_review",
+        delayDays: effectiveDelayDays,
+        releaseDateStr,
+      }).catch(() => {});
+    }
 
     return NextResponse.json({
       ok: true,
