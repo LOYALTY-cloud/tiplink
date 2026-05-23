@@ -13,8 +13,8 @@ export async function POST(req: Request) {
     const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    // Only owner can manage admin statuses
-    requireRole(session.role, ["owner"]);
+    // Only owner and super_admin can manage admin statuses
+    requireRole(session.role, ["owner", "super_admin"]);
 
     const body = await req.json();
     const { adminId, status, duration, reason } = body;
