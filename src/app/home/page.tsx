@@ -636,7 +636,7 @@ export default function HomePage() {
                 <div className="flex flex-col items-center gap-1">
                   <span className={s.color}>{s.icon}</span>
                   <div className="text-xl sm:text-2xl md:text-3xl font-bold text-white">
-                    <AnimatedNumber target={s.value} prefix={s.prefix || ""} suffix={s.suffix || ""} duration={2} />
+                    <AnimatedNumber target={s.value} prefix={(s as { prefix?: string }).prefix ?? ""} suffix={s.suffix || ""} duration={2} />
                   </div>
                   <span className="text-xs text-white/45">{s.label}</span>
                 </div>

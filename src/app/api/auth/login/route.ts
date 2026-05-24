@@ -5,6 +5,7 @@ import { trackLogin, generateDeviceHash, isNewDevice } from "@/lib/loginTracker"
 import { checkDevice } from "@/lib/deviceRecognition";
 import { sendNewDeviceEmail } from "@/lib/email/sendNewDeviceAlert";
 import { createNotification } from "@/lib/notifications";
+import { emitSecurityEvent } from "@/lib/security-event";
 
 export const runtime = "nodejs";
 
@@ -70,6 +71,7 @@ export async function POST(req: Request) {
       }).catch(() => {});
 
       // Generic error — never reveal whether email exists
+      emitSecurityEvent({ type: "LOGIN_FAILURE", ip, route: "/api/auth/login" });
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
@@ -91,6 +93,8 @@ export async function POST(req: Request) {
       deviceHash,
       success: true,
     }).catch(() => {});
+
+    emitSecurityEvent({ type: "LOGIN_SUCCESS", ip, userId: data.user.id, route: "/api/auth/login" });
 
     // New device detected — send email + in-app notification (fire-and-forget)
     if (device.shouldAlert) {

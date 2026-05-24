@@ -43,7 +43,7 @@ export default function AdminInterviewCalendarPage() {
     if (!s) { router.replace("/admin/login"); return; }
     if (!["owner", "super_admin"].includes(s.role)) { router.replace("/admin"); return; }
     loadInterviews();
-  }, [currentDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentDate]);
 
   async function loadInterviews() {
     setLoading(true);

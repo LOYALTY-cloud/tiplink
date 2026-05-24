@@ -47,6 +47,19 @@ const eslintConfig = defineConfig([
       '@typescript-eslint/no-require-imports': 'off',
     },
   },
+  {
+    files: [
+      'tests/**',
+      'dev-tools/**',
+      'audit-disputes-api.cjs',
+      'load-test.js',
+    ],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+      'import/no-anonymous-default-export': 'off',
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

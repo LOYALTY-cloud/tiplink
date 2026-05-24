@@ -71,7 +71,8 @@ export async function POST(req: Request) {
     if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
       supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     } else {
-      supabase = await createSupabaseRouteClient();
+      const { createSupabaseRouteClient: createRouteClient } = await import("@/lib/supabase/server");
+      supabase = await createRouteClient();
     }
 
     // Decode base64

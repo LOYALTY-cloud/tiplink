@@ -57,6 +57,7 @@ export async function GET() {
 
       rows = (fallback.data ?? []).map((s) => ({
         ...s,
+        user_id: null,
         category: "general",
         total_sales: 0,
         total_revenue: 0,

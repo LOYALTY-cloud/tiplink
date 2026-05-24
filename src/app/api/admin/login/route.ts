@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { trackLogin } from "@/lib/loginTracker";
 import { signAdminToken } from "@/lib/auth/adminJwt";
+import { emitSecurityEvent } from "@/lib/security-event";
 
 export const runtime = "nodejs";
 
@@ -110,6 +111,7 @@ export async function POST(req: Request) {
 
     // Track login for fraud analytics
     trackLogin({ userId: profile.user_id, eventType: "login", ip, userAgent: req.headers.get("user-agent") || "", success: true });
+    emitSecurityEvent({ type: "ADMIN_ACCESS", ip, userId: profile.user_id, route: "/api/admin/login", metadata: { role: profile.role } });
 
     // Issue signed JWT with 8-hour server-enforced expiry
     const adminName = profile.first_name && profile.last_name

@@ -142,7 +142,7 @@ export function useAdminLock(enabled: boolean) {
     }
 
     resetTimers();
-  }, [enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled]);
 
   // ── Activity listeners ────────────────────────────────────────────────────
   useEffect(() => {

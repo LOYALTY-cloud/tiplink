@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
 
@@ -119,12 +120,12 @@ export default function AdminCreatorsPage() {
           Review and manage elite creator access
         </p>
         <div className="mt-3">
-          <a
+          <Link
             href="/admin/creators/onboarding-report"
             className="inline-flex items-center rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/20 transition"
           >
             View onboarding category report
-          </a>
+          </Link>
         </div>
       </div>
 

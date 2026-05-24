@@ -263,7 +263,6 @@ export default function AdminLayout({
 
   // Heartbeat: ping presence API every 20s to stay online (production-grade)
   // Intentionally no pathname dependency — one interval for the layout lifetime.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (pathname === "/admin/login") return;
     const raw = localStorage.getItem("admin_session");
@@ -290,7 +289,7 @@ export default function AdminLayout({
     }, 20_000); // every 20 seconds
 
     return () => clearInterval(interval);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Mark offline on tab close / hide
   useEffect(() => {
@@ -345,7 +344,7 @@ export default function AdminLayout({
       window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Close search dropdown on outside click
   useEffect(() => {
@@ -523,6 +522,9 @@ export default function AdminLayout({
       title: "Tools",
       items: [
         ...(userRole && ["owner", "super_admin"].includes(userRole)
+          ? [{ label: "Security", href: "/admin/security", icon: "🔒" }]
+          : []),
+        ...(userRole && ["owner", "super_admin"].includes(userRole)
           ? [{ label: "Logs", href: "/admin/logs", icon: "📜" }]
           : []),
         ...(userRole && ["owner"].includes(userRole)
@@ -631,6 +633,9 @@ export default function AdminLayout({
     {
       title: "Tools",
       items: [
+        ...(userRole && logRoles.includes(userRole)
+          ? [{ label: "Security", href: "/admin/security", icon: "🔒" }]
+          : []),
         ...(userRole && activityRoles.includes(userRole)
           ? [
               { label: "Activity", href: "/admin/activity", icon: "📋" },

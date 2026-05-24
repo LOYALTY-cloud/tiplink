@@ -1,4 +1,3 @@
-// @ts-ignore — sharp is a transitive dep (not in package.json) but is present at runtime
 import sharp from "sharp";
 
 /**

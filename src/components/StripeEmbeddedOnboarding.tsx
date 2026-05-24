@@ -124,7 +124,6 @@ export default function StripeEmbeddedOnboarding({
         setInitError(e instanceof Error ? e.message : "Failed to initialize Stripe");
       });
   // Run once on mount — the ref always has the latest fetchClientSecret.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (initError) {

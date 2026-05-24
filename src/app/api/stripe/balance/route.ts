@@ -34,7 +34,7 @@ export async function GET(req: Request) {
   try {
     const stripe = getStripe();
     const balance = await stripe.balance.retrieve(
-      { expand: ["instant_available.net_available"] } as Parameters<typeof stripe.balance.retrieve>[0],
+      { expand: ["instant_available.net_available"] },
       { stripeAccount: profile.stripe_account_id }
     );
 

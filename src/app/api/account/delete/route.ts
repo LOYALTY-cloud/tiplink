@@ -117,7 +117,7 @@ export async function POST(req: Request) {
         sendAdminAlert({
           subject: "Orphaned Stripe Connect account after user deletion",
           body: `User ${user.id} (${user.email}) deleted their account but the Stripe Connect account ${stripeAccountId} could not be deleted. Manual cleanup required.\n\nError: ${stripeErr}`,
-          severity: "medium",
+          severity: "warning",
           meta: { user_id: user.id, stripe_account_id: stripeAccountId, error: stripeErr },
         });
       }

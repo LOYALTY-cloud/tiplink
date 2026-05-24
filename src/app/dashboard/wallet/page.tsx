@@ -752,7 +752,7 @@ export default function WalletPage() {
             freezeLevel={freezeState.freeze_level}
             freezeSignals={freezeState.freeze_signals}
             onUnfrozen={() => {
-              setFreezeState({ is_frozen: false, freeze_reason: null, freeze_level: null, freeze_signals: [] });
+              setFreezeState({ is_frozen: false, freeze_reason: null, freeze_level: null, freeze_signals: [], temp_unfreeze_until: null });
               showToast("Account restored ✅", "success");
             }}
           />
