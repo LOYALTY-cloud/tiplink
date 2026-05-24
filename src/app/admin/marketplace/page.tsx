@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
 
@@ -49,6 +49,8 @@ function statusPill(status: string) {
 
 export default function MarketplaceModerationPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const linkedThemeId = searchParams.get("q") ?? null;
   const [themes, setThemes] = useState<QueueTheme[]>([]);
   const [counts, setCounts] = useState({ pending: 0, flagged: 0 });
   const [loading, setLoading] = useState(true);
@@ -73,8 +75,39 @@ export default function MarketplaceModerationPage() {
     if (!s) { router.replace("/admin/login"); return; }
     const allowed = ["owner", "super_admin", "admin", "moderator"];
     if (!allowed.includes(s.role)) { router.replace("/admin"); return; }
-    fetchQueue(queue);
+
+    if (linkedThemeId) {
+      // Came from reports page — look up this specific theme and auto-select it
+      void fetchLinkedTheme(linkedThemeId);
+    } else {
+      fetchQueue(queue);
+    }
   }, [router]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function fetchLinkedTheme(id: string) {
+    setLoading(true);
+    setSelected(null);
+    try {
+      const res = await fetch(`/api/admin/marketplace/queue?q=${encodeURIComponent(id)}`, {
+        headers: getAdminHeaders(),
+      });
+      const json = await res.json();
+      const theme: QueueTheme | undefined = json.themes?.[0];
+      if (theme) {
+        setThemes([theme]);
+        setSelected(theme);
+        // Switch to the "all" tab so the list shows the theme
+        setQueue("all");
+      } else {
+        // Theme not found — fall back to normal queue
+        fetchQueue(queue);
+      }
+    } catch {
+      fetchQueue(queue);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function fetchQueue(q: QueueTab) {
     setLoading(true);

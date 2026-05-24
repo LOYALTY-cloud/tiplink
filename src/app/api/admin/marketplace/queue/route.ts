@@ -18,6 +18,42 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const queue = searchParams.get("queue") ?? "pending";
     const limit = Math.min(Number(searchParams.get("limit") ?? 50), 100);
+    const q = searchParams.get("q")?.trim() ?? "";
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    // Direct lookup by theme UUID — used from admin reports "View Theme" jump link
+    if (q && UUID_RE.test(q)) {
+      const { data: themes } = await supabaseAdmin
+        .from("themes")
+        .select(`
+          id, name, description, category, tags, status, risk_score,
+          moderation_reason, duplicate_warning, preview_images,
+          created_at, user_id,
+          creator:profiles!themes_user_id_fkey (
+            display_name, handle, avatar_url
+          )
+        `)
+        .eq("id", q)
+        .limit(1);
+
+      const theme = themes?.[0];
+      if (!theme) return NextResponse.json({ themes: [], counts: { pending: 0, flagged: 0 } });
+
+      const { data: reports } = await supabaseAdmin
+        .from("theme_reports")
+        .select("theme_id")
+        .eq("theme_id", q)
+        .eq("status", "pending");
+
+      const { data: dmcas } = await supabaseAdmin
+        .from("dmca_claims")
+        .select("theme_id")
+        .eq("theme_id", q)
+        .eq("status", "pending");
+
+      const enriched = { ...theme, report_count: reports?.length ?? 0, dmca_count: dmcas?.length ?? 0 };
+      return NextResponse.json({ themes: [enriched], counts: { pending: 0, flagged: 0 } });
+    }
 
     let statusFilter: string[];
     switch (queue) {
