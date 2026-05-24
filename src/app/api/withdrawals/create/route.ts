@@ -20,6 +20,7 @@ import { triggerAIAlerts } from "@/lib/ai/alerts";
 import { determineTrustTier, TRUST_TIER_POLICIES } from "@/lib/payoutTrustTier";
 import { evaluateIpReputation } from "@/lib/ipReputation";
 import { getCreatorCategoryByName } from "@/lib/creatorCategoriesServer";
+import { emitSecurityEvent } from "@/lib/security-event";
 import type { ProfileRow } from "@/types/db";
 
 export const runtime = "nodejs";
@@ -760,6 +761,8 @@ export async function POST(req: Request) {
         releaseDateStr,
       }).catch(() => {});
     }
+
+    emitSecurityEvent({ type: "PAYOUT_CREATED", userId, route: "/api/withdrawals/create", metadata: { amountUsd: amt, status: withdrawalStatus } });
 
     return NextResponse.json({
       ok: true,

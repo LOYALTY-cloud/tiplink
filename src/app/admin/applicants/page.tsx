@@ -109,7 +109,7 @@ export default function AdminApplicantsPage() {
     setInviteSent(null);
     if (selected.resume_url) loadPreview(selected.id);
     else setPreviewUrl(null);
-  }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected?.id]);
 
   async function clearAllApps() {
     setClearing(true);

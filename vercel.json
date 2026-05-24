@@ -49,6 +49,10 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/security-monitor/run",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/cron/approve-theme-sales",
       "schedule": "0 */6 * * *"
     },
@@ -63,6 +67,10 @@
     {
       "path": "/api/cron/stripe-reconcile",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/security-monitor",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

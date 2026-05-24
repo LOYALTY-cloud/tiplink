@@ -317,7 +317,8 @@ export async function POST(req: Request) {
 
       supabase = createClient(supabaseUrl, serviceRoleKey);
     } else {
-      supabase = await createSupabaseRouteClient();
+      const { createSupabaseRouteClient: createRouteClient } = await import("@/lib/supabase/server");
+      supabase = await createRouteClient();
     }
 
     const stamp = `${Date.now()}-${randomUUID().slice(0, 8)}`;

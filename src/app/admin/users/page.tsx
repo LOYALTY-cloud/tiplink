@@ -139,7 +139,7 @@ function AdminUsersContent() {
       }
     }
 
-    let result = (data ?? []) as User[];
+    let result = (data ?? []) as unknown as User[];
     if (filter === "flagged") {
       result = result.filter(isUserFlagged);
     }

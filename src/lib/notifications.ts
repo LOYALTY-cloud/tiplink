@@ -38,7 +38,8 @@ type SecurityAction =
   | "reactivated"
   | "password_changed"
   | "bulk_restricted"
-  | "new_device_login";
+  | "new_device_login"
+  | "temp_unfreeze";
 
 const DASHBOARD_URL = "https://1nelink.com/dashboard";
 const APP_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://1nelink.com";
@@ -79,6 +80,7 @@ export async function createNotification({
     freeze_level?: string;
     device?: string;
     ip?: string;
+    expires_at?: string;
   };
 }) {
   try {

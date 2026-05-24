@@ -186,7 +186,7 @@ export default function StripeRequirementsCenter() {
             </ul>
             {hasSupportReviewPending ? (
               <p className="text-xs text-amber-200/85 mt-2">
-                One or more items are under Stripe Support review and may require waiting for Stripe's decision.
+                One or more items are under Stripe Support review and may require waiting for Stripe&apos;s decision.
               </p>
             ) : null}
           </div>

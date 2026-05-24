@@ -155,7 +155,6 @@ export default function AdminAppealsPage() {
           <div className={`${ui.card} p-5 space-y-4`}>
             {/* Preview */}
             {selected.theme?.preview_images?.[0] && (
-              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={selected.theme.preview_images[0]}
                 alt="Theme preview"

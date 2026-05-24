@@ -177,7 +177,7 @@ export default function EmailChangeCard({ currentEmail }: EmailChangeCardProps) 
             className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:border-blue-500/50 focus:bg-white/[0.07] transition disabled:opacity-50"
           />
           <p className="text-xs text-white/50 mt-1">
-            You'll need to verify this email address
+            You&apos;ll need to verify this email address
           </p>
         </div>
 

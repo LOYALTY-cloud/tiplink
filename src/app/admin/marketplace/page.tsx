@@ -286,7 +286,6 @@ export default function MarketplaceModerationPage() {
                 >
                   <div className="flex items-start gap-3">
                     {t.preview_images?.[0] && (
-                      // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={t.preview_images[0]}
                         alt={t.name}
@@ -351,7 +350,6 @@ export default function MarketplaceModerationPage() {
               {selected.preview_images && selected.preview_images.length > 0 && (
                 <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
                   {selected.preview_images.map((url, i) => (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       key={i}
                       src={url}

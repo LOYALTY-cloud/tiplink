@@ -13,13 +13,11 @@
  * --live: actually run tests against the API (requires valid ADMIN_TOKEN)
  */
 
-const { execSync } = require('child_process');
-const fs = require('fs');
 
 // Load env (optional)
 try {
   require('dotenv').config();
-} catch (e) {
+} catch {
   // dotenv not available, continue
 }
 
