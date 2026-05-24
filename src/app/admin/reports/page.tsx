@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ui } from "@/lib/ui";
 import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
@@ -113,30 +113,59 @@ export default function AdminReportsPage() {
   const [actionPriority, setActionPriority] = useState("");
   const [actionLoading, setActionLoading]   = useState(false);
 
+  // Cancel in-flight requests when deps change (tab switch, filter change)
+  const abortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     if (!session) { router.replace("/admin/login"); return; }
   }, []);
 
   const load = useCallback(async () => {
+    // Abort any previous in-flight request before starting a new one
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const { signal } = abortRef.current;
+
     setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams({ status: activeTab, page: String(page) });
       if (filterType) params.set("target_type", filterType);
-      const res = await fetch(`/api/admin/reports?${params}`, { headers: getAdminHeaders() });
+      const res = await fetch(`/api/admin/reports?${params}`, {
+        headers: getAdminHeaders(),
+        signal,
+      });
       if (!res.ok) throw new Error("Failed to load");
       const data = await res.json();
       setReports(data.reports ?? []);
       setTabs(data.tabs ?? { pending: 0, reviewing: 0, resolved: 0, dismissed: 0 });
       setTotal(data.total ?? 0);
-    } catch {
+    } catch (err) {
+      // Ignore aborted requests — they're intentional cancellations
+      if (err instanceof Error && err.name === "AbortError") return;
       setError("Failed to load reports");
     } finally {
-      setLoading(false);
+      // Only clear loading if this request wasn't aborted
+      if (!signal.aborted) setLoading(false);
     }
   }, [activeTab, filterType, page]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Re-fetch when the user returns to this browser tab after being away
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible") load();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [load]);
+
+  // Clear expanded card + action form when switching tabs or changing filter
+  useEffect(() => {
+    setExpanded(null);
+    setActionReportId(null);
+  }, [activeTab, filterType]);
 
   function openAction(r: ReportRow) {
     setActionReportId(r.id);
