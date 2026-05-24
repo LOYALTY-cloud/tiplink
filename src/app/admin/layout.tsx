@@ -505,6 +505,7 @@ export default function AdminLayout({
         { label: "Analytics", href: "/admin/support/analytics", icon: "📊" },
         { label: "Reports", href: "/admin/reports", icon: "🚩" },
         { label: "Notifications", href: "/admin/notifications", icon: "🔔" },
+        { label: "DMCA", href: "/admin/dmca", icon: "⚖️" },
       ],
     },
     ...(userRole && ["owner", "super_admin"].includes(userRole)
@@ -617,6 +618,7 @@ export default function AdminLayout({
         { label: "Analytics", href: "/admin/support/analytics", icon: "📊" },
         { label: "Reports", href: "/admin/reports", icon: "🚩" },
         { label: "Notifications", href: "/admin/notifications", icon: "🔔" },
+        { label: "DMCA", href: "/admin/dmca", icon: "⚖️" },
       ],
     },
     ...(userRole && staffRoles.includes(userRole)

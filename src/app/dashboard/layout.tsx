@@ -170,6 +170,8 @@ export default function DashboardLayout({
         <div className="ml-auto flex gap-3">
           <Link href="/terms" className="underline">Terms</Link>
           <Link href="/privacy" className="underline">Privacy</Link>
+          <Link href="/legal/dmca" className="underline">DMCA</Link>
+          <Link href="/legal/community-guidelines" className="underline">Community Guidelines</Link>
         </div>
       </footer>
 
