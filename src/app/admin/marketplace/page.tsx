@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
 
@@ -49,6 +49,8 @@ function statusPill(status: string) {
 
 export default function MarketplaceModerationPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const linkedThemeId = searchParams.get("q") ?? null;
   const [themes, setThemes] = useState<QueueTheme[]>([]);
   const [counts, setCounts] = useState({ pending: 0, flagged: 0 });
   const [loading, setLoading] = useState(true);
@@ -73,8 +75,39 @@ export default function MarketplaceModerationPage() {
     if (!s) { router.replace("/admin/login"); return; }
     const allowed = ["owner", "super_admin", "admin", "moderator"];
     if (!allowed.includes(s.role)) { router.replace("/admin"); return; }
-    fetchQueue(queue);
+
+    if (linkedThemeId) {
+      // Came from reports page — look up this specific theme and auto-select it
+      void fetchLinkedTheme(linkedThemeId);
+    } else {
+      fetchQueue(queue);
+    }
   }, [router]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function fetchLinkedTheme(id: string) {
+    setLoading(true);
+    setSelected(null);
+    try {
+      const res = await fetch(`/api/admin/marketplace/queue?q=${encodeURIComponent(id)}`, {
+        headers: getAdminHeaders(),
+      });
+      const json = await res.json();
+      const theme: QueueTheme | undefined = json.themes?.[0];
+      if (theme) {
+        setThemes([theme]);
+        setSelected(theme);
+        // Switch to the "all" tab so the list shows the theme
+        setQueue("all");
+      } else {
+        // Theme not found — fall back to normal queue
+        fetchQueue(queue);
+      }
+    } catch {
+      fetchQueue(queue);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function fetchQueue(q: QueueTab) {
     setLoading(true);
@@ -210,8 +243,8 @@ export default function MarketplaceModerationPage() {
           <p className={`${ui.muted2} text-sm mt-1`}>Review, approve, flag, and action creator themes.</p>
         </div>
 
-        {/* Queue tabs */}
-        <div className="flex gap-2 flex-wrap mb-5">
+        {/* Queue tabs — horizontal scroll on mobile */}
+        <div className="flex gap-2 overflow-x-auto pb-1 mb-5 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap">
           {tabs.map((t) => (
             <button
               key={t.key}
@@ -232,7 +265,7 @@ export default function MarketplaceModerationPage() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Theme list */}
           <div className="space-y-3">
             {loading ? (
@@ -248,7 +281,7 @@ export default function MarketplaceModerationPage() {
                 <div
                   key={t.id}
                   onClick={() => { setSelected(t); setActionPanel(null); }}
-                  className={`${ui.card} p-4 cursor-pointer transition hover:border-white/20
+                  className={`${ui.card} p-4 cursor-pointer transition hover:border-white/20 active:scale-[0.99]
                     ${selected?.id === t.id ? "border-blue-500/40 bg-blue-500/5" : ""}`}
                 >
                   <div className="flex items-start gap-3">
@@ -291,18 +324,28 @@ export default function MarketplaceModerationPage() {
             )}
           </div>
 
-          {/* Detail panel */}
+          {/* Detail panel — fixed full-screen overlay on mobile, sticky side panel on desktop */}
           {selected && (
-            <div className={`${ui.card} p-5 h-fit sticky top-4`}>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className={`${ui.h2} truncate`}>{selected.name}</h2>
-                <button
-                  onClick={() => setSelected(null)}
-                  className="text-white/40 hover:text-white text-xl leading-none"
-                >
-                  ✕
-                </button>
-              </div>
+            <div className="fixed inset-0 z-40 overflow-y-auto bg-[#030810] lg:static lg:z-auto lg:overflow-visible lg:bg-transparent">
+              <div className={`${ui.card} p-4 sm:p-5 min-h-full lg:min-h-0 lg:h-fit lg:sticky lg:top-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] lg:pb-5`}>
+                <div className="flex items-center justify-between mb-4">
+                  {/* Back button — mobile only */}
+                  <button
+                    onClick={() => setSelected(null)}
+                    className="lg:hidden flex items-center gap-1.5 text-white/60 hover:text-white text-sm transition"
+                  >
+                    ← Back
+                  </button>
+                  <h2 className={`${ui.h2} truncate hidden lg:block`}>{selected.name}</h2>
+                  <button
+                    onClick={() => setSelected(null)}
+                    className="hidden lg:block text-white/40 hover:text-white text-xl leading-none"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {/* Name shown below back button on mobile */}
+                <h2 className={`${ui.h2} truncate mb-4 lg:hidden`}>{selected.name}</h2>
 
               {/* Preview images */}
               {selected.preview_images && selected.preview_images.length > 0 && (
@@ -432,32 +475,33 @@ export default function MarketplaceModerationPage() {
               {!actionPanel && (
                 <div className="grid grid-cols-2 gap-2">
                   <button
-                    className="rounded-xl px-3 py-2.5 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-sm font-semibold hover:bg-emerald-500/30 transition disabled:opacity-50 col-span-2"
+                    className="rounded-xl px-3 py-3 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-sm font-semibold hover:bg-emerald-500/30 transition disabled:opacity-50 col-span-2"
                     disabled={actionState === "loading"}
                     onClick={() => doApprove(selected.id)}
                   >
                     {actionState === "loading" ? "…" : "✅ Approve"}
                   </button>
                   <button
-                    className="rounded-xl px-3 py-2.5 bg-red-600/20 border border-red-600/30 text-red-400 text-sm font-semibold hover:bg-red-600/30 transition col-span-2"
+                    className="rounded-xl px-3 py-3 bg-red-600/20 border border-red-600/30 text-red-400 text-sm font-semibold hover:bg-red-600/30 transition col-span-2"
                     onClick={() => setActionPanel("reject")}
                   >
                     🚫 Reject
                   </button>
                   <button
-                    className="rounded-xl px-3 py-2.5 bg-amber-500/20 border border-amber-500/30 text-amber-400 text-sm font-semibold hover:bg-amber-500/30 transition"
+                    className="rounded-xl px-3 py-3 bg-amber-500/20 border border-amber-500/30 text-amber-400 text-sm font-semibold hover:bg-amber-500/30 transition"
                     onClick={() => setActionPanel("flag")}
                   >
                     🚩 Flag
                   </button>
                   <button
-                    className="rounded-xl px-3 py-2.5 bg-red-500/20 border border-red-500/30 text-red-400 text-sm font-semibold hover:bg-red-500/30 transition"
+                    className="rounded-xl px-3 py-3 bg-red-500/20 border border-red-500/30 text-red-400 text-sm font-semibold hover:bg-red-500/30 transition"
                     onClick={() => setActionPanel("strike")}
                   >
                     ⚡ Strike Creator
                   </button>
                 </div>
               )}
+              </div>
             </div>
           )}
         </div>

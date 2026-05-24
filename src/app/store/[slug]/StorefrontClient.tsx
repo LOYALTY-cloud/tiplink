@@ -8,6 +8,7 @@ import { getRecommendedThemes, type ThemeActivityRecord } from "@/lib/themeRecom
 import StoreMobileMenu from "@/components/StoreMobileMenu";
 import ThemePreviewModal from "@/components/store/ThemePreviewModal";
 import ThemeCheckoutModal from "@/components/store/ThemeCheckoutModal";
+import ReportThemeModal from "@/components/marketplace/ReportThemeModal";
 
 type StoreTheme = {
   id: string;
@@ -467,8 +468,22 @@ function ThemeCard({
   onPreview: () => void;
 }) {
   const [videoFailed, setVideoFailed] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
   const cfg = theme.config;
   const bg = typeof cfg.background === "string" ? cfg.background : null;
   const backgroundMediaType =
@@ -549,6 +564,7 @@ function ThemeCard({
   }, [useVideoLayer, backgroundVideo]);
 
   return (
+    <>
     <div ref={containerRef} className="group bg-[#111] border border-white/[0.08] rounded-2xl p-2 hover:scale-[1.02] hover:border-white/20 transition-all duration-200 hover:shadow-[0_0_20px_rgba(0,255,200,0.18)]">
       <div className="relative h-40 rounded-xl overflow-hidden" style={cardBgStyle}>
         {!bg && !backgroundVideo && (
@@ -633,14 +649,46 @@ function ThemeCard({
             )}
           </div>
 
-          <button
-            onClick={onPreview}
-            className="px-3 py-1.5 rounded-lg bg-white text-black text-xs font-semibold hover:bg-white/90 active:scale-95 transition"
-          >
-            Preview
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={onPreview}
+              className="px-3 py-1.5 rounded-lg bg-white text-black text-xs font-semibold hover:bg-white/90 active:scale-95 transition"
+            >
+              Preview
+            </button>
+
+            {/* Overflow menu */}
+            <div ref={menuRef} className="relative">
+              <button
+                onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-white/30 hover:text-white/70 hover:bg-white/8 active:bg-white/10 transition text-base leading-none"
+                aria-label="More options"
+              >
+                ···
+              </button>
+              {menuOpen && (
+                <div className="absolute bottom-full right-0 mb-1 bg-[#1a1f2e] border border-white/12 rounded-xl shadow-2xl py-1 min-w-[150px] z-50">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setMenuOpen(false); setReporting(true); }}
+                    className="w-full text-left px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 transition flex items-center gap-2"
+                  >
+                    🚩 Report Theme
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
+
+    {reporting && (
+      <ReportThemeModal
+        themeId={theme.id}
+        themeName={theme.name}
+        onClose={() => setReporting(false)}
+      />
+    )}
+    </>
   );
 }
