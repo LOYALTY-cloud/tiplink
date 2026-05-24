@@ -41,8 +41,8 @@ export async function GET(req: Request) {
         reviewed_by,
         reviewed_at,
         created_at,
-        reporter:reporter_id (user_id, display_name, handle, email),
-        target_owner:target_owner_id (user_id, display_name, handle, email)
+        reporter:profiles!reports_reporter_id_fkey (user_id, display_name, handle, email),
+        target_owner:profiles!reports_target_owner_id_fkey (user_id, display_name, handle, email)
       `, { count: "exact" })
       .eq("status", status)
       .order("priority", { ascending: false })

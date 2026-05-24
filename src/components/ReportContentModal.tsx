@@ -161,18 +161,22 @@ export function ReportContentModal() {
                 {/* @handle or ID input */}
                 <div>
                   <label className={`text-sm ${ui.muted} mb-1 block`}>
-                    {targetType === "transaction"
-                      ? "Transaction reference or ID *"
-                      : `@handle of the ${targetType} you're reporting *`}
+                    {targetType === "user" || targetType === "creator"
+                      ? `@handle of the ${targetType} you're reporting *`
+                      : targetType === "transaction"
+                      ? "Transaction ID (UUID) *"
+                      : targetType === "theme"
+                      ? "Theme ID (UUID) *"
+                      : "ID (UUID) *"}
                   </label>
                   <input
                     value={targetHandle}
                     onChange={(e) => setTargetHandle(e.target.value)}
                     className={ui.input}
                     placeholder={
-                      targetType === "transaction"
-                        ? "e.g. abc12345 or full UUID"
-                        : "@username"
+                      targetType === "user" || targetType === "creator"
+                        ? "@username"
+                        : "Paste the UUID here"
                     }
                   />
                 </div>

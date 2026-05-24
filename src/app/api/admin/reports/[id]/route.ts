@@ -101,8 +101,8 @@ export async function GET(
       .from("reports")
       .select(`
         *,
-        reporter:reporter_id (user_id, display_name, handle, email, avatar_url),
-        target_owner:target_owner_id (user_id, display_name, handle, email, avatar_url)
+        reporter:profiles!reports_reporter_id_fkey (user_id, display_name, handle, email, avatar_url),
+        target_owner:profiles!reports_target_owner_id_fkey (user_id, display_name, handle, email, avatar_url)
       `)
       .eq("id", id)
       .single();

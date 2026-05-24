@@ -66,29 +66,50 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid target_type" }, { status: 400 });
     }
 
+    // UUID format validator
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
     // Resolve target: either direct UUID or handle lookup
     let resolvedTargetId = target_id;
     let resolvedOwnerId  = target_owner_id ?? null;
 
     if (!resolvedTargetId && target_handle) {
-      const cleanHandle = target_handle.replace(/^@/, "").trim().toLowerCase();
-      if (!cleanHandle) return NextResponse.json({ error: "target_handle is empty" }, { status: 400 });
+      const rawInput = target_handle.trim();
 
-      const { data: found } = await supabaseAdmin
-        .from("profiles")
-        .select("user_id")
-        .eq("handle", cleanHandle)
-        .maybeSingle();
+      // For non-profile targets (transaction, theme, post, comment) the caller sends the
+      // UUID directly — there is no profile handle to look up.
+      const isNonProfileTarget = target_type === "transaction" || target_type === "theme"
+        || target_type === "post" || target_type === "comment";
 
-      if (!found) {
-        return NextResponse.json({ error: `User @${cleanHandle} not found` }, { status: 404 });
+      if (isNonProfileTarget) {
+        // Accept the raw value as the target_id; UUID validation happens below
+        resolvedTargetId = rawInput;
+      } else {
+        // user / creator — resolve @handle → profiles.user_id
+        const cleanHandle = rawInput.replace(/^@/, "").toLowerCase();
+        if (!cleanHandle) return NextResponse.json({ error: "target_handle is empty" }, { status: 400 });
+
+        const { data: found } = await supabaseAdmin
+          .from("profiles")
+          .select("user_id")
+          .eq("handle", cleanHandle)
+          .maybeSingle();
+
+        if (!found) {
+          return NextResponse.json({ error: `User @${cleanHandle} not found` }, { status: 404 });
+        }
+        resolvedTargetId = found.user_id;
+        if (!resolvedOwnerId) resolvedOwnerId = found.user_id;
       }
-      resolvedTargetId = found.user_id;
-      if (!resolvedOwnerId) resolvedOwnerId = found.user_id;
     }
 
     if (!resolvedTargetId || typeof resolvedTargetId !== "string") {
       return NextResponse.json({ error: "target_id or target_handle is required" }, { status: 400 });
+    }
+
+    // target_id must be a valid UUID (DB column type is uuid)
+    if (!UUID_RE.test(resolvedTargetId)) {
+      return NextResponse.json({ error: "target_id must be a valid UUID" }, { status: 400 });
     }
     if (!reason || !VALID_REASONS[reason]) {
       return NextResponse.json({ error: "Invalid reason" }, { status: 400 });
@@ -116,10 +137,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Your account is not permitted to submit reports" }, { status: 403 });
     }
 
-    // 6. Sanitise evidence_urls — max 5, must be valid-looking URLs
+    // 6. Sanitise evidence_urls — max 5, https:// only (block javascript: etc.)
     const safeUrls = (evidence_urls ?? [])
       .slice(0, 5)
-      .filter((u) => typeof u === "string" && u.length < 500);
+      .filter((u) => typeof u === "string" && u.length < 500 && /^https?:\/\//i.test(u));
 
     // 7. Determine priority and manual review flag
     const requiresManual =
