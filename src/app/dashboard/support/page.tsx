@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ui } from "@/lib/ui";
+import { ReportContentModal } from "@/components/ReportContentModal";
 
 const sections = [
   {
@@ -55,6 +56,9 @@ export default function HelpSupportPage() {
             </div>
           </Link>
         ))}
+
+        {/* Report fraud, impersonation, abuse */}
+        <ReportContentModal />
       </div>
     </div>
   );

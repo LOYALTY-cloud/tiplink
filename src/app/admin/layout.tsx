@@ -164,7 +164,7 @@ export default function AdminLayout({
 
   // Admin: lock after 5 min idle or tab switch; hard-logout at 60 min
   const lockEnabled = !loading && pathname !== "/admin/login" && pathname !== "/admin/blocked";
-  const { isLocked, lockReason, unlock } = useAdminLock(lockEnabled);
+  const { isLocked, lockReason, unlock, resetActivity } = useAdminLock(lockEnabled);
 
   useEffect(() => {
     const onWarning = () => setSessionWarning(true);
@@ -504,6 +504,7 @@ export default function AdminLayout({
         { label: "Tickets", href: "/admin/tickets", icon: "🎫" },
         { label: "Live Chat", href: "/admin/support", icon: "💬" },
         { label: "Analytics", href: "/admin/support/analytics", icon: "📊" },
+        { label: "Reports", href: "/admin/reports", icon: "🚩" },
         { label: "Notifications", href: "/admin/notifications", icon: "🔔" },
       ],
     },
@@ -612,6 +613,7 @@ export default function AdminLayout({
         { label: "Tickets", href: "/admin/tickets", icon: "🎫" },
         { label: "Live Chat", href: "/admin/support", icon: "💬" },
         { label: "Analytics", href: "/admin/support/analytics", icon: "📊" },
+        { label: "Reports", href: "/admin/reports", icon: "🚩" },
         { label: "Notifications", href: "/admin/notifications", icon: "🔔" },
       ],
     },
@@ -861,7 +863,7 @@ export default function AdminLayout({
         open={sessionWarning}
         onStay={() => {
           setSessionWarning(false);
-          window.dispatchEvent(new Event("mousemove"));
+          resetActivity(); // directly reset idle timers — no synthetic event needed
         }}
       />
     </div>

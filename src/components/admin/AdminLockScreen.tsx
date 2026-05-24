@@ -5,7 +5,7 @@ import type { LockReason } from "@/hooks/useAdminLock";
 
 interface Props {
   lockReason: LockReason;
-  onUnlock: (passcode: string) => Promise<{ ok: boolean; error?: string }>;
+  onUnlock: (passcode: string) => Promise<{ ok: boolean; error?: string; logout?: boolean }>;
   adminName?: string;
   adminRole?: string;
 }
@@ -30,10 +30,14 @@ export default function AdminLockScreen({ lockReason, onUnlock, adminName, admin
 
   const { headline, sub } = REASON_TEXT[lockReason] ?? REASON_TEXT.idle;
 
-  // Auto-focus passcode input
+  // Auto-focus only on non-touch devices — on mobile the keyboard popping
+  // immediately while the lock overlay animates in is jarring
   useEffect(() => {
-    const t = setTimeout(() => inputRef.current?.focus(), 120);
-    return () => clearTimeout(t);
+    const isTouchDevice = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+    if (!isTouchDevice) {
+      const t = setTimeout(() => inputRef.current?.focus(), 180);
+      return () => clearTimeout(t);
+    }
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -71,109 +75,117 @@ export default function AdminLockScreen({ lockReason, onUnlock, adminName, admin
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      className="fixed inset-0 z-[9999] overflow-y-auto"
       style={{ backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)", background: "rgba(5,8,18,0.92)" }}
     >
-      {/* Gradient glow behind card */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      {/* Gradient glow — decorative */}
+      <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
         <div className="w-[500px] h-[500px] rounded-full bg-indigo-600/10 blur-[120px]" />
       </div>
 
-      <div className="relative w-full max-w-sm mx-4">
-        {/* Card */}
-        <div className="rounded-2xl border border-white/10 bg-[#0B1220]/90 shadow-2xl p-8 space-y-6">
+      {/* Scroll container — centres on desktop, anchors to top with padding on mobile */}
+      <div className="relative min-h-full flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-sm">
+          {/* Card */}
+          <div className="rounded-2xl border border-white/10 bg-[#0B1220]/90 shadow-2xl p-6 sm:p-8 space-y-5">
 
-          {/* Lock icon */}
-          <div className="flex justify-center">
-            <div className="w-16 h-16 rounded-2xl bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center text-3xl">
-              🔒
-            </div>
-          </div>
-
-          {/* Headline */}
-          <div className="text-center space-y-1">
-            <h1 className="text-xl font-bold text-white">{headline}</h1>
-            <p className="text-sm text-white/50">{sub}</p>
-          </div>
-
-          {/* Admin identity badge */}
-          {adminName && (
-            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/8">
-              <div className="w-9 h-9 rounded-full bg-indigo-600/60 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
-                {initials(adminName)}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-white truncate">{adminName}</p>
-                {adminRole && (
-                  <p className="text-[11px] text-white/40 capitalize">{adminRole.replace("_", " ")}</p>
-                )}
+            {/* Lock icon */}
+            <div className="flex justify-center">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center text-2xl sm:text-3xl">
+                🔒
               </div>
             </div>
-          )}
 
-          {/* Passcode form */}
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <div className="relative">
-              <input
-                ref={inputRef}
-                type={show ? "text" : "password"}
-                value={passcode}
-                onChange={(e) => { setPasscode(e.target.value.toUpperCase()); setError(""); }}
-                placeholder="Enter your admin passcode"
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                disabled={loading}
-                className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 pr-12 text-white placeholder-white/25 text-sm font-mono tracking-widest focus:outline-none focus:border-indigo-500/60 transition disabled:opacity-50"
-              />
-              <button
-                type="button"
-                onClick={() => setShow((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition text-base"
-                tabIndex={-1}
-              >
-                {show ? "🙈" : "👁"}
-              </button>
+            {/* Headline */}
+            <div className="text-center space-y-1">
+              <h1 className="text-lg sm:text-xl font-bold text-white">{headline}</h1>
+              <p className="text-sm text-white/50">{sub}</p>
             </div>
 
-            {error && (
-              <p className="text-red-400 text-xs px-1">
-                {error}
-                {attempts >= 3 && " — Too many failed attempts? Contact the owner."}
-              </p>
+            {/* Admin identity badge */}
+            {adminName && (
+              <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 border border-white/8">
+                <div className="w-9 h-9 rounded-full bg-indigo-600/60 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                  {initials(adminName)}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{adminName}</p>
+                  {adminRole && (
+                    <p className="text-[11px] text-white/40 capitalize">{adminRole.replace("_", " ")}</p>
+                  )}
+                </div>
+              </div>
             )}
 
-            <button
-              type="submit"
-              disabled={!passcode.trim() || loading}
-              className="w-full py-3 rounded-xl font-semibold text-sm text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ background: "linear-gradient(135deg, #6366f1, #4f46e5)", boxShadow: "0 4px 24px rgba(99,102,241,0.35)" }}
-            >
-              {loading ? "Verifying…" : "Unlock Session"}
-            </button>
-          </form>
+            {/* Passcode form */}
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <div className="relative">
+                <input
+                  ref={inputRef}
+                  type={show ? "text" : "password"}
+                  value={passcode}
+                  onChange={(e) => { setPasscode(e.target.value.toUpperCase()); setError(""); }}
+                  placeholder="Enter your admin passcode"
+                  autoComplete="current-password"
+                  autoCorrect="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  inputMode="text"
+                  enterKeyHint="done"
+                  disabled={loading}
+                  className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3.5 pr-14 text-white placeholder-white/25 text-base sm:text-sm font-mono tracking-widest focus:outline-none focus:border-indigo-500/60 transition disabled:opacity-50"
+                />
+                {/* Show/hide toggle — large tap target for mobile */}
+                <button
+                  type="button"
+                  onClick={() => setShow((v) => !v)}
+                  className="absolute right-0 top-0 h-full px-4 flex items-center justify-center text-white/30 hover:text-white/60 active:text-white/80 transition"
+                  tabIndex={-1}
+                  aria-label={show ? "Hide passcode" : "Show passcode"}
+                >
+                  <span className="text-lg">{show ? "🙈" : "👁"}</span>
+                </button>
+              </div>
 
-          {/* Logout option */}
-          <div className="text-center">
-            <button
-              onClick={() => {
-                localStorage.removeItem("admin_session");
-                localStorage.removeItem("admin_token");
-                sessionStorage.clear();
-                fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
-                window.location.href = "/admin/login";
-              }}
-              className="text-xs text-white/25 hover:text-white/50 transition"
-            >
-              Not you? Sign out
-            </button>
+              {error && (
+                <p className="text-red-400 text-xs px-1 leading-relaxed">
+                  {error}
+                  {attempts >= 3 && " — Too many failed attempts? Contact the owner."}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={!passcode.trim() || loading}
+                className="w-full py-3.5 rounded-xl font-semibold text-base text-white transition active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: "linear-gradient(135deg, #6366f1, #4f46e5)", boxShadow: "0 4px 24px rgba(99,102,241,0.35)" }}
+              >
+                {loading ? "Verifying…" : "Unlock Session"}
+              </button>
+            </form>
+
+            {/* Logout option */}
+            <div className="text-center">
+              <button
+                onClick={() => {
+                  localStorage.removeItem("admin_session");
+                  localStorage.removeItem("admin_token");
+                  sessionStorage.clear();
+                  fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
+                  window.location.href = "/admin/login";
+                }}
+                className="text-sm sm:text-xs py-2 px-4 text-white/25 hover:text-white/50 active:text-white/70 transition"
+              >
+                Not you? Sign out
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* Footer */}
-        <p className="text-center text-[10px] text-white/20 mt-4">
-          1neLink Admin · Protected Session
-        </p>
+          {/* Footer */}
+          <p className="text-center text-[10px] text-white/20 mt-4 pb-[env(safe-area-inset-bottom)]">
+            1neLink Admin · Protected Session
+          </p>
+        </div>
       </div>
     </div>
   );

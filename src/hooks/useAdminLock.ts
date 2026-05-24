@@ -26,11 +26,11 @@ export function useAdminLock(enabled: boolean) {
   const [isLocked, setIsLocked]     = useState(false);
   const [lockReason, setLockReason] = useState<LockReason>("idle");
 
-  const idleLockRef       = useRef<ReturnType<typeof setTimeout>>();
-  const warnRef           = useRef<ReturnType<typeof setTimeout>>();
-  const hardLogoutRef     = useRef<ReturnType<typeof setTimeout>>();
-  const tabSwitchLockRef  = useRef<ReturnType<typeof setTimeout>>();
-  const lastResetRef      = useRef(0);
+  const idleLockRef       = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const warnRef           = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const hardLogoutRef     = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const tabSwitchLockRef  = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastResetRef      = useRef<number>(0);
 
   // ── Internal lock ─────────────────────────────────────────────────────────
   const lock = useCallback((reason: LockReason) => {
@@ -176,5 +176,5 @@ export function useAdminLock(enabled: boolean) {
     }
   }, [resetTimers]);
 
-  return { isLocked, lockReason, unlock };
+  return { isLocked, lockReason, unlock, resetActivity: resetTimers };
 }
