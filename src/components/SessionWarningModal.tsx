@@ -50,12 +50,16 @@ export default function SessionWarningModal({ open, onStay }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[9998] flex items-end sm:items-center justify-center p-4"
+      className="fixed inset-0 z-[9998] flex items-end sm:items-center justify-center"
       style={{ background: "rgba(5,8,18,0.70)", backdropFilter: "blur(6px)" }}
     >
+      {/* Bottom-sheet on mobile, centred card on sm+ */}
       <div
-        className="w-full max-w-sm rounded-2xl border border-white/12 p-6 space-y-5 shadow-2xl"
-        style={{ background: "#0B1220" }}
+        className="w-full sm:max-w-sm sm:mx-4 sm:mb-0 sm:rounded-2xl rounded-t-3xl border-t sm:border border-white/12 p-6 space-y-5 shadow-2xl"
+        style={{
+          background: "#0B1220",
+          paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))",
+        }}
       >
         {/* Countdown ring + icon */}
         <div className="flex justify-center">
@@ -115,7 +119,7 @@ export default function SessionWarningModal({ open, onStay }: Props) {
               fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
               window.location.href = "/admin/login";
             }}
-            className="w-full py-2.5 rounded-xl text-xs text-white/30 hover:text-white/50 transition"
+            className="w-full py-3 rounded-xl text-sm text-white/30 hover:text-white/50 active:text-white/70 transition"
           >
             Log out now
           </button>
