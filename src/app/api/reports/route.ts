@@ -52,9 +52,10 @@ export async function POST(req: Request) {
 
     // 3. Parse + validate body
     const body = await req.json();
-    const { target_type, target_id, target_owner_id, reason, details, evidence_urls } = body as {
+    const { target_type, target_id, target_handle, target_owner_id, reason, details, evidence_urls } = body as {
       target_type?: string;
       target_id?: string;
+      target_handle?: string;   // @handle — resolved server-side to user_id
       target_owner_id?: string | null;
       reason?: string;
       details?: string;
@@ -64,8 +65,30 @@ export async function POST(req: Request) {
     if (!target_type || !VALID_TARGET_TYPES.includes(target_type as typeof VALID_TARGET_TYPES[number])) {
       return NextResponse.json({ error: "Invalid target_type" }, { status: 400 });
     }
-    if (!target_id || typeof target_id !== "string") {
-      return NextResponse.json({ error: "target_id is required" }, { status: 400 });
+
+    // Resolve target: either direct UUID or handle lookup
+    let resolvedTargetId = target_id;
+    let resolvedOwnerId  = target_owner_id ?? null;
+
+    if (!resolvedTargetId && target_handle) {
+      const cleanHandle = target_handle.replace(/^@/, "").trim().toLowerCase();
+      if (!cleanHandle) return NextResponse.json({ error: "target_handle is empty" }, { status: 400 });
+
+      const { data: found } = await supabaseAdmin
+        .from("profiles")
+        .select("user_id")
+        .eq("handle", cleanHandle)
+        .maybeSingle();
+
+      if (!found) {
+        return NextResponse.json({ error: `User @${cleanHandle} not found` }, { status: 404 });
+      }
+      resolvedTargetId = found.user_id;
+      if (!resolvedOwnerId) resolvedOwnerId = found.user_id;
+    }
+
+    if (!resolvedTargetId || typeof resolvedTargetId !== "string") {
+      return NextResponse.json({ error: "target_id or target_handle is required" }, { status: 400 });
     }
     if (!reason || !VALID_REASONS[reason]) {
       return NextResponse.json({ error: "Invalid reason" }, { status: 400 });
@@ -75,10 +98,10 @@ export async function POST(req: Request) {
     }
 
     // 4. Self-report check
-    if (target_owner_id && target_owner_id === reporterId) {
+    if (resolvedOwnerId && resolvedOwnerId === reporterId) {
       return NextResponse.json({ error: "You cannot report your own content" }, { status: 400 });
     }
-    if (target_id === reporterId) {
+    if (resolvedTargetId === reporterId) {
       return NextResponse.json({ error: "You cannot report yourself" }, { status: 400 });
     }
 
@@ -110,8 +133,8 @@ export async function POST(req: Request) {
       .insert({
         reporter_id: reporterId,
         target_type,
-        target_id,
-        target_owner_id: target_owner_id ?? null,
+        target_id: resolvedTargetId,
+        target_owner_id: resolvedOwnerId,
         reason,
         details: details?.trim() ?? null,
         evidence_urls: safeUrls.length > 0 ? safeUrls : null,
