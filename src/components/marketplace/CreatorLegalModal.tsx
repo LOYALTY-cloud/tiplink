@@ -28,7 +28,7 @@ const CHECKS = [
   },
   {
     key: "fakeOfficial",
-    label: "I understand fake \u201cofficial\u201d branded themes are strictly prohibited.",
+    label: "I understand fake \"official\" branded themes are strictly prohibited.",
   },
   {
     key: "terms",
