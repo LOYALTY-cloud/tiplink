@@ -82,7 +82,7 @@ export default function MarketplaceModerationPage() {
     } else {
       fetchQueue(queue);
     }
-  }, [router]);
+  }, [router]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchLinkedTheme(id: string) {
     setLoading(true);
