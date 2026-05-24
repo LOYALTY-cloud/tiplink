@@ -564,6 +564,7 @@ function ThemeCard({
   }, [useVideoLayer, backgroundVideo]);
 
   return (
+    <>
     <div ref={containerRef} className="group bg-[#111] border border-white/[0.08] rounded-2xl p-2 hover:scale-[1.02] hover:border-white/20 transition-all duration-200 hover:shadow-[0_0_20px_rgba(0,255,200,0.18)]">
       <div className="relative h-40 rounded-xl overflow-hidden" style={cardBgStyle}>
         {!bg && !backgroundVideo && (
@@ -688,5 +689,6 @@ function ThemeCard({
         onClose={() => setReporting(false)}
       />
     )}
+    </>
   );
 }
