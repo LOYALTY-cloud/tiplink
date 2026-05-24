@@ -5,7 +5,7 @@ import type { LockReason } from "@/hooks/useAdminLock";
 
 interface Props {
   lockReason: LockReason;
-  onUnlock: (passcode: string) => Promise<{ ok: boolean; error?: string }>;
+  onUnlock: (passcode: string) => Promise<{ ok: boolean; error?: string; logout?: boolean }>;
   adminName?: string;
   adminRole?: string;
 }
