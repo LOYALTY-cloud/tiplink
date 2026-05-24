@@ -8,6 +8,7 @@ import AnimationRenderer from "@/components/theme/AnimationRenderer";
 import StoreMobileMenu from "@/components/StoreMobileMenu";
 import ThemePreviewModal from "@/components/store/ThemePreviewModal";
 import ThemeCheckoutModal from "@/components/store/ThemeCheckoutModal";
+import ReportThemeModal from "@/components/marketplace/ReportThemeModal";
 import { supabase } from "@/lib/supabase/client";
 import { CURATED_THEME_CATEGORIES } from "@/lib/themeCategories";
 
@@ -747,7 +748,23 @@ function ThemeMediaPreview({
 }
 
 function ThemeCard({ theme, onPreview }: { theme: ThemeItem; onPreview: (t: ThemeItem) => void }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
+
   return (
+    <>
     <div
       className="bg-[#111] rounded-2xl p-2 border border-white/10 group transition hover:scale-[1.02] hover:shadow-[0_0_16px_rgba(0,255,200,0.12)] cursor-pointer active:scale-95"
       onClick={() => onPreview(theme)}
@@ -773,15 +790,47 @@ function ThemeCard({ theme, onPreview }: { theme: ThemeItem; onPreview: (t: Them
             {theme.base_price <= 0 ? "Free" : `$${theme.base_price.toFixed(2)}`}
           </p>
 
-          <button
-            onClick={(e) => { e.stopPropagation(); onPreview(theme); }}
-            className="bg-white text-black px-3 py-1 rounded-lg text-xs font-medium hover:bg-white/90 transition"
-          >
-            Preview
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={(e) => { e.stopPropagation(); onPreview(theme); }}
+              className="bg-white text-black px-3 py-1 rounded-lg text-xs font-medium hover:bg-white/90 transition"
+            >
+              Preview
+            </button>
+
+            {/* Overflow menu */}
+            <div ref={menuRef} className="relative">
+              <button
+                onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-white/30 hover:text-white/70 hover:bg-white/8 active:bg-white/10 transition text-base leading-none"
+                aria-label="More options"
+              >
+                ···
+              </button>
+              {menuOpen && (
+                <div className="absolute bottom-full right-0 mb-1 bg-[#1a1f2e] border border-white/12 rounded-xl shadow-2xl py-1 min-w-[150px] z-50">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setMenuOpen(false); setReporting(true); }}
+                    className="w-full text-left px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 transition flex items-center gap-2"
+                  >
+                    🚩 Report Theme
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
+
+    {reporting && (
+      <ReportThemeModal
+        themeId={theme.id}
+        themeName={theme.name}
+        onClose={() => setReporting(false)}
+      />
+    )}
+    </>
   );
 }
 
