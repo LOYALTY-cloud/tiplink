@@ -83,6 +83,20 @@ export default function Footer() {
             >
               Support
             </Link>
+            <span className="text-white/15 select-none">·</span>
+            <Link
+              href="/legal/dmca"
+              className="hover:text-emerald-400 transition-colors duration-200"
+            >
+              DMCA
+            </Link>
+            <span className="text-white/15 select-none">·</span>
+            <Link
+              href="/legal/community-guidelines"
+              className="hover:text-emerald-400 transition-colors duration-200"
+            >
+              Community Guidelines
+            </Link>
           </nav>
 
           {/* ── Identity ──────────────────────────────────────── */}

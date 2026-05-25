@@ -1,0 +1,85 @@
+import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
+import { requireRole } from "@/lib/auth/requireRole";
+
+export const runtime = "nodejs";
+
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getAdminFromRequest(req);
+    if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    try { requireRole(session.role, "staff"); } catch {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { id } = await params;
+    const { data, error } = await supabaseAdmin
+      .from("dmca_reports")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error || !data) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    // Generate signed URLs for evidence files (private bucket, 1-hour expiry)
+    const evidenceSignedUrls: string[] = [];
+    for (const path of (data.evidence_urls ?? []) as string[]) {
+      const { data: signed } = await supabaseAdmin.storage
+        .from("dmca-evidence")
+        .createSignedUrl(path, 3600);
+      if (signed?.signedUrl) evidenceSignedUrls.push(signed.signedUrl);
+    }
+
+    return NextResponse.json({ report: { ...data, evidence_signed_urls: evidenceSignedUrls } });
+  } catch {
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+}
+
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getAdminFromRequest(req);
+    if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    try { requireRole(session.role, "staff"); } catch {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { id } = await params;
+    const body = await req.json();
+
+    const VALID_STATUSES   = ["pending", "reviewing", "resolved", "rejected"];
+    const VALID_PRIORITIES = ["low", "normal", "high", "urgent"];
+
+    const update: Record<string, unknown> = {};
+
+    if (body.status   && VALID_STATUSES.includes(body.status))     update.status   = body.status;
+    if (body.priority && VALID_PRIORITIES.includes(body.priority)) update.priority = body.priority;
+    if (body.moderator_notes !== undefined) {
+      update.moderator_notes = String(body.moderator_notes).trim() || null;
+    }
+
+    // Stamp reviewer when moving out of pending
+    if (update.status && update.status !== "pending") {
+      update.reviewed_by  = session.userId;
+      update.reviewed_at  = new Date().toISOString();
+    }
+
+    const { error } = await supabaseAdmin
+      .from("dmca_reports")
+      .update(update)
+      .eq("id", id);
+
+    if (error) return NextResponse.json({ error: "Failed to update." }, { status: 500 });
+
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+}

@@ -18,7 +18,7 @@ export interface ProfileRow {
   handle_change_count?: number | null;
   handle_change_window_start?: string | null;
   created_at?: string;
-  role?: "owner" | "super_admin" | "finance_admin" | "support_admin" | "user" | "system" | null;
+  role?: "owner" | "co_owner" | "super_admin" | "security" | "finance_admin" | "support_admin" | "compliance" | "moderator" | "analyst" | "user" | "system" | null;
   is_flagged?: boolean | null;
   account_status?: "active" | "restricted" | "suspended" | "closed" | "closed_finalized" | null;
   status_reason?: string | null;
