@@ -24,34 +24,30 @@ export async function POST(req: Request) {
       .update({ last_active_at: now })
       .eq("user_id", admin.userId);
 
-    // Increment active time on open work session (fire-and-forget)
-    Promise.resolve(
-      supabaseAdmin
+    // Increment active time on open work session
+    const { data: session } = await supabaseAdmin
+      .from("admin_sessions")
+      .select("id, last_active_at, total_active_seconds")
+      .eq("admin_id", admin.userId)
+      .is("ended_at", null)
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (session) {
+      const diff = Math.floor(
+        (Date.now() - new Date(session.last_active_at).getTime()) / 1000
+      );
+      // Only count if heartbeat gap ≤ 60s (skip idle gaps)
+      const increment = diff > 60 ? 0 : diff;
+      await supabaseAdmin
         .from("admin_sessions")
-        .select("id, last_active_at, total_active_seconds")
-        .eq("admin_id", admin.userId)
-        .is("ended_at", null)
-        .order("started_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    )
-      .then(({ data: session }) => {
-        if (!session) return;
-        const diff = Math.floor(
-          (Date.now() - new Date(session.last_active_at).getTime()) / 1000
-        );
-        // Only count if heartbeat gap ≤ 60s (skip idle gaps)
-        const increment = diff > 60 ? 0 : diff;
-        supabaseAdmin
-          .from("admin_sessions")
-          .update({
-            last_active_at: now,
-            total_active_seconds: session.total_active_seconds + increment,
-          })
-          .eq("id", session.id)
-          .then(() => {}, () => {});
-      })
-      .catch(() => {});
+        .update({
+          last_active_at: now,
+          total_active_seconds: session.total_active_seconds + increment,
+        })
+        .eq("id", session.id);
+    }
 
     return NextResponse.json({ ok: true });
   } catch {

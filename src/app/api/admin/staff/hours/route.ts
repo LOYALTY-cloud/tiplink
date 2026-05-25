@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
-import { requireRole } from "@/lib/auth/requireRole";
+import { requireRole, } from "@/lib/auth/requireRole";
+import { ADMIN_ROLES } from "@/lib/auth/permissions";
 
 export const runtime = "nodejs";
 
@@ -62,7 +63,7 @@ export async function GET(req: Request) {
     const { data: profiles } = await supabaseAdmin
       .from("profiles")
       .select("user_id, first_name, last_name, display_name, role, availability, last_active_at")
-      .in("role", ["owner", "super_admin", "finance_admin", "support_admin"]);
+      .in("role", ADMIN_ROLES);
 
     if (!profiles) {
       return NextResponse.json({ admins: [], total_today: 0, total_week: 0 });

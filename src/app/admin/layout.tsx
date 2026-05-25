@@ -195,7 +195,7 @@ export default function AdminLayout({
     (async () => {
     try {
       const session = JSON.parse(raw);
-      const adminRoles = ["owner", "super_admin", "finance_admin", "support_admin"];
+      const adminRoles = ["owner", "co_owner", "super_admin", "security", "finance_admin", "support_admin", "compliance", "moderator", "analyst"];
       if (!session?.role || !adminRoles.includes(session.role) || !session?.admin_id) {
         clearAdminSession();
         router.replace("/admin/login");
@@ -505,10 +505,12 @@ export default function AdminLayout({
         { label: "Analytics", href: "/admin/support/analytics", icon: "📊" },
         { label: "Reports", href: "/admin/reports", icon: "🚩" },
         { label: "Notifications", href: "/admin/notifications", icon: "🔔" },
-        { label: "DMCA", href: "/admin/dmca", icon: "⚖️" },
+        ...(userRole && ["owner", "co_owner", "super_admin", "compliance", "support_admin"].includes(userRole)
+          ? [{ label: "DMCA", href: "/admin/dmca", icon: "⚖️" }]
+          : []),
       ],
     },
-    ...(userRole && ["owner", "super_admin"].includes(userRole)
+    ...(userRole && ["owner", "co_owner", "super_admin"].includes(userRole)
       ? [{
           title: "Staff / HR",
           items: [
@@ -554,14 +556,16 @@ export default function AdminLayout({
       pathname === href ? ui.navActive : ui.navIdle
     }`;
 
-  const revenueRoles = ["owner", "super_admin"];
-  const staffRoles = ["owner", "super_admin"];
-  const fraudRoles = ["owner", "super_admin", "finance_admin"];
-  const overrideRoles = ["owner", "super_admin", "finance_admin"];
-  const logRoles = ["owner", "super_admin"];
-  const activityRoles = ["owner", "super_admin"];
-  const storeHeroRoles = ["owner", "super_admin"];
+  const revenueRoles = ["owner", "co_owner", "super_admin", "analyst"];
+  const staffRoles = ["owner", "co_owner", "super_admin"];
+  const payrollRoles = ["owner", "super_admin"];
+  const fraudRoles = ["owner", "co_owner", "super_admin", "finance_admin", "security", "compliance"];
+  const overrideRoles = ["owner", "co_owner", "super_admin", "finance_admin"];
+  const logRoles = ["owner", "co_owner", "super_admin", "security"];
+  const activityRoles = ["owner", "co_owner", "super_admin", "security"];
+  const storeHeroRoles = ["owner", "co_owner", "super_admin"];
   const ownerOnlyRoles = ["owner"];
+  const dmcaRoles = ["owner", "co_owner", "super_admin", "compliance", "support_admin"];
 
   const NAV_SECTIONS = [
     {
@@ -605,7 +609,7 @@ export default function AdminLayout({
         { label: "Refunds", href: "/admin/refunds", icon: "💸" },
         { label: "Disputes", href: "/admin/disputes", icon: "⚠️" },
         { label: "Approvals", href: "/admin/approvals", icon: "✅" },
-        ...(userRole && staffRoles.includes(userRole)
+        ...(userRole && payrollRoles.includes(userRole)
           ? [{ label: "Payroll", href: "/admin/payroll", icon: "💰" }]
           : []),
       ],
@@ -618,7 +622,9 @@ export default function AdminLayout({
         { label: "Analytics", href: "/admin/support/analytics", icon: "📊" },
         { label: "Reports", href: "/admin/reports", icon: "🚩" },
         { label: "Notifications", href: "/admin/notifications", icon: "🔔" },
-        { label: "DMCA", href: "/admin/dmca", icon: "⚖️" },
+        ...(userRole && dmcaRoles.includes(userRole)
+          ? [{ label: "DMCA", href: "/admin/dmca", icon: "⚖️" }]
+          : []),
       ],
     },
     ...(userRole && staffRoles.includes(userRole)
