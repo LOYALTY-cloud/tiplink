@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     if (availability === "offline") {
       await supabaseAdmin
         .from("profiles")
-        .update({ availability: "offline" })
+        .update({ availability: "offline", last_active_at: null })
         .eq("user_id", admin.userId);
       return NextResponse.json({ ok: true, availability: "offline" });
     }

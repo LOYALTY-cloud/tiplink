@@ -102,14 +102,19 @@ export default function AdminSupportPage() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "profiles" },
         (payload) => {
-          const updated = payload.new as { user_id: string; availability?: string; display_name?: string; role?: string; last_active_at?: string };
-          if (!updated.availability && !updated.last_active_at) return;
+          const updated = payload.new as { user_id: string; availability?: string | null; display_name?: string | null; role?: string; last_active_at?: string | null };
+          if (updated.availability === undefined && updated.last_active_at === undefined) return;
           setAdmins((prev) => {
             const exists = prev.find((a) => a.user_id === updated.user_id);
             if (exists) {
               return prev.map((a) =>
                 a.user_id === updated.user_id
-                  ? { ...a, availability: updated.availability ?? a.availability, display_name: updated.display_name ?? a.display_name, last_active_at: updated.last_active_at ?? a.last_active_at }
+                  ? {
+                      ...a,
+                      availability: updated.availability !== undefined ? (updated.availability ?? a.availability) : a.availability,
+                      display_name: updated.display_name !== undefined ? (updated.display_name ?? a.display_name) : a.display_name,
+                      last_active_at: updated.last_active_at !== undefined ? updated.last_active_at : a.last_active_at,
+                    }
                   : a
               );
             }
