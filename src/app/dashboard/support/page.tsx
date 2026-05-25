@@ -29,6 +29,12 @@ const sections = [
     desc: "Report copyright or intellectual property infringement",
     href: "/dashboard/support/dmca",
   },
+  {
+    icon: "📋",
+    title: "My DMCA Reports",
+    desc: "Track the status of your submitted copyright complaints",
+    href: "/dashboard/support/my-reports",
+  },
 ];
 
 export default function HelpSupportPage() {

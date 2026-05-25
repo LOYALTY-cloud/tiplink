@@ -34,6 +34,14 @@ interface DmcaReportDetail extends DmcaReport {
   reviewed_by: string | null;
 }
 
+interface AuditLog {
+  id: string;
+  admin_id: string;
+  action: string;
+  changes: { field: string; old_value: unknown; new_value: unknown } | null;
+  created_at: string;
+}
+
 interface TabCounts {
   pending: number;
   reviewing: number;
@@ -77,6 +85,7 @@ export default function AdminDmcaPage() {
   const [editStatus,   setEditStatus]   = useState<DmcaStatus>("pending");
   const [editPriority, setEditPriority] = useState<DmcaPriority>("normal");
   const [editNotes,    setEditNotes]    = useState("");
+  const [auditLogs,    setAuditLogs]    = useState<AuditLog[]>([]);
 
   // Refs for outside-click detection
   const listRef   = useRef<HTMLDivElement>(null);
@@ -122,6 +131,7 @@ export default function AdminDmcaPage() {
   async function loadDetail(id: string) {
     setLoadingDetail(true);
     setSelected(null);
+    setAuditLogs([]);
     try {
       const res  = await fetch(`/api/admin/dmca/${id}`, { headers: getAdminHeaders() });
       const json = await res.json();
@@ -131,6 +141,7 @@ export default function AdminDmcaPage() {
         setEditStatus(r.status);
         setEditPriority(r.priority);
         setEditNotes(r.moderator_notes ?? "");
+        setAuditLogs(json.auditLogs ?? []);
       }
     } finally {
       setLoadingDetail(false);
@@ -420,6 +431,30 @@ export default function AdminDmcaPage() {
                   </p>
                 )}
               </div>
+
+              {/* Audit log */}
+              {auditLogs.length > 0 && (
+                <div className="pt-2 border-t border-white/[0.07]">
+                  <p className={`${ui.label} mb-3`}>Audit History</p>
+                  <ul className="space-y-2">
+                    {auditLogs.map((log) => (
+                      <li key={log.id} className="flex items-start gap-2 text-xs">
+                        <span className="text-white/25 font-mono shrink-0 mt-0.5">
+                          {new Date(log.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        <span className="text-white/50">
+                          {log.action.replace(/_/g, " ")}
+                          {log.changes && (
+                            <span className="text-white/35">
+                              {" "}— {String(log.changes.old_value ?? "—")} → <span className="text-white/60">{String(log.changes.new_value ?? "—")}</span>
+                            </span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           ) : (
             <div className="rounded-2xl border border-white/[0.06] border-dashed p-10 text-center text-white/25 text-sm">
