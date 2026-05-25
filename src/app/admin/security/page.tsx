@@ -139,7 +139,7 @@ export default function AdminSecurityPage() {
   if (!authorized) return null;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 md:px-8 py-8 space-y-6">
+    <div className="py-2 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className={ui.h1}>Security Monitor</h1>
@@ -170,7 +170,7 @@ export default function AdminSecurityPage() {
         </div>
       )}
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1">
         {(["alerts", "endpoints", "blocked"] as Tab[]).map((t) => (
           <button
             key={t}
@@ -185,8 +185,8 @@ export default function AdminSecurityPage() {
       </div>
 
       {tab === "alerts" && (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          <div className="lg:col-span-2 space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+          <div className={`lg:col-span-2 space-y-3 ${selected ? "hidden lg:block" : ""}`}>
             <div className="flex items-center gap-2 flex-wrap">
               {(["open", "in_progress", "resolved", "false_positive", ""] as const).map((s) => (
                 <button
@@ -242,11 +242,18 @@ export default function AdminSecurityPage() {
             )}
           </div>
 
-          <div className="lg:col-span-3">
+          <div className={`lg:col-span-3 ${!selected ? "hidden lg:block" : ""}`}>
             {!selected ? (
-              <div className={`${ui.card} p-12 text-center text-white/30`}>Select an alert to view details</div>
+              <div className={`${ui.card} p-12 text-center text-white/30 hidden lg:flex items-center justify-center`}>Select an alert to view details</div>
             ) : (
-              <div className={`${ui.card} p-6 space-y-6`}>
+              <div className={`${ui.card} p-5 md:p-6 space-y-5 md:space-y-6`}>
+                {/* Mobile back button */}
+                <button
+                  onClick={() => setSelected(null)}
+                  className="lg:hidden flex items-center gap-1.5 text-sm text-white/50 hover:text-white/80 transition -mt-1"
+                >
+                  ← Back to alerts
+                </button>
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">

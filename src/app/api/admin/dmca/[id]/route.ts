@@ -39,7 +39,15 @@ export async function GET(
       if (signed?.signedUrl) evidenceSignedUrls.push(signed.signedUrl);
     }
 
-    return NextResponse.json({ report: { ...data, evidence_signed_urls: evidenceSignedUrls } });
+    // Fetch audit log for this report (most recent 50)
+    const { data: auditLogs } = await supabaseAdmin
+      .from("dmca_audit_logs")
+      .select("id, admin_id, action, changes, created_at")
+      .eq("report_id", id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    return NextResponse.json({ report: { ...data, evidence_signed_urls: evidenceSignedUrls }, auditLogs: auditLogs ?? [] });
   } catch {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
@@ -77,14 +85,22 @@ export async function PATCH(
     }
 
     // Fetch report before updating so we have complainant details for emails
-    let reportForEmail: { email: string; first_name: string; infringing_content_url: string } | null = null;
+    // and old values for the audit log
+    let reportForEmail: { email: string; first_name: string; infringing_content_url: string; status: string; priority: string; moderator_notes: string | null } | null = null;
     if (update.status && ["reviewing", "resolved", "rejected"].includes(update.status as string)) {
       const { data: existing } = await supabaseAdmin
         .from("dmca_reports")
-        .select("email, first_name, infringing_content_url")
+        .select("email, first_name, infringing_content_url, status, priority, moderator_notes")
         .eq("id", id)
         .maybeSingle();
       reportForEmail = existing;
+    } else if (Object.keys(update).length > 0) {
+      const { data: existing } = await supabaseAdmin
+        .from("dmca_reports")
+        .select("status, priority, moderator_notes")
+        .eq("id", id)
+        .maybeSingle();
+      if (existing) reportForEmail = { ...existing, email: "", first_name: "", infringing_content_url: "" };
     }
 
     const { error } = await supabaseAdmin
@@ -93,6 +109,26 @@ export async function PATCH(
       .eq("id", id);
 
     if (error) return NextResponse.json({ error: "Failed to update." }, { status: 500 });
+
+    // Write audit log entries (fire-and-forget, never fail the request)
+    try {
+      const auditChanges: Array<{ field: string; old_value: unknown; new_value: unknown }> = [];
+      if (update.status    !== undefined && reportForEmail) auditChanges.push({ field: "status",          old_value: reportForEmail.status,          new_value: update.status });
+      if (update.priority  !== undefined && reportForEmail) auditChanges.push({ field: "priority",        old_value: reportForEmail.priority,        new_value: update.priority });
+      if (update.moderator_notes !== undefined && reportForEmail) auditChanges.push({ field: "moderator_notes", old_value: reportForEmail.moderator_notes, new_value: update.moderator_notes });
+      if (auditChanges.length > 0) {
+        await supabaseAdmin.from("dmca_audit_logs").insert(
+          auditChanges.map((c) => ({
+            report_id:  id,
+            admin_id:   session.userId,
+            action:     c.field === "status" ? "status_change" : c.field === "priority" ? "priority_change" : "notes_update",
+            changes:    c,
+          }))
+        );
+      }
+    } catch (auditErr) {
+      console.error("[dmca audit]", auditErr);
+    }
 
     // Send status-change email to complainant (fire-and-forget)
     if (reportForEmail && update.status) {

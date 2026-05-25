@@ -12,12 +12,14 @@ const FIELD_LABEL = "block mb-1.5 text-xs font-medium text-white/60 uppercase tr
 export default function DMCAComplaintPage() {
   const [formState, setFormState] = useState<FormState>("idle");
   const [errorMsg, setErrorMsg]   = useState<string | null>(null);
+  const [isConflict, setIsConflict] = useState(false);
   const [reportId, setReportId]   = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setFormState("loading");
     setErrorMsg(null);
+    setIsConflict(false);
 
     const form     = e.currentTarget;
     const formData = new FormData(form);
@@ -41,6 +43,7 @@ export default function DMCAComplaintPage() {
 
     if (!res.ok) {
       setErrorMsg(json.error ?? "Failed to submit. Please try again.");
+      setIsConflict(res.status === 409);
       setFormState("error");
       return;
     }
@@ -265,7 +268,15 @@ export default function DMCAComplaintPage() {
           {/* Error banner */}
           {formState === "error" && errorMsg && (
             <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-              {errorMsg}
+              <p>{errorMsg}</p>
+              {isConflict && (
+                <Link
+                  href="/dashboard/support/my-reports"
+                  className="mt-2 inline-block text-blue-400 hover:text-blue-300 underline underline-offset-2 text-xs"
+                >
+                  View your active reports →
+                </Link>
+              )}
             </div>
           )}
 

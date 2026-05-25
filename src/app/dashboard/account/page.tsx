@@ -335,6 +335,16 @@ function AccountContent() {
           </div>
           <span className="text-white/45">→</span>
         </Link>
+        <Link
+          href="/dashboard/account/violations"
+          className="flex items-center justify-between px-4 py-3 rounded-xl bg-white/[0.03] hover:bg-white/10 transition active:scale-[0.98]"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-lg">⚠️</span>
+            <span className="text-sm">Account Violations</span>
+          </div>
+          <span className="text-white/45">→</span>
+        </Link>
       </div>
 
       {/* Email Change Card */}

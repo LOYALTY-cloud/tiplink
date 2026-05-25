@@ -59,6 +59,39 @@ export async function POST(req: Request) {
       userId = data?.user?.id ?? null;
     }
 
+    // 4b. Enforce active-report limits per submitter
+    // Rules enforced together (checked by user_id if logged in, always also by email):
+    //   • max 1 report with status = 'reviewing' at a time
+    //   • max 2 open reports (pending OR reviewing) at a time
+    {
+      let query = supabaseAdmin
+        .from("dmca_reports")
+        .select("status")
+        .in("status", ["pending", "reviewing"]);
+
+      // Match by user_id OR email (covers both authenticated and anonymous repeat-submitters)
+      if (userId) {
+        query = query.or(`user_id.eq.${userId},email.eq.${email}`);
+      } else {
+        query = query.eq("email", email);
+      }
+
+      const { data: openReports } = await query;
+
+      if (openReports && openReports.some((r) => r.status === "reviewing")) {
+        return NextResponse.json(
+          { error: "You already have a complaint that is currently under review. Please wait for it to be resolved before submitting another." },
+          { status: 409 }
+        );
+      }
+      if (openReports && openReports.length >= 2) {
+        return NextResponse.json(
+          { error: "You already have 2 open complaints. Please wait for them to be resolved before submitting a new one." },
+          { status: 409 }
+        );
+      }
+    }
+
     // 5. Upload evidence files to private bucket
     const evidenceStoragePaths: string[] = [];
     const files = formData.getAll("evidence[]") as File[];
