@@ -23,6 +23,12 @@ const sections = [
     desc: "Submit a ticket for complex issues",
     href: "/dashboard/support/tickets",
   },
+  {
+    icon: "⚖️",
+    title: "DMCA / IP Complaint",
+    desc: "Report copyright or intellectual property infringement",
+    href: "/dashboard/support/dmca",
+  },
 ];
 
 export default function HelpSupportPage() {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rateLimit, getClientIp } from "@/lib/rateLimit";
+import { sendDmcaSubmittedEmail } from "@/lib/dmcaEmails";
 
 export const runtime = "nodejs";
 
@@ -106,6 +107,14 @@ export async function POST(req: Request) {
       console.error("dmca/submit insert error:", error);
       return NextResponse.json({ error: "Failed to submit complaint. Please try again." }, { status: 500 });
     }
+
+    // Send submission confirmation email (fire-and-forget)
+    sendDmcaSubmittedEmail({
+      to: email,
+      firstName,
+      reportId: data.id,
+      infringingUrl,
+    });
 
     return NextResponse.json({ ok: true, id: data.id });
   } catch (err) {

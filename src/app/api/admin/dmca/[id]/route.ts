@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
+import {
+  sendDmcaReviewingEmail,
+  sendDmcaResolvedEmail,
+  sendDmcaRejectedEmail,
+} from "@/lib/dmcaEmails";
 
 export const runtime = "nodejs";
 
@@ -71,12 +76,37 @@ export async function PATCH(
       update.reviewed_at  = new Date().toISOString();
     }
 
+    // Fetch report before updating so we have complainant details for emails
+    let reportForEmail: { email: string; first_name: string; infringing_content_url: string } | null = null;
+    if (update.status && ["reviewing", "resolved", "rejected"].includes(update.status as string)) {
+      const { data: existing } = await supabaseAdmin
+        .from("dmca_reports")
+        .select("email, first_name, infringing_content_url")
+        .eq("id", id)
+        .maybeSingle();
+      reportForEmail = existing;
+    }
+
     const { error } = await supabaseAdmin
       .from("dmca_reports")
       .update(update)
       .eq("id", id);
 
     if (error) return NextResponse.json({ error: "Failed to update." }, { status: 500 });
+
+    // Send status-change email to complainant (fire-and-forget)
+    if (reportForEmail && update.status) {
+      const emailOpts = {
+        to: reportForEmail.email,
+        firstName: reportForEmail.first_name,
+        reportId: id,
+        infringingUrl: reportForEmail.infringing_content_url,
+        moderatorNotes: typeof update.moderator_notes === "string" ? update.moderator_notes : undefined,
+      };
+      if (update.status === "reviewing")  sendDmcaReviewingEmail(emailOpts);
+      if (update.status === "resolved")   sendDmcaResolvedEmail(emailOpts);
+      if (update.status === "rejected")   sendDmcaRejectedEmail(emailOpts);
+    }
 
     return NextResponse.json({ ok: true });
   } catch {

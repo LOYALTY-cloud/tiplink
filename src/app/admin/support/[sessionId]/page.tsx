@@ -332,9 +332,9 @@ export default function AdminChatPage() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "profiles", filter: `user_id=eq.${adminId}` },
         (payload) => {
-          const updated = payload.new as { availability?: string; last_active_at?: string };
-          if (updated.availability) setAssignedAdminAvailability(updated.availability);
-          if (updated.last_active_at) setAssignedAdminLastActive(updated.last_active_at);
+          const updated = payload.new as { availability?: string | null; last_active_at?: string | null };
+          if (updated.availability !== undefined) setAssignedAdminAvailability(updated.availability ?? "offline");
+          if (updated.last_active_at !== undefined) setAssignedAdminLastActive(updated.last_active_at);
         }
       )
       .subscribe();

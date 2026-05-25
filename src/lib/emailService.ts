@@ -56,6 +56,11 @@ export type EmailType =
   | "ELITE_CREATOR_SUBMITTED"
   | "ELITE_CREATOR_APPROVED"
   | "ELITE_CREATOR_REJECTED"
+  /* ── DMCA / IP Complaints ──────────────────────────── */
+  | "DMCA_SUBMITTED"
+  | "DMCA_REVIEWING"
+  | "DMCA_RESOLVED"
+  | "DMCA_REJECTED"
   /* ── Theme Store ─────────────────────────────────── */
   | "MARKETPLACE_STRIKE"
   | "THEME_REJECTED"  /* ── Stripe / Payouts ───────────────────────────────────── */
@@ -95,6 +100,11 @@ const TYPE_TO_CATEGORY: Record<EmailType, EmailCategory> = {
   ELITE_CREATOR_SUBMITTED: "alerts",
   ELITE_CREATOR_APPROVED: "alerts",
   ELITE_CREATOR_REJECTED: "alerts",
+  // DMCA
+  DMCA_SUBMITTED: "support",
+  DMCA_REVIEWING: "support",
+  DMCA_RESOLVED: "support",
+  DMCA_REJECTED: "support",
   // Theme Store
   MARKETPLACE_STRIKE: "alerts",
   THEME_REJECTED: "support",

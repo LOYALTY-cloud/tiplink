@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
@@ -49,34 +49,51 @@ const TABS: { key: DmcaStatus; label: string }[] = [
 ];
 
 const PRIORITY_BADGE: Record<DmcaPriority, string> = {
-  low:    "bg-zinc-800 text-zinc-300",
-  normal: "bg-blue-950 text-blue-300",
-  high:   "bg-amber-950 text-amber-300",
-  urgent: "bg-red-950 text-red-300",
+  low:    "bg-white/10 text-white/55",
+  normal: "bg-blue-500/20 text-blue-300",
+  high:   "bg-amber-500/20 text-amber-300",
+  urgent: "bg-red-500/20 text-red-300",
 };
 
 const STATUS_BADGE: Record<DmcaStatus, string> = {
-  pending:   "bg-yellow-950 text-yellow-300",
-  reviewing: "bg-blue-950 text-blue-300",
-  resolved:  "bg-green-950 text-green-300",
-  rejected:  "bg-red-950 text-red-300",
+  pending:   "bg-yellow-500/20 text-yellow-300",
+  reviewing: "bg-blue-500/20 text-blue-300",
+  resolved:  "bg-green-500/20 text-green-300",
+  rejected:  "bg-red-500/20 text-red-300",
 };
 
 export default function AdminDmcaPage() {
   const router = useRouter();
 
-  const [activeTab,    setActiveTab]    = useState<DmcaStatus>("pending");
-  const [reports,      setReports]      = useState<DmcaReport[]>([]);
-  const [tabCounts,    setTabCounts]    = useState<TabCounts>({ pending: 0, reviewing: 0, resolved: 0, rejected: 0 });
-  const [selected,     setSelected]     = useState<DmcaReportDetail | null>(null);
-  const [loadingList,  setLoadingList]  = useState(false);
-  const [loadingDetail,setLoadingDetail]= useState(false);
-  const [saving,       setSaving]       = useState(false);
+  const [activeTab,     setActiveTab]     = useState<DmcaStatus>("pending");
+  const [reports,       setReports]       = useState<DmcaReport[]>([]);
+  const [tabCounts,     setTabCounts]     = useState<TabCounts>({ pending: 0, reviewing: 0, resolved: 0, rejected: 0 });
+  const [selected,      setSelected]      = useState<DmcaReportDetail | null>(null);
+  const [loadingList,   setLoadingList]   = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [saving,        setSaving]        = useState(false);
 
   // Detail panel edit state
   const [editStatus,   setEditStatus]   = useState<DmcaStatus>("pending");
   const [editPriority, setEditPriority] = useState<DmcaPriority>("normal");
   const [editNotes,    setEditNotes]    = useState("");
+
+  // Refs for outside-click detection
+  const listRef   = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+
+  // Close detail panel when clicking outside both the list and the detail panel
+  useEffect(() => {
+    if (!selected) return;
+    function handleMouseDown(e: MouseEvent) {
+      const target = e.target as Node;
+      const inList   = listRef.current?.contains(target);
+      const inDetail = detailRef.current?.contains(target);
+      if (!inList && !inDetail) setSelected(null);
+    }
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [selected]);
 
   // Auth guard
   useEffect(() => {
@@ -146,7 +163,7 @@ export default function AdminDmcaPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 md:px-8 py-8">
+    <div className="py-2">
       {/* Header */}
       <div className="mb-6">
         <h1 className={ui.h1}>⚖️ DMCA / IP Complaints</h1>
@@ -159,52 +176,54 @@ export default function AdminDmcaPage() {
           <button
             key={tab.key}
             onClick={() => { setActiveTab(tab.key); setSelected(null); }}
-            className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition ${
+            className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition border ${
               activeTab === tab.key
-                ? "bg-white text-black"
-                : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
+                ? "bg-blue-500/15 border-blue-400/30 text-blue-200 shadow-[0_4px_16px_rgba(59,130,246,0.15)]"
+                : "bg-white/[0.05] border-white/[0.08] text-white/50 hover:bg-white/10 hover:text-white/80"
             }`}
           >
             {tab.label}
-            <span className="ml-2 text-xs opacity-70">{tabCounts[tab.key]}</span>
+            <span className={`ml-2 text-xs ${activeTab === tab.key ? "text-blue-300/70" : "text-white/30"}`}>
+              {tabCounts[tab.key]}
+            </span>
           </button>
         ))}
       </div>
 
-      <div className="flex gap-5 min-h-[600px]">
+      <div className="flex gap-5 min-h-[600px] items-start">
         {/* Left: report list */}
-        <div className="flex-1 min-w-0 space-y-2">
+        <div ref={listRef} className="flex-1 min-w-0 space-y-2">
           {loadingList ? (
-            <div className="text-zinc-500 py-10 text-center text-sm">Loading...</div>
+            <div className="text-white/30 py-10 text-center text-sm">Loading...</div>
           ) : reports.length === 0 ? (
-            <div className="text-zinc-500 py-10 text-center text-sm">No {activeTab} complaints.</div>
+            <div className="text-white/30 py-10 text-center text-sm">No {activeTab} complaints.</div>
           ) : (
             reports.map((r) => (
               <button
                 key={r.id}
                 onClick={() => loadDetail(r.id)}
-                className={`w-full text-left rounded-2xl border p-4 transition ${
+                className={`w-full text-left rounded-2xl border p-4 transition backdrop-blur-xl ${
                   selected?.id === r.id
-                    ? "border-white bg-zinc-900"
-                    : "border-zinc-800 bg-zinc-950 hover:bg-zinc-900"
+                    ? "border-blue-400/30 bg-blue-500/[0.08] shadow-[0_4px_24px_rgba(59,130,246,0.12)]"
+                    : "border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.07] hover:border-white/[0.15]"
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="font-semibold text-sm truncate">
+                    <p className="font-semibold text-sm text-white truncate">
                       {r.first_name} {r.last_name}
                       {r.organization && (
-                        <span className="ml-2 font-normal text-zinc-500">· {r.organization}</span>
+                        <span className="ml-2 font-normal text-white/40">· {r.organization}</span>
                       )}
                     </p>
-                    <p className="text-xs text-zinc-500 truncate mt-0.5">{r.email}</p>
-                    <p className="text-xs text-zinc-400 truncate mt-1">{r.infringing_content_url}</p>
+                    <p className="text-xs text-white/40 truncate mt-0.5">{r.email}</p>
+                    <p className="text-xs text-white/30 truncate mt-1">{r.infringing_content_url}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
-                    <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${PRIORITY_BADGE[r.priority]}`}>
+                    <span className={`text-xs px-2 py-0.5 rounded-full capitalize font-medium ${PRIORITY_BADGE[r.priority]}`}>
                       {r.priority}
                     </span>
-                    <span className="text-xs text-zinc-600">{fmtDate(r.created_at)}</span>
+                    <span className="text-xs text-white/25">{fmtDate(r.created_at)}</span>
                   </div>
                 </div>
               </button>
@@ -213,43 +232,55 @@ export default function AdminDmcaPage() {
         </div>
 
         {/* Right: detail panel */}
-        <div className="w-[420px] shrink-0">
+        <div ref={detailRef} className="w-[420px] shrink-0">
           {loadingDetail ? (
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-center text-zinc-500 text-sm">
+            <div className={`${ui.card} p-8 text-center text-white/30 text-sm`}>
               Loading...
             </div>
           ) : selected ? (
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-6 space-y-6 sticky top-4">
-              {/* Header */}
-              <div>
-                <div className="flex items-center justify-between">
-                  <h2 className="font-semibold text-lg">
+            <div className={`${ui.card} p-6 space-y-5 sticky top-4 max-h-[calc(100vh-100px)] overflow-y-auto`}>
+              {/* Header row */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="font-semibold text-base text-white">
                     {selected.first_name} {selected.last_name}
                   </h2>
-                  <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${STATUS_BADGE[selected.status]}`}>
+                  <p className="text-sm text-white/50 mt-0.5">{selected.email}</p>
+                  {selected.organization && (
+                    <p className="text-xs text-white/35 mt-0.5">{selected.organization}</p>
+                  )}
+                  {selected.phone && (
+                    <p className="text-xs text-white/35 mt-0.5">{selected.phone}</p>
+                  )}
+                  <p className="text-xs text-white/25 mt-1">Submitted {fmtDate(selected.created_at)}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`text-xs px-2 py-0.5 rounded-full capitalize font-medium ${STATUS_BADGE[selected.status]}`}>
                     {selected.status}
                   </span>
+                  <button
+                    onClick={() => setSelected(null)}
+                    className="text-white/30 hover:text-white/70 transition text-lg leading-none"
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
                 </div>
-                <p className="text-sm text-zinc-400 mt-0.5">{selected.email}</p>
-                {selected.organization && (
-                  <p className="text-xs text-zinc-500 mt-0.5">{selected.organization}</p>
-                )}
-                {selected.phone && (
-                  <p className="text-xs text-zinc-500 mt-0.5">{selected.phone}</p>
-                )}
-                <p className="text-xs text-zinc-600 mt-1">Submitted {fmtDate(selected.created_at)}</p>
               </div>
+
+              {/* Divider */}
+              <div className="border-t border-white/[0.07]" />
 
               {/* Copyrighted work */}
               <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Copyrighted Work</p>
-                <p className="text-sm text-zinc-300 leading-6 whitespace-pre-line">{selected.copyrighted_work}</p>
+                <p className={`${ui.label} mb-1.5`}>Copyrighted Work</p>
+                <p className="text-sm text-white/70 leading-6 whitespace-pre-line">{selected.copyrighted_work}</p>
                 {selected.original_content_url && (
                   <a
                     href={selected.original_content_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-blue-400 hover:underline mt-1 block truncate"
+                    className="text-xs text-blue-400 hover:text-blue-300 transition mt-1 block truncate"
                   >
                     {selected.original_content_url}
                   </a>
@@ -258,12 +289,12 @@ export default function AdminDmcaPage() {
 
               {/* Infringing content */}
               <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Infringing URL</p>
+                <p className={`${ui.label} mb-1.5`}>Infringing URL</p>
                 <a
                   href={selected.infringing_content_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-blue-400 hover:underline break-all"
+                  className="text-sm text-blue-400 hover:text-blue-300 transition break-all"
                 >
                   {selected.infringing_content_url}
                 </a>
@@ -271,14 +302,14 @@ export default function AdminDmcaPage() {
 
               {/* Details */}
               <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Infringement Details</p>
-                <p className="text-sm text-zinc-300 leading-6 whitespace-pre-line">{selected.infringement_details}</p>
+                <p className={`${ui.label} mb-1.5`}>Infringement Details</p>
+                <p className="text-sm text-white/70 leading-6 whitespace-pre-line">{selected.infringement_details}</p>
               </div>
 
               {/* Evidence */}
               {selected.evidence_signed_urls.length > 0 && (
                 <div>
-                  <p className="text-xs text-zinc-500 uppercase tracking-wide mb-2">Evidence</p>
+                  <p className={`${ui.label} mb-2`}>Evidence</p>
                   <ul className="space-y-1">
                     {selected.evidence_signed_urls.map((url, i) => (
                       <li key={i}>
@@ -286,7 +317,7 @@ export default function AdminDmcaPage() {
                           href={url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-xs text-blue-400 hover:underline"
+                          className="text-xs text-blue-400 hover:text-blue-300 transition"
                         >
                           Evidence file {i + 1}
                         </a>
@@ -298,19 +329,21 @@ export default function AdminDmcaPage() {
 
               {/* Signature */}
               <div>
-                <p className="text-xs text-zinc-500 uppercase tracking-wide mb-1">Electronic Signature</p>
-                <p className="text-sm font-mono text-zinc-300">{selected.electronic_signature}</p>
+                <p className={`${ui.label} mb-1.5`}>Electronic Signature</p>
+                <p className="text-sm font-mono text-white/60 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2">
+                  {selected.electronic_signature}
+                </p>
               </div>
 
               {/* Moderation controls */}
-              <div className="pt-2 border-t border-zinc-800 space-y-4">
+              <div className="pt-2 border-t border-white/[0.07] space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-zinc-500 block mb-1">Status</label>
+                    <label className={`${ui.label} block mb-1.5`}>Status</label>
                     <select
                       value={editStatus}
                       onChange={(e) => setEditStatus(e.target.value as DmcaStatus)}
-                      className="w-full rounded-xl border border-zinc-700 bg-black px-3 py-2 text-sm outline-none focus:border-white"
+                      className={ui.select}
                     >
                       <option value="pending">Pending</option>
                       <option value="reviewing">Reviewing</option>
@@ -319,11 +352,11 @@ export default function AdminDmcaPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs text-zinc-500 block mb-1">Priority</label>
+                    <label className={`${ui.label} block mb-1.5`}>Priority</label>
                     <select
                       value={editPriority}
                       onChange={(e) => setEditPriority(e.target.value as DmcaPriority)}
-                      className="w-full rounded-xl border border-zinc-700 bg-black px-3 py-2 text-sm outline-none focus:border-white"
+                      className={ui.select}
                     >
                       <option value="low">Low</option>
                       <option value="normal">Normal</option>
@@ -334,12 +367,12 @@ export default function AdminDmcaPage() {
                 </div>
 
                 <div>
-                  <label className="text-xs text-zinc-500 block mb-1">Moderator Notes</label>
+                  <label className={`${ui.label} block mb-1.5`}>Moderator Notes</label>
                   <textarea
                     rows={4}
                     value={editNotes}
                     onChange={(e) => setEditNotes(e.target.value)}
-                    className="w-full rounded-xl border border-zinc-700 bg-black px-3 py-2 text-sm outline-none focus:border-white resize-none"
+                    className={`${ui.input} resize-none`}
                     placeholder="Internal notes..."
                   />
                 </div>
@@ -347,20 +380,20 @@ export default function AdminDmcaPage() {
                 {/* Quick action buttons */}
                 <div className="flex gap-2">
                   <button
-                    onClick={() => { setEditStatus("reviewing"); }}
-                    className="flex-1 rounded-xl bg-blue-900 text-blue-100 text-xs py-2 hover:bg-blue-800 transition"
+                    onClick={() => setEditStatus("reviewing")}
+                    className="flex-1 rounded-xl border border-blue-400/25 bg-blue-500/15 text-blue-300 text-xs py-2 hover:bg-blue-500/25 transition font-medium"
                   >
-                    Mark Reviewing
+                    Reviewing
                   </button>
                   <button
-                    onClick={() => { setEditStatus("resolved"); }}
-                    className="flex-1 rounded-xl bg-green-900 text-green-100 text-xs py-2 hover:bg-green-800 transition"
+                    onClick={() => setEditStatus("resolved")}
+                    className="flex-1 rounded-xl border border-green-400/25 bg-green-500/15 text-green-300 text-xs py-2 hover:bg-green-500/25 transition font-medium"
                   >
                     Resolve
                   </button>
                   <button
-                    onClick={() => { setEditStatus("rejected"); }}
-                    className="flex-1 rounded-xl bg-red-900 text-red-100 text-xs py-2 hover:bg-red-800 transition"
+                    onClick={() => setEditStatus("rejected")}
+                    className="flex-1 rounded-xl border border-red-400/25 bg-red-500/15 text-red-300 text-xs py-2 hover:bg-red-500/25 transition font-medium"
                   >
                     Reject
                   </button>
@@ -369,20 +402,20 @@ export default function AdminDmcaPage() {
                 <button
                   onClick={saveDetail}
                   disabled={saving}
-                  className="w-full rounded-2xl bg-white text-black font-semibold py-3 text-sm hover:opacity-90 transition disabled:opacity-50"
+                  className={`w-full ${ui.btnPrimary} py-3 text-sm`}
                 >
                   {saving ? "Saving..." : "Save Changes"}
                 </button>
 
                 {selected.reviewed_at && (
-                  <p className="text-xs text-zinc-600 text-center">
+                  <p className="text-xs text-white/25 text-center">
                     Last reviewed {fmtDate(selected.reviewed_at)}
                   </p>
                 )}
               </div>
             </div>
           ) : (
-            <div className="rounded-2xl border border-zinc-800 border-dashed p-10 text-center text-zinc-600 text-sm">
+            <div className="rounded-2xl border border-white/[0.06] border-dashed p-10 text-center text-white/25 text-sm">
               Select a complaint to view details
             </div>
           )}

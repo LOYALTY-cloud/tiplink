@@ -3,8 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { ui } from "@/lib/ui";
 
 type FormState = "idle" | "loading" | "submitted" | "error";
+
+const FIELD_LABEL = "block mb-1.5 text-xs font-medium text-white/60 uppercase tracking-wider";
 
 export default function DMCAComplaintPage() {
   const [formState, setFormState] = useState<FormState>("idle");
@@ -19,13 +22,11 @@ export default function DMCAComplaintPage() {
     const form     = e.currentTarget;
     const formData = new FormData(form);
 
-    // Attach evidence files under the "evidence[]" key
     const fileInput = form.querySelector<HTMLInputElement>('input[type="file"]');
     if (fileInput?.files) {
       Array.from(fileInput.files).forEach((f) => formData.append("evidence[]", f));
     }
 
-    // Include auth token if logged in (optional — anon allowed)
     const headers: HeadersInit = {};
     try {
       const { data } = await supabase.auth.getSession();
@@ -51,325 +52,239 @@ export default function DMCAComplaintPage() {
   // ── Confirmation screen ────────────────────────────────────────────────────
   if (formState === "submitted") {
     return (
-      <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
-        <div className="max-w-lg w-full text-center space-y-6">
-          <div className="text-5xl">✅</div>
-          <h1 className="text-3xl font-bold">Complaint Received</h1>
-          <p className="text-zinc-300 leading-7">
+      <div className={`${ui.page} flex items-center justify-center px-4`}>
+        <div className={ui.glowWrap}>
+          <div className={ui.glow1} />
+          <div className={ui.glow2} />
+          <div className={ui.glow3} />
+        </div>
+        <div className="relative z-10 max-w-md w-full text-center space-y-5 py-16">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-green-500/15 border border-green-500/25 flex items-center justify-center text-3xl">
+            ✅
+          </div>
+          <h1 className={ui.h1}>Complaint Received</h1>
+          <p className={`${ui.muted} leading-7`}>
             Your DMCA complaint has been received. Our moderation team will
             review your submission and respond within 3–5 business days.
           </p>
           {reportId && (
-            <p className="text-sm text-zinc-500">
+            <p className={`text-sm ${ui.muted2}`}>
               Reference ID:{" "}
-              <span className="font-mono text-zinc-300">{reportId}</span>
+              <span className="font-mono text-white/80">{reportId}</span>
             </p>
           )}
           <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-            <Link
-              href="/dashboard/support"
-              className="rounded-2xl bg-white text-black font-semibold px-6 py-3 hover:opacity-90 transition"
-            >
-              Go to Support
+            <Link href="/dashboard/support" className={ui.btnPrimary}>
+              Back to Support
             </Link>
-            <Link
-              href="/legal/dmca"
-              className="rounded-2xl border border-zinc-800 px-6 py-3 text-center hover:bg-zinc-900 transition"
-            >
+            <Link href="/legal/dmca" className={ui.btnGhost}>
               View DMCA Policy
             </Link>
           </div>
         </div>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-black text-white">
-      {/* HERO — gradient until a real image is placed at /images/legal/dmca-hero.jpg */}
-      <section className="relative h-[320px] overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-zinc-950 via-black to-zinc-900" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(99,102,241,0.12),transparent_60%)]" />
+    <div className={ui.page}>
+      {/* Glow blobs */}
+      <div className={ui.glowWrap}>
+        <div className={ui.glow1} />
+        <div className={ui.glow2} />
+        <div className={ui.glow3} />
+        <div className={ui.topLine} />
+      </div>
 
-        <div className="absolute inset-0 bg-black/60" />
+      <div className="relative z-10 max-w-2xl mx-auto px-4 py-10 space-y-8">
 
-        <div className="relative z-10 flex h-full items-center justify-center px-6">
-          <div className="max-w-3xl text-center">
-            <h1 className="text-4xl md:text-5xl font-bold">
-              Intellectual Property Complaint Form
-            </h1>
-
-            <p className="mt-4 text-zinc-300 text-lg">
-              Report copyright infringement, stolen themes,
-              impersonation, or unauthorized use of intellectual property
-              on 1neLink.
-            </p>
-          </div>
+        {/* Page header */}
+        <div className="space-y-1">
+          <Link href="/dashboard/support" className={`${ui.btnLink} text-sm flex items-center gap-1 mb-4`}>
+            ← Support
+          </Link>
+          <h1 className={ui.h1}>⚖️ DMCA / IP Complaint</h1>
+          <p className={`${ui.muted} text-sm leading-6`}>
+            Report copyright infringement, stolen themes, impersonation, or
+            unauthorized use of your intellectual property on 1neLink.
+          </p>
         </div>
-      </section>
 
-      {/* FORM */}
-      <section className="max-w-4xl mx-auto px-6 py-16">
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-12"
-        >
-          {/* CONTACT INFO */}
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-semibold">
-                Contact Information
-              </h2>
+        <form onSubmit={handleSubmit} className="space-y-6">
 
-              <p className="text-zinc-400 mt-2">
-                Required fields are marked with *
-              </p>
-            </div>
+          {/* ── Contact Information ─────────────────────────────────────── */}
+          <div className={`${ui.card} p-5 space-y-5`}>
+            <h2 className={ui.h2}>Contact Information</h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block mb-2 text-sm">
-                  First Name *
-                </label>
-
-                <input
-                  required
-                  type="text"
-                  name="first_name"
-                  className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
-                />
+                <label className={FIELD_LABEL}>First Name *</label>
+                <input required type="text" name="first_name" className={ui.input} placeholder="Jane" />
               </div>
-
               <div>
-                <label className="block mb-2 text-sm">
-                  Last Name *
-                </label>
-
-                <input
-                  required
-                  type="text"
-                  name="last_name"
-                  className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
-                />
+                <label className={FIELD_LABEL}>Last Name *</label>
+                <input required type="text" name="last_name" className={ui.input} placeholder="Doe" />
               </div>
             </div>
 
             <div>
-              <label className="block mb-2 text-sm">
-                Organization or Client
-              </label>
-
-              <input
-                type="text"
-                name="organization"
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
-              />
+              <label className={FIELD_LABEL}>Organization or Client</label>
+              <input type="text" name="organization" className={ui.input} placeholder="Optional" />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block mb-2 text-sm">
-                  Email Address *
-                </label>
-
-                <input
-                  required
-                  type="email"
-                  name="email"
-                  className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
-                />
+                <label className={FIELD_LABEL}>Email Address *</label>
+                <input required type="email" name="email" className={ui.input} placeholder="jane@example.com" />
               </div>
-
               <div>
-                <label className="block mb-2 text-sm">
-                  Phone Number
-                </label>
-
-                <input
-                  type="tel"
-                  name="phone"
-                  className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
-                />
+                <label className={FIELD_LABEL}>Phone Number</label>
+                <input type="tel" name="phone" className={ui.input} placeholder="Optional" />
               </div>
             </div>
           </div>
 
-          {/* COPYRIGHT INFO */}
-          <div className="space-y-6">
+          {/* ── Copyright Information ───────────────────────────────────── */}
+          <div className={`${ui.card} p-5 space-y-5`}>
             <div>
-              <h2 className="text-2xl font-semibold">
-                Copyright Information
-              </h2>
-
-              <p className="text-zinc-400 mt-2">
-                Describe the copyrighted work being infringed.
-              </p>
+              <h2 className={ui.h2}>Copyright Information</h2>
+              <p className={`text-sm ${ui.muted2} mt-1`}>Describe the original work that was infringed.</p>
             </div>
 
             <div>
-              <label className="block mb-2 text-sm">
-                Original Copyrighted Work *
-              </label>
-
+              <label className={FIELD_LABEL}>Original Copyrighted Work *</label>
               <textarea
                 required
-                rows={5}
+                rows={4}
                 name="copyrighted_work"
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
-                placeholder="Describe your original content, theme, artwork, branding, or intellectual property..."
+                className={`${ui.input} resize-none`}
+                placeholder="Describe your original content, theme, artwork, branding, or intellectual property…"
               />
             </div>
 
             <div>
-              <label className="block mb-2 text-sm">
-                URL to Original Content
-              </label>
-
+              <label className={FIELD_LABEL}>URL to Original Content</label>
               <input
                 type="url"
                 name="original_content_url"
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
+                className={ui.input}
                 placeholder="https://"
               />
             </div>
           </div>
 
-          {/* INFRINGING CONTENT */}
-          <div className="space-y-6">
+          {/* ── Infringing Content ──────────────────────────────────────── */}
+          <div className={`${ui.card} p-5 space-y-5`}>
             <div>
-              <h2 className="text-2xl font-semibold">
-                Infringing Content
-              </h2>
-
-              <p className="text-zinc-400 mt-2">
-                Identify the content on 1neLink that allegedly infringes
-                your copyright.
-              </p>
+              <h2 className={ui.h2}>Infringing Content</h2>
+              <p className={`text-sm ${ui.muted2} mt-1`}>Identify the content on 1neLink that infringes your copyright.</p>
             </div>
 
             <div>
-              <label className="block mb-2 text-sm">
-                Infringing Content URL *
-              </label>
-
+              <label className={FIELD_LABEL}>Infringing Content URL *</label>
               <input
                 required
                 type="url"
                 name="infringing_content_url"
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
+                className={ui.input}
                 placeholder="https://1nelink.com/..."
               />
             </div>
 
             <div>
-              <label className="block mb-2 text-sm">
-                Additional Details *
-              </label>
-
+              <label className={FIELD_LABEL}>Additional Details *</label>
               <textarea
                 required
-                rows={6}
+                rows={5}
                 name="infringement_details"
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 outline-none focus:border-white"
-                placeholder="Explain how the content infringes your intellectual property..."
+                className={`${ui.input} resize-none`}
+                placeholder="Explain how the content infringes your intellectual property…"
               />
             </div>
 
             <div>
-              <label className="block mb-2 text-sm">
-                Upload Evidence
-              </label>
-
-              <input
-                type="file"
-                multiple
-                accept="image/jpeg,image/png,image/webp,application/pdf"
-                className="block w-full text-sm text-zinc-400"
-              />
-
-              <p className="mt-2 text-xs text-zinc-500">
-                Screenshots, source files, ownership proof, or related evidence.
-                Max 5 files · 10 MB each · JPG, PNG, WEBP, PDF.
+              <label className={FIELD_LABEL}>Upload Evidence</label>
+              <div className={`${ui.cardInner} px-4 py-3`}>
+                <input
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  className="block w-full text-sm text-white/60 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-white/10 file:text-white/80 hover:file:bg-white/15 file:cursor-pointer"
+                />
+              </div>
+              <p className={`mt-2 text-xs ${ui.muted2}`}>
+                Screenshots, source files, or ownership proof · Max 5 files · 10 MB each · JPG, PNG, WEBP, PDF
               </p>
             </div>
           </div>
 
-          {/* LEGAL DECLARATIONS */}
-          <div className="space-y-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-6">
-            <h2 className="text-2xl font-semibold">
-              Legal Declarations
-            </h2>
+          {/* ── Legal Declarations ──────────────────────────────────────── */}
+          <div className={`${ui.card} p-5 space-y-5`}>
+            <h2 className={ui.h2}>Legal Declarations</h2>
 
-            <label className="flex items-start gap-3">
+            <label className="flex items-start gap-3 cursor-pointer group">
               <input
                 required
                 type="checkbox"
-                className="mt-1"
+                className="mt-1 accent-blue-500 w-4 h-4 shrink-0"
               />
-
-              <span className="text-zinc-300 leading-7">
-                I have a good faith belief that the disputed use is not
-                authorized by the copyright owner, its agent, or the law.
+              <span className={`text-sm ${ui.muted} leading-6 group-hover:text-white transition`}>
+                I have a good faith belief that the disputed use is not authorized
+                by the copyright owner, its agent, or the law.
               </span>
             </label>
 
-            <label className="flex items-start gap-3">
+            <label className="flex items-start gap-3 cursor-pointer group">
               <input
                 required
                 type="checkbox"
-                className="mt-1"
+                className="mt-1 accent-blue-500 w-4 h-4 shrink-0"
               />
-
-              <span className="text-zinc-300 leading-7">
-                I declare under penalty of perjury that the information
-                in this complaint is accurate and that I am the copyright
-                owner or authorized to act on behalf of the owner.
+              <span className={`text-sm ${ui.muted} leading-6 group-hover:text-white transition`}>
+                I declare under penalty of perjury that the information in this
+                complaint is accurate and that I am the copyright owner or
+                authorized to act on behalf of the owner.
               </span>
             </label>
 
             <div>
-              <label className="block mb-2 text-sm">
-                Electronic Signature *
-              </label>
-
+              <label className={FIELD_LABEL}>Electronic Signature *</label>
               <input
                 required
                 type="text"
                 name="electronic_signature"
-                className="w-full rounded-xl border border-zinc-800 bg-black px-4 py-3 outline-none focus:border-white"
+                className={ui.input}
                 placeholder="Type your full legal name"
               />
+              <p className={`mt-1.5 text-xs ${ui.muted2}`}>
+                By signing you acknowledge this is a legally binding declaration.
+              </p>
             </div>
           </div>
 
           {/* Error banner */}
           {formState === "error" && errorMsg && (
-            <div className="rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               {errorMsg}
             </div>
           )}
 
-          {/* ACTIONS */}
-          <div className="flex flex-col md:flex-row gap-4">
+          {/* Actions */}
+          <div className="flex flex-col sm:flex-row gap-3">
             <button
               type="submit"
               disabled={formState === "loading"}
-              className="rounded-2xl bg-white text-black font-semibold px-6 py-4 hover:opacity-90 transition disabled:opacity-50"
+              className={`${ui.btnPrimary} flex-1 text-center`}
             >
-              {formState === "loading"
-                ? "Submitting..."
-                : "Submit DMCA Complaint"}
+              {formState === "loading" ? "Submitting…" : "Submit DMCA Complaint"}
             </button>
-
-            <Link
-              href="/legal/dmca"
-              className="rounded-2xl border border-zinc-800 px-6 py-4 text-center hover:bg-zinc-900 transition"
-            >
+            <Link href="/legal/dmca" className={`${ui.btnGhost} text-center`}>
               View DMCA Policy
             </Link>
           </div>
+
         </form>
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }
