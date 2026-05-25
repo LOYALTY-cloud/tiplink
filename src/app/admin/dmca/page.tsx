@@ -116,23 +116,6 @@ export default function AdminDmcaPage() {
     return () => document.removeEventListener("mousedown", handleMouseDown);
   }, [selected]);
 
-  // Refs for outside-click detection
-  const listRef   = useRef<HTMLDivElement>(null);
-  const detailRef = useRef<HTMLDivElement>(null);
-
-  // Close detail panel when clicking outside both the list and the detail panel
-  useEffect(() => {
-    if (!selected) return;
-    function handleMouseDown(e: MouseEvent) {
-      const target = e.target as Node;
-      const inList   = listRef.current?.contains(target);
-      const inDetail = detailRef.current?.contains(target);
-      if (!inList && !inDetail) setSelected(null);
-    }
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => document.removeEventListener("mousedown", handleMouseDown);
-  }, [selected]);
-
   // Auth guard
   useEffect(() => {
     const s = getAdminSession();
