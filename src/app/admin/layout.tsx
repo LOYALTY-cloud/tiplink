@@ -508,6 +508,9 @@ export default function AdminLayout({
         ...(userRole && ["owner", "co_owner", "super_admin", "compliance", "support_admin"].includes(userRole)
           ? [{ label: "DMCA", href: "/admin/dmca", icon: "⚖️" }]
           : []),
+        ...(userRole && ["owner", "co_owner", "super_admin", "compliance", "moderator", "support_admin"].includes(userRole)
+          ? [{ label: "Strikes", href: "/admin/strikes", icon: "⚡" }]
+          : []),
       ],
     },
     ...(userRole && ["owner", "co_owner", "super_admin"].includes(userRole)
@@ -624,6 +627,9 @@ export default function AdminLayout({
         { label: "Notifications", href: "/admin/notifications", icon: "🔔" },
         ...(userRole && dmcaRoles.includes(userRole)
           ? [{ label: "DMCA", href: "/admin/dmca", icon: "⚖️" }]
+          : []),
+        ...(userRole && ["owner", "co_owner", "super_admin", "compliance", "moderator", "support_admin"].includes(userRole)
+          ? [{ label: "Strikes", href: "/admin/strikes", icon: "⚡" }]
           : []),
       ],
     },

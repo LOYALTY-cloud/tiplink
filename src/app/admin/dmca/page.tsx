@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
+import { STRIKE_POINTS, SEVERITY_LABELS } from "@/types/strikes";
+import type { StrikeSeverity } from "@/types/strikes";
 
 type DmcaStatus   = "pending" | "reviewing" | "resolved" | "rejected";
 type DmcaPriority = "low" | "normal" | "high" | "urgent";
@@ -87,6 +89,16 @@ export default function AdminDmcaPage() {
   const [editNotes,    setEditNotes]    = useState("");
   const [auditLogs,    setAuditLogs]    = useState<AuditLog[]>([]);
 
+  // Issue Strike mini-panel
+  const [showStrikeForm,  setShowStrikeForm]  = useState(false);
+  const [strikeSeverity,  setStrikeSeverity]  = useState<StrikeSeverity>("warning");
+  const [strikeCreatorId, setStrikeCreatorId] = useState("");
+  const [strikeReason,    setStrikeReason]    = useState("");
+  const [strikeNotes,     setStrikeNotes]     = useState("");
+  const [strikeExpires,   setStrikeExpires]   = useState("");
+  const [issuingStrike,   setIssuingStrike]   = useState(false);
+  const [strikeMsg,       setStrikeMsg]       = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
   // Refs for outside-click detection
   const listRef   = useRef<HTMLDivElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
@@ -145,6 +157,46 @@ export default function AdminDmcaPage() {
       }
     } finally {
       setLoadingDetail(false);
+    }
+  }
+
+  async function issueStrikeFromDmca() {
+    if (!strikeCreatorId.trim()) {
+      setStrikeMsg({ type: "err", text: "Creator User ID is required" });
+      return;
+    }
+    if (!strikeReason.trim() || strikeReason.trim().length < 5) {
+      setStrikeMsg({ type: "err", text: "Reason must be at least 5 characters" });
+      return;
+    }
+    setIssuingStrike(true);
+    setStrikeMsg(null);
+    try {
+      const res = await fetch("/api/admin/strikes", {
+        method:  "POST",
+        headers: { ...getAdminHeaders(), "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          creator_id:     strikeCreatorId.trim(),
+          severity:       strikeSeverity,
+          reason:         strikeReason.trim(),
+          notes:          strikeNotes.trim() || undefined,
+          expires_at:     strikeExpires || null,
+          related_dmca_id: selected.id,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed to issue strike");
+      setStrikeMsg({ type: "ok", text: `Strike issued — Risk level: ${json.creator_risk_level} (${json.creator_strike_points} pts)` });
+      setShowStrikeForm(false);
+      setStrikeCreatorId("");
+      setStrikeReason("");
+      setStrikeNotes("");
+      setStrikeExpires("");
+      setStrikeSeverity("warning");
+    } catch (e: unknown) {
+      setStrikeMsg({ type: "err", text: e instanceof Error ? e.message : "Failed to issue strike" });
+    } finally {
+      setIssuingStrike(false);
     }
   }
 
@@ -431,6 +483,94 @@ export default function AdminDmcaPage() {
                   </p>
                 )}
               </div>
+
+              {/* Issue Strike */}
+              <div className="pt-2 border-t border-white/[0.07]">
+                  {strikeMsg && (
+                    <div className={`rounded-lg px-3 py-2 text-xs mb-3 ${
+                      strikeMsg.type === "ok"
+                        ? "bg-green-500/15 border border-green-500/30 text-green-300"
+                        : "bg-red-500/15 border border-red-500/30 text-red-300"
+                    }`}>{strikeMsg.text}</div>
+                  )}
+                  {showStrikeForm ? (
+                    <div className="space-y-3">
+                      <p className={`${ui.label} mb-2`}>Issue Strike</p>
+                      <div>
+                        <label className="block text-xs text-white/40 mb-1">Creator User ID <span className="text-red-400">*</span></label>
+                        <input
+                          value={strikeCreatorId}
+                          onChange={(e) => setStrikeCreatorId(e.target.value)}
+                          placeholder="auth.users UUID"
+                          className={`${ui.input} w-full text-xs`}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-white/40 mb-1">Severity</label>
+                        <select
+                          value={strikeSeverity}
+                          onChange={(e) => setStrikeSeverity(e.target.value as StrikeSeverity)}
+                          className={ui.select}
+                          style={{ colorScheme: "dark" }}
+                        >
+                          {(["warning", "minor", "major", "critical"] as StrikeSeverity[]).map((s) => (
+                            <option key={s} value={s} className="bg-zinc-900 text-white">{SEVERITY_LABELS[s]} ({STRIKE_POINTS[s]} pt{STRIKE_POINTS[s] !== 1 ? "s" : ""})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-white/40 mb-1">Reason <span className="text-red-400">*</span></label>
+                        <input
+                          value={strikeReason}
+                          onChange={(e) => setStrikeReason(e.target.value)}
+                          placeholder="Brief reason shown to creator"
+                          className={`${ui.input} w-full`}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-white/40 mb-1">Internal Notes</label>
+                        <textarea
+                          value={strikeNotes}
+                          onChange={(e) => setStrikeNotes(e.target.value)}
+                          rows={2}
+                          placeholder="Internal context, not shown to creator"
+                          className={`${ui.input} w-full resize-none text-xs`}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-white/40 mb-1">Expires At <span className="text-white/25">(blank = permanent)</span></label>
+                        <input
+                          type="date"
+                          value={strikeExpires}
+                          onChange={(e) => setStrikeExpires(e.target.value)}
+                          className={`${ui.input} w-full`}
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={issueStrikeFromDmca}
+                          disabled={issuingStrike}
+                          className={`${ui.btnPrimary} px-4 py-1.5 text-xs disabled:opacity-50`}
+                        >
+                          {issuingStrike ? "Issuing…" : "Confirm Strike"}
+                        </button>
+                        <button
+                          onClick={() => { setShowStrikeForm(false); setStrikeMsg(null); }}
+                          className={`${ui.btnGhost} px-3 py-1.5 text-xs`}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setShowStrikeForm(true); setStrikeCreatorId(selected.user_id ?? ""); setStrikeMsg(null); }}
+                      className="w-full rounded-xl border border-orange-400/25 bg-orange-500/10 text-orange-300 text-xs py-2 hover:bg-orange-500/20 transition font-medium"
+                    >
+                      ⚡ Issue Strike
+                    </button>
+                  )}
+                </div>
 
               {/* Audit log */}
               {auditLogs.length > 0 && (

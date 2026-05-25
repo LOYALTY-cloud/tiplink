@@ -23,6 +23,7 @@ export async function GET(req: Request) {
       .limit(limit);
 
     if (error) return NextResponse.json({ error: "Failed to load risk alerts." }, { status: 500 });
+    return NextResponse.json({ alerts: data });
   } catch (e: unknown) {
     if (e instanceof Error && e.message === "FORBIDDEN") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
