@@ -190,9 +190,9 @@ export default function AdminDmcaPage() {
         ))}
       </div>
 
-      <div className="flex gap-5 min-h-[600px] items-start">
-        {/* Left: report list */}
-        <div ref={listRef} className="flex-1 min-w-0 space-y-2">
+      <div className="flex flex-col md:flex-row gap-5 min-h-[600px] items-start">
+        {/* Left: report list — hidden on mobile when a detail is open */}
+        <div ref={listRef} className={`flex-1 min-w-0 space-y-2 w-full ${selected || loadingDetail ? "hidden md:block" : ""}`}>
           {loadingList ? (
             <div className="text-white/30 py-10 text-center text-sm">Loading...</div>
           ) : reports.length === 0 ? (
@@ -231,14 +231,21 @@ export default function AdminDmcaPage() {
           )}
         </div>
 
-        {/* Right: detail panel */}
-        <div ref={detailRef} className="w-[420px] shrink-0">
+        {/* Right: detail panel — full width on mobile, fixed width on desktop */}
+        <div ref={detailRef} className={`w-full md:w-[420px] md:shrink-0 ${!selected && !loadingDetail ? "hidden md:block" : ""}`}>
           {loadingDetail ? (
             <div className={`${ui.card} p-8 text-center text-white/30 text-sm`}>
               Loading...
             </div>
           ) : selected ? (
             <div className={`${ui.card} p-6 space-y-5 sticky top-4 max-h-[calc(100vh-100px)] overflow-y-auto`}>
+              {/* Mobile back button */}
+              <button
+                onClick={() => setSelected(null)}
+                className="md:hidden flex items-center gap-1.5 text-sm text-white/50 hover:text-white/80 transition -mt-1 mb-1"
+              >
+                ← Back to list
+              </button>
               {/* Header row */}
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
