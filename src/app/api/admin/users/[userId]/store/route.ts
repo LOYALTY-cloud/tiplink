@@ -21,14 +21,14 @@ export const runtime = "nodejs";
  */
 export async function PATCH(
   req: Request,
-  { params }: { params: { userId: string } },
+  { params }: { params: Promise<{ userId: string }> },
 ) {
   try {
     const admin = await getAdminFromRequest(req);
     if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     requireRole(admin.role, ["owner", "super_admin", "support_admin"]);
 
-    const { userId } = params;
+    const { userId } = await params;
     const body = await req.json() as {
       disabled: boolean;
       reason?: string;
