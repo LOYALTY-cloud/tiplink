@@ -47,22 +47,17 @@ export async function GET(req: Request) {
     if (!session) return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 });
     requireRole(session.role, "revenue");
 
-    // Audit: log financial data access
-    const accessTime = new Date().toISOString();
-    console.log("Revenue access:", { userId: session.userId, role: session.role, time: accessTime });
-    await supabaseAdmin.from("admin_access_logs").insert({
-      user_id: session.userId,
-      route: "/api/admin/revenue",
-      role: session.role,
-      accessed_at: accessTime,
-    });
+    // Pull from tip_intents — the authoritative source for platform_fee and stripe_fee
+    // Fetch 91 days to cover all period comparisons (month, last week, same day last week)
+    const cutoff = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: tips, error } = await supabaseAdmin
+      .from("tip_intents")
+      .select("amount, platform_fee, stripe_fee, refund_status, created_at")
+      .eq("status", "succeeded")
+      .gte("created_at", cutoff)
+      .order("created_at", { ascending: true });
 
-    // Pull from transactions_ledger — single source of truth
-    const { data: txs, error } = await supabaseAdmin
-      .from("transactions_ledger")
-      .select("amount, created_at, meta");
-
-    if (error || !txs) {
+    if (error || !tips) {
       return NextResponse.json({ error: "Failed to load data" }, { status: 500 });
     }
 
@@ -100,24 +95,20 @@ export async function GET(req: Request) {
     const rangeStart = new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000).toISOString();
     const dailyMap = new Map<string, { fees: number; stripeFees: number; volume: number; refunds: number; count: number }>();
 
-    for (const tx of txs) {
-      const amount = Number(tx.amount || 0);
-      const meta = (tx.meta || {}) as Record<string, unknown>;
-      const date = tx.created_at;
-
-      const platformFee = Number(meta.platform_fee || 0);
-      const stripeFee = Number(meta.stripe_fee || 0);
+    for (const tip of tips) {
+      const amount = Number(tip.amount || 0);
+      const platformFee = Number(tip.platform_fee || 0);
+      const stripeFee = Number(tip.stripe_fee || 0);
+      const isRefunded = tip.refund_status && tip.refund_status !== "none";
+      const date = tip.created_at as string;
 
       totalRevenue += platformFee;
       totalStripeFees += stripeFee;
+      totalVolume += amount;
+      tipCount++;
 
-      if (amount > 0) {
-        totalVolume += amount;
-        tipCount++;
-      }
-
-      if (amount < 0) {
-        totalRefunds += Math.abs(amount);
+      if (isRefunded) {
+        totalRefunds += amount;
         refundCount++;
       }
 
@@ -147,13 +138,9 @@ export async function GET(req: Request) {
         const existing = dailyMap.get(dayKey) ?? { fees: 0, stripeFees: 0, volume: 0, refunds: 0, count: 0 };
         existing.fees += platformFee;
         existing.stripeFees += stripeFee;
-        if (amount > 0) {
-          existing.volume += amount;
-          existing.count++;
-        }
-        if (amount < 0) {
-          existing.refunds += Math.abs(amount);
-        }
+        existing.volume += amount;
+        existing.count++;
+        if (isRefunded) existing.refunds += amount;
         dailyMap.set(dayKey, existing);
       }
     }
@@ -188,7 +175,7 @@ export async function GET(req: Request) {
       const sev = refundRate > 20 ? "critical" as const : "warning" as const;
       anomalies.push({ type: "refund", severity: sev, message: `Refund rate is ${refundRate}% — above 10% threshold` });
     }
-    const todayRefunds = txs.filter(tx => tx.created_at >= today && Number(tx.amount || 0) < 0).length;
+    const todayRefunds = tips.filter(tip => (tip.created_at as string) >= today && tip.refund_status && tip.refund_status !== "none").length;
     if (todayRefunds >= 5) {
       const sev = todayRefunds >= 10 ? "critical" as const : "warning" as const;
       anomalies.push({ type: "refund", severity: sev, message: `${todayRefunds} refunds today — unusual volume` });

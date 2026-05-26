@@ -19,24 +19,24 @@ export async function GET(req: NextRequest) {
   today.setHours(0, 0, 0, 0);
 
   const { data, error } = await supabaseAdmin
-    .from("transactions_ledger")
-    .select("user_id, amount, created_at")
-    .gte("created_at", today.toISOString())
-    .eq("type", "tip_received");
+    .from("tip_intents")
+    .select("creator_user_id, platform_fee")
+    .eq("status", "succeeded")
+    .gte("created_at", today.toISOString());
 
   if (error) {
     return NextResponse.json({ error: "Failed to fetch" }, { status: 500 });
   }
 
-  // Aggregate by user
+  // Aggregate platform_fee by creator
   const grouped: Record<string, { user_id: string; total: number }> = {};
 
-  for (const tx of data ?? []) {
-    const id = tx.user_id;
+  for (const tip of data ?? []) {
+    const id = tip.creator_user_id as string;
     if (!grouped[id]) {
       grouped[id] = { user_id: id, total: 0 };
     }
-    grouped[id].total += Number(tx.amount || 0);
+    grouped[id].total += Number(tip.platform_fee || 0);
   }
 
   const topIds = Object.values(grouped)
@@ -50,18 +50,18 @@ export async function GET(req: NextRequest) {
   // Fetch profiles for top earners
   const { data: profiles } = await supabaseAdmin
     .from("profiles")
-    .select("id, display_name, avatar_url")
-    .in("id", topIds.map((u) => u.user_id));
+    .select("user_id, handle, display_name, avatar_url")
+    .in("user_id", topIds.map((u) => u.user_id));
 
   const profileMap = new Map(
-    (profiles ?? []).map((p) => [p.id, p])
+    (profiles ?? []).map((p) => [p.user_id, p])
   );
 
   const result = topIds.map((u) => {
     const profile = profileMap.get(u.user_id);
     return {
       user_id: u.user_id,
-      name: profile?.display_name || "user",
+      name: profile?.handle || profile?.display_name || "user",
       avatar: profile?.avatar_url || null,
       total: Math.round(u.total * 100) / 100,
     };
