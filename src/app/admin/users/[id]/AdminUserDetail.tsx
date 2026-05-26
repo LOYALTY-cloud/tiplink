@@ -49,6 +49,8 @@ type Profile = {
   // Verification reminder
   stripe_reminder_sent_count: number | null;
   stripe_reminder_last_sent_at: string | null;
+  // Store
+  store_disabled: boolean | null;
 };
 
 type Wallet = { balance: number };
@@ -137,6 +139,10 @@ export default function AdminUserDetailPage() {
   const [syncingStripe, setSyncingStripe] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [reminderMsg, setReminderMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const [creatorStore, setCreatorStore] = useState<{ id: string; is_active: boolean } | null>(null);
+  const [storeToggling, setStoreToggling] = useState(false);
+  const [storeMsg, setStoreMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function sendVerificationReminder() {
     setSendingReminder(true);
@@ -263,7 +269,13 @@ export default function AdminUserDetailPage() {
     // profiles is publicly readable — safe to query directly
     const profileRes = await supabase
       .from("profiles")
-      .select("id, user_id, handle, display_name, email, first_name, last_name, account_status, status_reason, owed_balance, is_flagged, created_at, closed_at, role, trust_score, risk_level, last_risk_check, is_frozen, freeze_reason, stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_last_synced_at, stripe_requirements_due_count, stripe_past_requirements_due_count, stripe_currently_due, stripe_past_due, stripe_reminder_sent_count, stripe_reminder_last_sent_at")
+      .select("id, user_id, handle, display_name, email, first_name, last_name, account_status, status_reason, owed_balance, is_flagged, created_at, closed_at, role, trust_score, risk_level, last_risk_check, is_frozen, freeze_reason, stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_last_synced_at, stripe_requirements_due_count, stripe_past_requirements_due_count, stripe_currently_due, stripe_past_due, stripe_reminder_sent_count, stripe_reminder_last_sent_at, store_disabled")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    const storeRes = await supabase
+      .from("creator_stores")
+      .select("id, is_active")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -296,11 +308,36 @@ export default function AdminUserDetailPage() {
     }
 
     setProfile(profileRes.data);
+    setCreatorStore(storeRes?.data ?? null);
     setWallet(statsWallet);
     setTransactions(txData);
     setTips(statsTips);
     setDisputeCount(statsDisputeCount);
     setLoading(false);
+  }
+
+  async function toggleStoreDisabled(disabled: boolean) {
+    setStoreToggling(true);
+    setStoreMsg(null);
+    try {
+      const headers = getAdminHeaders();
+      const res = await fetch(`/api/admin/users/${userId}/store`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ disabled }),
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        setStoreMsg({ ok: false, text: json.error ?? "Failed to update store" });
+      } else {
+        setProfile((p) => p ? { ...p, store_disabled: disabled } : p);
+        setStoreMsg({ ok: true, text: disabled ? "Store disabled" : "Store re-enabled" });
+      }
+    } catch {
+      setStoreMsg({ ok: false, text: "Request failed" });
+    } finally {
+      setStoreToggling(false);
+    }
   }
 
   async function loadNotes() {
@@ -1195,6 +1232,45 @@ export default function AdminUserDetailPage() {
               ))}
             </div>
           </div>
+
+          {/* STORE RESTRICTION — only shown when user has an active store */}
+          {creatorStore?.is_active && (
+            <div className={`${ui.card} p-4`}>
+              <p className="text-[10px] text-white/40 uppercase tracking-wider mb-3">Store</p>
+
+              {storeMsg && (
+                <div className={`text-xs px-3 py-2 rounded-lg mb-3 ${storeMsg.ok ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
+                  {storeMsg.text}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm text-white font-medium">
+                    {profile?.store_disabled ? "🔴 Store disabled" : "🟢 Store active"}
+                  </span>
+                  <span className="text-[11px] text-white/40">
+                    {profile?.store_disabled
+                      ? "Store is hidden from public. Creator still has full account access."
+                      : "Store is live and publicly visible."}
+                  </span>
+                </div>
+                <button
+                  onClick={() => toggleStoreDisabled(!profile?.store_disabled)}
+                  disabled={storeToggling}
+                  className={`shrink-0 text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
+                    storeToggling
+                      ? "bg-white/5 border-white/10 text-white/25 cursor-not-allowed"
+                      : profile?.store_disabled
+                      ? "bg-green-500/15 border-green-400/30 text-green-300 hover:bg-green-500/25"
+                      : "bg-red-500/15 border-red-400/30 text-red-300 hover:bg-red-500/25"
+                  }`}
+                >
+                  {storeToggling ? "…" : profile?.store_disabled ? "Re-enable Store" : "Disable Store"}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* ADMIN OVERRIDES */}
           {(currentUserRole === "owner" || currentUserRole === "super_admin" || currentUserRole === "finance_admin") && (
