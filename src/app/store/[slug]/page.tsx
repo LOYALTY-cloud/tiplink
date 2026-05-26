@@ -57,12 +57,15 @@ export default async function StorePage({ params }: Props) {
 
   const { data: creatorProfile } = await supabaseAdmin
     .from("profiles")
-    .select("display_name, avatar_url, handle, account_status")
+    .select("display_name, avatar_url, handle, account_status, store_disabled")
     .eq("user_id", store.user_id)
     .maybeSingle();
 
-  // Hide store if creator is restricted, suspended, or closed
-  if (creatorProfile?.account_status && creatorProfile.account_status !== "active") {
+  // Hide store if creator is restricted, suspended, closed, or admin-disabled
+  if (
+    (creatorProfile?.account_status && creatorProfile.account_status !== "active") ||
+    creatorProfile?.store_disabled === true
+  ) {
     notFound();
   }
 
