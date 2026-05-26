@@ -115,7 +115,7 @@ export async function GET(req: Request) {
 
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("is_creator, total_sales, total_revenue, stripe_charges_enabled")
+    .select("is_creator, total_sales, total_revenue, stripe_charges_enabled, store_disabled, store_disabled_until, store_disabled_reason")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -145,5 +145,8 @@ export async function GET(req: Request) {
     has_active_store: creatorStore?.is_active === true,
     charges_enabled: Boolean((profile as { stripe_charges_enabled?: boolean | null } | null)?.stripe_charges_enabled),
     upload_ban_until: marketplaceProfile?.upload_ban_until ?? null,
+    store_disabled: Boolean((profile as { store_disabled?: boolean | null } | null)?.store_disabled),
+    store_disabled_until: (profile as { store_disabled_until?: string | null } | null)?.store_disabled_until ?? null,
+    store_disabled_reason: (profile as { store_disabled_reason?: string | null } | null)?.store_disabled_reason ?? null,
   });
 }

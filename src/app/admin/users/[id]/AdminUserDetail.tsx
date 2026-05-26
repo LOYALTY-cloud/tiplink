@@ -51,6 +51,8 @@ type Profile = {
   stripe_reminder_last_sent_at: string | null;
   // Store
   store_disabled: boolean | null;
+  store_disabled_until: string | null;
+  store_disabled_reason: string | null;
 };
 
 type Wallet = { balance: number };
@@ -143,6 +145,10 @@ export default function AdminUserDetailPage() {
   const [creatorStore, setCreatorStore] = useState<{ id: string; is_active: boolean } | null>(null);
   const [storeToggling, setStoreToggling] = useState(false);
   const [storeMsg, setStoreMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Disable-store modal
+  const [showDisableModal, setShowDisableModal] = useState(false);
+  const [disableReason, setDisableReason] = useState("");
+  const [disableDays, setDisableDays] = useState<number | null>(15); // null = indefinite
 
   async function sendVerificationReminder() {
     setSendingReminder(true);
@@ -269,7 +275,7 @@ export default function AdminUserDetailPage() {
     // profiles is publicly readable — safe to query directly
     const profileRes = await supabase
       .from("profiles")
-      .select("id, user_id, handle, display_name, email, first_name, last_name, account_status, status_reason, owed_balance, is_flagged, created_at, closed_at, role, trust_score, risk_level, last_risk_check, is_frozen, freeze_reason, stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_last_synced_at, stripe_requirements_due_count, stripe_past_requirements_due_count, stripe_currently_due, stripe_past_due, stripe_reminder_sent_count, stripe_reminder_last_sent_at, store_disabled")
+      .select("id, user_id, handle, display_name, email, first_name, last_name, account_status, status_reason, owed_balance, is_flagged, created_at, closed_at, role, trust_score, risk_level, last_risk_check, is_frozen, freeze_reason, stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, restriction_level, stripe_verification_status, stripe_disabled_reason, stripe_last_synced_at, stripe_requirements_due_count, stripe_past_requirements_due_count, stripe_currently_due, stripe_past_due, stripe_reminder_sent_count, stripe_reminder_last_sent_at, store_disabled, store_disabled_until, store_disabled_reason")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -316,7 +322,7 @@ export default function AdminUserDetailPage() {
     setLoading(false);
   }
 
-  async function toggleStoreDisabled(disabled: boolean) {
+  async function toggleStoreDisabled(disabled: boolean, reason?: string, durationDays?: number | null) {
     setStoreToggling(true);
     setStoreMsg(null);
     try {
@@ -324,13 +330,19 @@ export default function AdminUserDetailPage() {
       const res = await fetch(`/api/admin/users/${userId}/store`, {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ disabled }),
+        body: JSON.stringify({ disabled, reason, duration_days: durationDays }),
       });
       if (!res.ok) {
         const json = await res.json();
         setStoreMsg({ ok: false, text: json.error ?? "Failed to update store" });
       } else {
-        setProfile((p) => p ? { ...p, store_disabled: disabled } : p);
+        const json = await res.json();
+        setProfile((p) => p ? {
+          ...p,
+          store_disabled: disabled,
+          store_disabled_until: json.store_disabled_until ?? null,
+          store_disabled_reason: json.store_disabled_reason ?? null,
+        } : p);
         setStoreMsg({ ok: true, text: disabled ? "Store disabled" : "Store re-enabled" });
       }
     } catch {
@@ -1251,12 +1263,22 @@ export default function AdminUserDetailPage() {
                   </span>
                   <span className="text-[11px] text-white/40">
                     {profile?.store_disabled
-                      ? "Store is hidden from public. Creator still has full account access."
+                      ? profile.store_disabled_until
+                        ? `Until ${new Date(profile.store_disabled_until).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`
+                        : "Indefinite restriction"
                       : "Store is live and publicly visible."}
                   </span>
                 </div>
                 <button
-                  onClick={() => toggleStoreDisabled(!profile?.store_disabled)}
+                  onClick={() => {
+                    if (profile?.store_disabled) {
+                      toggleStoreDisabled(false);
+                    } else {
+                      setDisableReason("");
+                      setDisableDays(15);
+                      setShowDisableModal(true);
+                    }
+                  }}
                   disabled={storeToggling}
                   className={`shrink-0 text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
                     storeToggling
@@ -1268,6 +1290,69 @@ export default function AdminUserDetailPage() {
                 >
                   {storeToggling ? "…" : profile?.store_disabled ? "Re-enable Store" : "Disable Store"}
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* DISABLE STORE MODAL */}
+          {showDisableModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+              <div className="bg-[#111827] border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                <h3 className="text-base font-bold text-white mb-1">Disable Creator Store</h3>
+                <p className="text-xs text-white/40 mb-5">The store will be hidden from the marketplace. The creator will receive an email notification.</p>
+
+                {/* Reason */}
+                <div className="mb-4">
+                  <label className="text-[11px] text-white/50 uppercase tracking-wider mb-1.5 block">Reason <span className="text-red-400">*</span></label>
+                  <textarea
+                    value={disableReason}
+                    onChange={(e) => setDisableReason(e.target.value)}
+                    placeholder="e.g. DMCA takedown request, policy violation…"
+                    rows={3}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 resize-none focus:outline-none focus:border-white/25"
+                  />
+                </div>
+
+                {/* Duration */}
+                <div className="mb-6">
+                  <label className="text-[11px] text-white/50 uppercase tracking-wider mb-2 block">Duration</label>
+                  <div className="flex flex-wrap gap-2">
+                    {([10, 15, 20, 30, null] as (number | null)[]).map((d) => (
+                      <button
+                        key={d ?? "indef"}
+                        onClick={() => setDisableDays(d)}
+                        className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
+                          disableDays === d
+                            ? "bg-red-500/20 border-red-400/40 text-red-300 font-semibold"
+                            : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:border-white/20"
+                        }`}
+                      >
+                        {d === null ? "Indefinite" : d === 30 ? "1 month" : `${d}d`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowDisableModal(false)}
+                    className="flex-1 text-xs font-semibold px-4 py-2.5 rounded-lg border border-white/10 text-white/50 hover:text-white hover:border-white/20 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!disableReason.trim()) return;
+                      setShowDisableModal(false);
+                      toggleStoreDisabled(true, disableReason.trim(), disableDays);
+                    }}
+                    disabled={!disableReason.trim()}
+                    className="flex-1 text-xs font-semibold px-4 py-2.5 rounded-lg bg-red-500/20 border border-red-400/30 text-red-300 hover:bg-red-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  >
+                    Confirm Disable
+                  </button>
+                </div>
               </div>
             </div>
           )}
