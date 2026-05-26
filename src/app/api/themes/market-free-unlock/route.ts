@@ -51,6 +51,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "You cannot unlock your own theme" }, { status: 400 });
   }
 
+  // -- Block unlocks from admin-disabled stores ---------------------------------
+  if (theme.user_id) {
+    const { data: creatorProfile } = await supabaseAdmin
+      .from("profiles")
+      .select("store_disabled")
+      .eq("user_id", theme.user_id)
+      .maybeSingle();
+    if (creatorProfile?.store_disabled) {
+      return NextResponse.json({ error: "This theme is no longer available" }, { status: 404 });
+    }
+  }
+
   // ── Idempotent: already unlocked? ───────────────────────────────────────────
   const { data: existing } = await supabaseAdmin
     .from("theme_unlocks")

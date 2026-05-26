@@ -528,7 +528,13 @@ export default function ThemeBuilderDashboard() {
 
   const [tab, setTab] = useState<Tab>("themes");
   const [creatorGateChecked, setCreatorGateChecked] = useState(false);
-  const [creatorProfile, setCreatorProfile] = useState<{ total_sales: number; owner_elite: boolean } | null>(null);
+  const [creatorProfile, setCreatorProfile] = useState<{
+    total_sales: number;
+    owner_elite: boolean;
+    store_disabled?: boolean;
+    store_disabled_until?: string | null;
+    store_disabled_reason?: string | null;
+  } | null>(null);
   const [uploadBanUntil, setUploadBanUntil] = useState<string | null>(null);
   const [legalPending, setLegalPending] = useState(false);
   const [legalAccepting, setLegalAccepting] = useState(false);
@@ -738,6 +744,9 @@ export default function ThemeBuilderDashboard() {
       setCreatorProfile({
         total_sales: json.total_sales ?? 0,
         owner_elite: json.owner_elite === true,
+        store_disabled: json.store_disabled === true,
+        store_disabled_until: json.store_disabled_until ?? null,
+        store_disabled_reason: json.store_disabled_reason ?? null,
       });
       if (json.upload_ban_until) setUploadBanUntil(json.upload_ban_until);
 
@@ -944,8 +953,40 @@ export default function ThemeBuilderDashboard() {
     ? new Date(uploadBanUntil!).toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })
     : null;
 
+  const isStoreDisabled = creatorProfile?.store_disabled === true;
+  const storeDisabledUntil = creatorProfile?.store_disabled_until ?? null;
+  const storeDisabledReason = creatorProfile?.store_disabled_reason ?? null;
+  const storeDisabledDaysLeft = storeDisabledUntil
+    ? Math.max(0, Math.ceil((new Date(storeDisabledUntil).getTime() - Date.now()) / 86_400_000))
+    : null;
+
   return (
     <div className="space-y-6">
+
+      {/* Store restriction banner — shown when admin has disabled this store */}
+      {isStoreDisabled && (
+        <div className="flex items-start gap-3 bg-amber-400/10 border border-amber-400/25 rounded-xl px-4 py-3.5">
+          <span className="text-lg mt-0.5 shrink-0">🚫</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-300 mb-0.5">
+              Your store is currently restricted
+              {storeDisabledDaysLeft != null
+                ? ` · ${storeDisabledDaysLeft} day${storeDisabledDaysLeft !== 1 ? "s" : ""} remaining`
+                : " · indefinitely"}
+            </p>
+            {storeDisabledReason && (
+              <p className="text-xs text-amber-200/60 mb-1">Reason: {storeDisabledReason}</p>
+            )}
+            <p className="text-xs text-white/40 leading-relaxed">
+              Your store page is hidden and your themes won't appear in the marketplace until the restriction is lifted. Your account, tips, and wallet remain fully active.{" "}
+              <a href="mailto:support@1nelink.com" className="text-amber-300 underline underline-offset-2 hover:text-amber-200">
+                Contact support
+              </a>{" "}
+              if you believe this is an error.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Post-payment unlock banner */}
       {unlockedThemeId && (

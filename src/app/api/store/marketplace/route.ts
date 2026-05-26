@@ -15,11 +15,11 @@ export async function GET() {
     return NextResponse.json({ featured: [], stores: [], categories: ["general"] }, { status: 200 });
   }
 
-  // Fetch blocked creator user_ids so restricted/suspended stores are hidden
+  // Fetch blocked creator user_ids: non-active accounts OR admin-disabled stores
   const { data: blockedRows } = await supabaseAdmin
     .from("profiles")
     .select("user_id")
-    .not("account_status", "eq", "active");
+    .or("account_status.neq.active,store_disabled.eq.true");
   const blockedUserIds = new Set((blockedRows ?? []).map((r) => r.user_id));
 
   const { data, error } = await supabaseAdmin

@@ -55,8 +55,9 @@ export type EmailType =
   /* ── Elite Creator Program ───────────────────────── */
   | "ELITE_CREATOR_SUBMITTED"
   | "ELITE_CREATOR_APPROVED"
-  | "ELITE_CREATOR_REJECTED"
-  /* ── DMCA / IP Complaints ──────────────────────────── */
+  | "ELITE_CREATOR_REJECTED"  /* ── Store Restrictions ───────────────────────────────── */
+  | "STORE_DISABLED"
+  | "STORE_ENABLED"  /* ── DMCA / IP Complaints ──────────────────────────── */
   | "DMCA_SUBMITTED"
   | "DMCA_REVIEWING"
   | "DMCA_RESOLVED"
@@ -107,6 +108,8 @@ const TYPE_TO_CATEGORY: Record<EmailType, EmailCategory> = {
   DMCA_REJECTED: "support",
   // Theme Store
   MARKETPLACE_STRIKE: "alerts",
+  STORE_DISABLED: "alerts",
+  STORE_ENABLED: "alerts",
   THEME_REJECTED: "support",
   // Stripe / Payouts
   STRIPE_VERIFICATION_REMINDER: "security",

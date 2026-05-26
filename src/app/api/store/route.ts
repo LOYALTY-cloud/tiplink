@@ -47,11 +47,11 @@ export async function GET(req: Request) {
     userId = data?.user?.id ?? null;
   }
 
-  // Fetch blocked creator user_ids so their content is hidden from the marketplace
+  // Fetch blocked creator user_ids: non-active accounts OR admin-disabled stores
   const { data: blockedRows } = await supabaseAdmin
     .from("profiles")
     .select("user_id")
-    .not("account_status", "eq", "active");
+    .or("account_status.neq.active,store_disabled.eq.true");
   const blockedUserIds = new Set((blockedRows ?? []).map((r) => r.user_id));
 
   const { data: themeRows, error: themesErr } = await supabaseAdmin
