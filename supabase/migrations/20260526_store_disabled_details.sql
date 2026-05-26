@@ -18,3 +18,11 @@ ALTER TABLE public.theme_unlocks
 ALTER TABLE public.theme_unlocks
   ADD CONSTRAINT theme_unlocks_source_check
     CHECK (source IN ('payment', 'promo', 'free_market', 'theme_payout', 'admin'));
+
+-- Fix theme_unlocks unlocked_via constraint — same gap as source_check.
+ALTER TABLE public.theme_unlocks
+  DROP CONSTRAINT IF EXISTS theme_unlocks_unlocked_via_check;
+
+ALTER TABLE public.theme_unlocks
+  ADD CONSTRAINT theme_unlocks_unlocked_via_check
+    CHECK (unlocked_via IN ('payment', 'promo', 'free_market', 'theme_payout', 'admin'));
