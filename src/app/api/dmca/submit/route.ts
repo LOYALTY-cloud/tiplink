@@ -11,17 +11,8 @@ const MAX_FILES = 5;
 
 export async function POST(req: Request) {
   try {
-    // 1. Rate limit: 3 submissions per 10 min per IP
-    const ip = getClientIp(req);
-    const { allowed } = await rateLimit(`dmca:ip:${ip}`, 3, 600);
-    if (!allowed) {
-      return NextResponse.json(
-        { error: "Too many submissions. Please wait before trying again." },
-        { status: 429 }
-      );
-    }
-
-    // 2. Parse FormData
+    // 1. Parse FormData + validate fields first — invalid inputs must NOT
+    //    consume the submitter's rate-limit budget.
     const formData = await req.formData();
 
     const firstName           = String(formData.get("first_name")            ?? "").trim();
@@ -35,22 +26,27 @@ export async function POST(req: Request) {
     const infringementDetails = String(formData.get("infringement_details")  ?? "").trim();
     const signature           = String(formData.get("electronic_signature")  ?? "").trim();
 
-    // 3. Validate required fields
     if (!firstName || !lastName || !email || !copyrightedWork || !infringingUrl || !infringementDetails || !signature) {
       return NextResponse.json({ error: "Required fields are missing." }, { status: 400 });
     }
-
-    // Basic email format guard
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: "Invalid email address." }, { status: 400 });
     }
-
-    // Clamp field lengths
     if (copyrightedWork.length > 5000 || infringementDetails.length > 5000) {
       return NextResponse.json({ error: "Description too long (max 5000 characters)." }, { status: 400 });
     }
 
-    // 4. Resolve optional auth user
+    // 2. Rate limit: 3 valid (syntactically correct) submissions per 10 min per IP
+    const ip = getClientIp(req);
+    const { allowed } = await rateLimit(`dmca:ip:${ip}`, 3, 600);
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Too many submissions. Please wait before trying again." },
+        { status: 429 }
+      );
+    }
+
+    // 3. Resolve optional auth user
     let userId: string | null = null;
     const authHeader = req.headers.get("authorization") ?? "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -59,7 +55,7 @@ export async function POST(req: Request) {
       userId = data?.user?.id ?? null;
     }
 
-    // 4b. Enforce active-report limits per submitter
+    // 3b. Enforce active-report limits per submitter
     // Rules enforced together (checked by user_id if logged in, always also by email):
     //   • max 1 report with status = 'reviewing' at a time
     //   • max 2 open reports (pending OR reviewing) at a time
@@ -92,7 +88,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 5. Upload evidence files to private bucket
+    // 4. Upload evidence files to private bucket
     const evidenceStoragePaths: string[] = [];
     const files = formData.getAll("evidence[]") as File[];
     const validFiles = files.filter((f) => f && f.size > 0).slice(0, MAX_FILES);
@@ -116,7 +112,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 6. Insert report
+    // 5. Insert report
     const { data, error } = await supabaseAdmin
       .from("dmca_reports")
       .insert({

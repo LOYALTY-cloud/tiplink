@@ -309,67 +309,71 @@ export default function MarketplaceModerationPage() {
         {/* Search bar */}
         <form
           onSubmit={(e) => { e.preventDefault(); handleSearch(searchInput); }}
-          className="flex gap-2 mb-5"
+          className="flex flex-wrap sm:flex-nowrap gap-2 mb-5"
         >
-          <div className="relative flex-1">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 text-sm select-none">🔍</span>
+          <div className="relative w-full sm:flex-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 text-sm select-none pointer-events-none">🔍</span>
             <input
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search by @handle or theme UUID…"
+              placeholder="@handle or theme UUID…"
               className={`${ui.input} pl-8 pr-4 w-full text-sm`}
             />
           </div>
-          <button
-            type="submit"
-            disabled={!searchInput.trim()}
-            className="px-4 py-2 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 text-sm font-semibold hover:bg-blue-600/30 transition disabled:opacity-40"
-          >
-            Search
-          </button>
-          {searchMode !== "queue" && (
+          <div className="flex gap-2 w-full sm:w-auto">
             <button
-              type="button"
-              onClick={clearSearch}
-              className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/60 text-sm hover:text-white hover:border-white/20 transition"
+              type="submit"
+              disabled={!searchInput.trim()}
+              className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 text-sm font-semibold hover:bg-blue-600/30 transition disabled:opacity-40"
             >
-              ✕ Clear
+              Search
             </button>
-          )}
+            {searchMode !== "queue" && (
+              <button
+                type="button"
+                onClick={clearSearch}
+                className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/60 text-sm hover:text-white hover:border-white/20 transition"
+              >
+                ✕ Clear
+              </button>
+            )}
+          </div>
         </form>
 
         {/* Creator filter strip */}
         {creatorFilter && (
-          <div className="mb-5 flex items-center gap-3 rounded-xl bg-indigo-500/10 border border-indigo-500/25 px-4 py-3">
-            {creatorFilter.avatar_url ? (
-              <img
-                src={creatorFilter.avatar_url}
-                alt={creatorFilter.handle ?? ""}
-                className="w-9 h-9 rounded-full object-cover flex-shrink-0"
-              />
-            ) : (
-              <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white/40 text-sm flex-shrink-0">
-                {(creatorFilter.display_name ?? creatorFilter.handle ?? "?")[0]?.toUpperCase()}
+          <div className="mb-5 rounded-xl bg-indigo-500/10 border border-indigo-500/25 px-4 py-3">
+            <div className="flex items-center gap-3">
+              {creatorFilter.avatar_url ? (
+                <img
+                  src={creatorFilter.avatar_url}
+                  alt={creatorFilter.handle ?? ""}
+                  className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                />
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white/40 text-sm flex-shrink-0">
+                  {(creatorFilter.display_name ?? creatorFilter.handle ?? "?")[0]?.toUpperCase()}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-semibold truncate">
+                  {creatorFilter.display_name ?? creatorFilter.handle}
+                </p>
+                <p className={`${ui.muted2} text-xs truncate`}>
+                  @{creatorFilter.handle} · {themes.length} theme{themes.length !== 1 ? "s" : ""}
+                  {creatorFilter.store_disabled && (
+                    <span className="ml-2 text-amber-400">⚠ Store disabled</span>
+                  )}
+                </p>
               </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-semibold truncate">
-                {creatorFilter.display_name ?? creatorFilter.handle}
-              </p>
-              <p className={`${ui.muted2} text-xs`}>
-                @{creatorFilter.handle} · {themes.length} theme{themes.length !== 1 ? "s" : ""}
-                {creatorFilter.store_disabled && (
-                  <span className="ml-2 text-amber-400">⚠ Store disabled</span>
-                )}
-              </p>
+              <button
+                onClick={() => router.push(`/admin/users/${creatorFilter.user_id}`)}
+                className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white hover:border-white/20 transition flex-shrink-0 whitespace-nowrap"
+              >
+                <span className="hidden sm:inline">View profile </span>→
+              </button>
             </div>
-            <button
-              onClick={() => router.push(`/admin/users/${creatorFilter.user_id}`)}
-              className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white hover:border-white/20 transition flex-shrink-0"
-            >
-              View profile →
-            </button>
           </div>
         )}
 
@@ -411,7 +415,9 @@ export default function MarketplaceModerationPage() {
               ))
             ) : themes.length === 0 ? (
               <div className={`${ui.card} p-8 text-center ${ui.muted2}`}>
-                No themes in this queue.
+                {searchMode === "creator"
+                  ? "This creator has no marketplace themes."
+                  : "No themes in this queue."}
               </div>
             ) : (
               themes.map((t) => (
