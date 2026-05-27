@@ -21,7 +21,79 @@ export async function GET(req: Request) {
     const q = searchParams.get("q")?.trim() ?? "";
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-    // Direct lookup by theme UUID — used from admin reports "View Theme" jump link
+    // ── Handle / @handle search ────────────────────────────────────────────────
+    // If q is non-empty and NOT a UUID, treat it as a creator @handle lookup.
+    if (q && !UUID_RE.test(q)) {
+      const handleRaw = q.startsWith("@") ? q.slice(1) : q;
+
+      const { data: profile } = await supabaseAdmin
+        .from("profiles")
+        .select("user_id, display_name, handle, avatar_url, store_disabled")
+        .ilike("handle", handleRaw)
+        .maybeSingle();
+
+      if (!profile) {
+        return NextResponse.json({
+          themes: [],
+          creator_filter: null,
+          counts: { pending: 0, flagged: 0 },
+          not_found: true,
+        });
+      }
+
+      const { data: themes } = await supabaseAdmin
+        .from("themes")
+        .select(`
+          id, name, description, category, tags, status, risk_score,
+          moderation_reason, duplicate_warning, preview_images,
+          created_at, user_id,
+          creator:profiles!themes_user_id_fkey (
+            display_name, handle, avatar_url
+          )
+        `)
+        .eq("user_id", profile.user_id)
+        .order("created_at", { ascending: false });
+
+      const themeIds = (themes ?? []).map((t: { id: string }) => t.id);
+
+      const { data: reports } = await supabaseAdmin
+        .from("theme_reports")
+        .select("theme_id")
+        .in("theme_id", themeIds.length ? themeIds : ["_none_"])
+        .eq("status", "pending");
+
+      const { data: dmcas } = await supabaseAdmin
+        .from("dmca_claims")
+        .select("theme_id")
+        .in("theme_id", themeIds.length ? themeIds : ["_none_"])
+        .eq("status", "pending");
+
+      const reportCounts: Record<string, number> = {};
+      for (const r of reports ?? []) reportCounts[r.theme_id] = (reportCounts[r.theme_id] ?? 0) + 1;
+      const dmcaCounts: Record<string, number> = {};
+      for (const d of dmcas ?? []) if (d.theme_id) dmcaCounts[d.theme_id] = (dmcaCounts[d.theme_id] ?? 0) + 1;
+
+      const enriched = (themes ?? []).map((t: Record<string, unknown>) => ({
+        ...t,
+        report_count: reportCounts[t.id as string] ?? 0,
+        dmca_count: dmcaCounts[t.id as string] ?? 0,
+      }));
+
+      return NextResponse.json({
+        themes: enriched,
+        creator_filter: {
+          user_id: profile.user_id,
+          display_name: profile.display_name,
+          handle: profile.handle,
+          avatar_url: profile.avatar_url,
+          store_disabled: profile.store_disabled ?? false,
+        },
+        counts: { pending: 0, flagged: 0 },
+      });
+    }
+
+    // ── Direct lookup by theme UUID ────────────────────────────────────────────
+    // Used from admin reports "View Theme" jump link
     if (q && UUID_RE.test(q)) {
       const { data: themes } = await supabaseAdmin
         .from("themes")
