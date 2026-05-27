@@ -22,7 +22,7 @@ export async function GET(req: Request) {
     let query = supabaseAdmin
       .from("dmca_reports")
       .select(
-        "id, first_name, last_name, email, organization, infringing_content_url, status, priority, created_at, reviewed_at, moderator_notes",
+        "id, user_id, first_name, last_name, email, organization, infringing_content_url, status, priority, created_at, reviewed_at, moderator_notes",
         { count: "exact" }
       )
       .order("created_at", { ascending: false })

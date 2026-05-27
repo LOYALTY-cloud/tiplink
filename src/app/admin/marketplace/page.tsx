@@ -5,6 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
 
+type CreatorFilter = {
+  user_id: string;
+  display_name: string | null;
+  handle: string | null;
+  avatar_url: string | null;
+  store_disabled: boolean;
+};
+
 type QueueTheme = {
   id: string;
   name: string;
@@ -63,6 +71,10 @@ export default function MarketplaceModerationPage() {
   const [actionPanel, setActionPanel] = useState<"flag" | "strike" | "reject" | null>(null);
   const [toast, setToast] = useState("");
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [creatorFilter, setCreatorFilter] = useState<CreatorFilter | null>(null);
+  const [searchNotFound, setSearchNotFound] = useState(false);
+  const [searchMode, setSearchMode] = useState<"queue" | "uuid" | "creator">("queue");
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -83,6 +95,57 @@ export default function MarketplaceModerationPage() {
       fetchQueue(queue);
     }
   }, [router]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleSearch(raw: string) {
+    const q = raw.trim();
+    if (!q) {
+      clearSearch();
+      return;
+    }
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (UUID_RE.test(q)) {
+      // UUID → single theme lookup (existing behaviour)
+      setSearchMode("uuid");
+      setCreatorFilter(null);
+      setSearchNotFound(false);
+      await fetchLinkedTheme(q);
+    } else {
+      // @handle or plain handle → creator filter
+      setSearchMode("creator");
+      setCreatorFilter(null);
+      setSearchNotFound(false);
+      setLoading(true);
+      setSelected(null);
+      try {
+        const res = await fetch(
+          `/api/admin/marketplace/queue?q=${encodeURIComponent(q)}`,
+          { headers: getAdminHeaders() },
+        );
+        const json = await res.json();
+        if (json.not_found || !json.creator_filter) {
+          setSearchNotFound(true);
+          setThemes([]);
+          setCreatorFilter(null);
+        } else {
+          setThemes(json.themes ?? []);
+          setCreatorFilter(json.creator_filter);
+        }
+      } catch {
+        setSearchNotFound(true);
+        setThemes([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+  }
+
+  function clearSearch() {
+    setSearchInput("");
+    setCreatorFilter(null);
+    setSearchNotFound(false);
+    setSearchMode("queue");
+    fetchQueue(queue);
+  }
 
   async function fetchLinkedTheme(id: string) {
     setLoading(true);
@@ -243,8 +306,86 @@ export default function MarketplaceModerationPage() {
           <p className={`${ui.muted2} text-sm mt-1`}>Review, approve, flag, and action creator themes.</p>
         </div>
 
-        {/* Queue tabs — horizontal scroll on mobile */}
-        <div className="flex gap-2 overflow-x-auto pb-1 mb-5 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap">
+        {/* Search bar */}
+        <form
+          onSubmit={(e) => { e.preventDefault(); handleSearch(searchInput); }}
+          className="flex flex-wrap sm:flex-nowrap gap-2 mb-5"
+        >
+          <div className="relative w-full sm:flex-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 text-sm select-none pointer-events-none">🔍</span>
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="@handle or theme UUID…"
+              className={`${ui.input} pl-8 pr-4 w-full text-sm`}
+            />
+          </div>
+          <div className="flex gap-2 w-full sm:w-auto">
+            <button
+              type="submit"
+              disabled={!searchInput.trim()}
+              className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 text-sm font-semibold hover:bg-blue-600/30 transition disabled:opacity-40"
+            >
+              Search
+            </button>
+            {searchMode !== "queue" && (
+              <button
+                type="button"
+                onClick={clearSearch}
+                className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/60 text-sm hover:text-white hover:border-white/20 transition"
+              >
+                ✕ Clear
+              </button>
+            )}
+          </div>
+        </form>
+
+        {/* Creator filter strip */}
+        {creatorFilter && (
+          <div className="mb-5 rounded-xl bg-indigo-500/10 border border-indigo-500/25 px-4 py-3">
+            <div className="flex items-center gap-3">
+              {creatorFilter.avatar_url ? (
+                <img
+                  src={creatorFilter.avatar_url}
+                  alt={creatorFilter.handle ?? ""}
+                  className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                />
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white/40 text-sm flex-shrink-0">
+                  {(creatorFilter.display_name ?? creatorFilter.handle ?? "?")[0]?.toUpperCase()}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-semibold truncate">
+                  {creatorFilter.display_name ?? creatorFilter.handle}
+                </p>
+                <p className={`${ui.muted2} text-xs truncate`}>
+                  @{creatorFilter.handle} · {themes.length} theme{themes.length !== 1 ? "s" : ""}
+                  {creatorFilter.store_disabled && (
+                    <span className="ml-2 text-amber-400">⚠ Store disabled</span>
+                  )}
+                </p>
+              </div>
+              <button
+                onClick={() => router.push(`/admin/users/${creatorFilter.user_id}`)}
+                className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white hover:border-white/20 transition flex-shrink-0 whitespace-nowrap"
+              >
+                <span className="hidden sm:inline">View profile </span>→
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Not found message */}
+        {searchNotFound && (
+          <div className="mb-5 rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-red-400 text-sm">
+            No creator found matching that handle.
+          </div>
+        )}
+
+        {/* Queue tabs — hidden while in search mode */}
+        {searchMode === "queue" && <div className="flex gap-2 overflow-x-auto pb-1 mb-5 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap">
           {tabs.map((t) => (
             <button
               key={t.key}
@@ -263,7 +404,7 @@ export default function MarketplaceModerationPage() {
               )}
             </button>
           ))}
-        </div>
+        </div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Theme list */}
@@ -274,7 +415,9 @@ export default function MarketplaceModerationPage() {
               ))
             ) : themes.length === 0 ? (
               <div className={`${ui.card} p-8 text-center ${ui.muted2}`}>
-                No themes in this queue.
+                {searchMode === "creator"
+                  ? "This creator has no marketplace themes."
+                  : "No themes in this queue."}
               </div>
             ) : (
               themes.map((t) => (
