@@ -745,7 +745,7 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
                     <span>${(breakdown?.tip ?? chosenAmount).toFixed(2)}</span>
                   </div>
                   <div className={`mt-1 flex items-center justify-between ${theme.muted2}`}>
-                    <span>Fee</span>
+                    <span>Platform fee</span>
                     <span>${((breakdown?.stripeFee ?? 0) + (breakdown?.platformFee ?? 0)).toFixed(2)}</span>
                   </div>
                   <div className={`mt-1 flex items-center justify-between font-semibold ${theme.muted}`}>

@@ -392,7 +392,7 @@ export async function POST(req: Request) {
       .insert({
         creator_user_id,
         tip_amount: tip_amount,
-        stripe_fee: stripeFee,
+        stripe_fee: 0,
         platform_fee: platformFee,
         total_charge: totalCharge,
         receipt_id,
