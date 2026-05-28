@@ -260,10 +260,13 @@ function buildVerificationRequiredEmail(requirements: string[]): string {
 export async function POST(req: NextRequest) {
   const { stripe } = await import("@/lib/stripe/server");
 
-  // Read secret lazily so module-level init never captures an empty string
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+  // Read secrets lazily so module-level init never captures empty strings.
+  // Connect webhooks (events on connected accounts) are signed with a separate
+  // secret — try it first, then fall back to the platform secret.
+  const platformSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+  const connectSecret  = process.env.STRIPE_CONNECT_WEBHOOK_SECRET ?? "";
 
-  if (!endpointSecret) {
+  if (!platformSecret) {
     console.error("CRITICAL: STRIPE_WEBHOOK_SECRET is not set.");
     return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
   }
@@ -276,7 +279,17 @@ export async function POST(req: NextRequest) {
   let event: StripeWebhookEvent;
 
   try {
-    event = stripe.webhooks.constructEvent(Buffer.from(buf), sig, endpointSecret) as unknown as StripeWebhookEvent;
+    // Try Connect secret first (if configured), then platform secret.
+    // constructEvent throws on mismatch, so we catch and retry.
+    if (connectSecret) {
+      try {
+        event = stripe.webhooks.constructEvent(Buffer.from(buf), sig, connectSecret) as unknown as StripeWebhookEvent;
+      } catch {
+        event = stripe.webhooks.constructEvent(Buffer.from(buf), sig, platformSecret) as unknown as StripeWebhookEvent;
+      }
+    } else {
+      event = stripe.webhooks.constructEvent(Buffer.from(buf), sig, platformSecret) as unknown as StripeWebhookEvent;
+    }
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error("⚠️ Webhook signature verification failed:", errMsg);
