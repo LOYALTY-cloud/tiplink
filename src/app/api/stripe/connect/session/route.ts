@@ -140,6 +140,11 @@ export async function POST(req: Request) {
             transfers: { requested: true },
             card_payments: { requested: true },
           },
+          settings: {
+            payouts: {
+              schedule: { interval: "manual" },
+            },
+          },
         });
       } catch (stripeCreateErr: unknown) {
         const msg = stripeCreateErr instanceof Error ? stripeCreateErr.message : String(stripeCreateErr);
@@ -249,6 +254,11 @@ export async function POST(req: Request) {
             email: email,
             business_type: "individual",
             capabilities: { transfers: { requested: true }, card_payments: { requested: true } },
+            settings: {
+              payouts: {
+                schedule: { interval: "manual" },
+              },
+            },
           });
           await supabaseAdmin.from("profiles").update({ stripe_account_id: freshAcct.id }).eq("user_id", user_id);
           accountSession = await stripe.accountSessions.create({
