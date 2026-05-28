@@ -35,7 +35,7 @@ const CATEGORIES: Category[] = [
       },
       {
         title: "💳 Fees explained",
-        body: "Some transactions include small processing fees.\n\nBreakdown:\n• Sending a tip: 2.9% + $0.30 (Stripe processing) — no platform fee\n• Withdrawals: 5% (instant) or 3.5% + $0.30 (standard)\n• Receiving tips: No fee to receive — fees are charged to the sender\n\nFees are always shown before you confirm a transaction so there are no surprises.",
+        body: "Some transactions include small processing fees.\n\nBreakdown:\n• Sending a tip: 2.9% + $0.30 platform fee\n• Withdrawals: 5% (instant) or 3.5% + $0.30 (standard)\n• Receiving tips: No fee to receive — platform fee is charged to the sender\n\nFees are always shown before you confirm a transaction so there are no surprises.",
       },
       {
         title: "How do tips work?",
@@ -189,7 +189,7 @@ const CATEGORIES: Category[] = [
       },
       {
         title: "Is 1neLink free to use?",
-        body: "Creating a 1neLink account is completely free. There are no monthly or subscription fees. When you receive tips, a Stripe processing fee applies: 2.9% + $0.30 — no platform fee. Fees are always shown before confirming any transaction.",
+        body: "Creating a 1neLink account is completely free. There are no monthly or subscription fees. When you receive tips, a platform fee applies to the sender: 2.9% + $0.30. Fees are always shown before confirming any transaction.",
       },
       {
         title: "How do I contact support?",
