@@ -37,6 +37,7 @@ type AdminNotificationRow = {
   role_target: string[] | null;
   admin_target: string | null;
   admin_id: string | null;
+  metadata: Record<string, unknown> | null;
   ticket: {
     id: string;
     type: string;
@@ -101,7 +102,7 @@ export async function GET(req: Request) {
 
     const { data, error } = await supabaseAdmin
       .from("admin_notifications")
-      .select("id, type, title, message, link, read, status, requires_action, resolved_at, archived, created_at, ticket_id, priority, visibility, role_target, admin_target, admin_id, ticket:ticket_id(id, type, status, message, created_at, acknowledged_at)")
+      .select("id, type, title, message, link, read, status, requires_action, resolved_at, archived, created_at, ticket_id, priority, visibility, role_target, admin_target, admin_id, metadata, ticket:ticket_id(id, type, status, message, created_at, acknowledged_at)")
       .order("created_at", { ascending: false })
       .limit(120);
 
@@ -132,6 +133,7 @@ export async function GET(req: Request) {
       archived: notification.archived ?? false,
       priority: notification.priority ?? "medium",
       visibility: notification.visibility ?? "private",
+      metadata: notification.metadata ?? null,
     }));
 
     return NextResponse.json({ notifications });
