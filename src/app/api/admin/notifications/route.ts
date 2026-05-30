@@ -99,7 +99,8 @@ export async function GET(req: Request) {
       .eq("user_id", session.userId)
       .maybeSingle();
 
-    if (!admin) return NextResponse.json({ notifications: [] });
+    // Fall back to userId so role/global notifications still work without an admins row
+    const adminRowId = admin?.id ?? session.userId;
 
     const url = new URL(req.url);
     const includeRead = url.searchParams.get("includeRead") === "1";
@@ -118,7 +119,7 @@ export async function GET(req: Request) {
       ticket: normalizeTicket(notification.ticket),
     }));
     const visible = allNotifications.filter((notification) =>
-      canViewNotification(notification, session.role, admin.id),
+      canViewNotification(notification, session.role, adminRowId),
     );
 
     const activeOnly = visible.filter((notification) => {
@@ -158,7 +159,7 @@ export async function POST(req: Request) {
       .eq("user_id", session.userId)
       .maybeSingle();
 
-    if (!admin) return NextResponse.json({ ok: true });
+    const adminRowId = admin?.id ?? session.userId;
 
     const body = await req.json().catch(() => ({}));
     const notificationId = typeof body?.notificationId === "string" ? body.notificationId : null;
@@ -175,7 +176,7 @@ export async function POST(req: Request) {
     const visibleUnreadIds = ((allRows ?? []) as AdminNotificationRow[])
       .filter((notification) => !notification.read)
       .filter((notification) => !(notification.archived ?? false))
-      .filter((notification) => canViewNotification(notification, session.role as RoleName, admin.id))
+      .filter((notification) => canViewNotification(notification, session.role as RoleName, adminRowId))
       .map((notification) => notification.id);
 
     if (!all && notificationId && !visibleUnreadIds.includes(notificationId)) {

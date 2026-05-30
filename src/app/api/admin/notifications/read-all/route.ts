@@ -44,7 +44,7 @@ export async function POST(req: Request) {
       .eq("user_id", session.userId)
       .maybeSingle();
 
-    if (!admin) return NextResponse.json({ ok: true });
+    const adminRowId = admin?.id ?? session.userId;
 
     const { data, error: listError } = await supabaseAdmin
       .from("admin_notifications")
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
         const status = row.status ?? "open";
         return status === "open" || status === "in_progress";
       })
-      .filter((row) => canViewNotification(row, session.role, admin.id))
+      .filter((row) => canViewNotification(row, session.role, adminRowId))
       .map((row) => row.id);
 
     if (!targetIds.length) return NextResponse.json({ ok: true });
