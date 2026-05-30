@@ -174,23 +174,27 @@ for (const role of allRoles) {
     : fail(`${role} has NO display label`);
 }
 
-section("8. API create gate — owner/super_admin only");
+section("8. API create gate — owner/co_owner only");
 function canCreateAdmin(callerRole, targetRole) {
-  const allowed = ["owner", "super_admin"];
+  const allowed = ["owner", "co_owner"];
   if (!allowed.includes(callerRole)) return { ok: false, reason: "forbidden" };
   if (targetRole === "owner" && callerRole !== "owner") return { ok: false, reason: "only owner can create owner" };
+  if (targetRole === "co_owner" && callerRole !== "owner") return { ok: false, reason: "only owner can create co_owner" };
   if (!CREATE_ADMIN_ROLES.includes(targetRole)) return { ok: false, reason: "invalid role" };
   return { ok: true };
 }
-canCreateAdmin("owner",       "co_owner").ok    ? pass("owner can create co_owner") : fail("owner cannot create co_owner");
-canCreateAdmin("owner",       "security").ok    ? pass("owner can create security") : fail("owner cannot create security");
-canCreateAdmin("owner",       "compliance").ok  ? pass("owner can create compliance") : fail("owner cannot create compliance");
-canCreateAdmin("owner",       "analyst").ok     ? pass("owner can create analyst") : fail("owner cannot create analyst");
-canCreateAdmin("super_admin", "analyst").ok     ? pass("super_admin can create analyst") : fail("super_admin cannot create analyst");
-canCreateAdmin("super_admin", "owner").ok       ? fail("super_admin should NOT create owner") : pass("super_admin blocked from creating owner");
-canCreateAdmin("finance_admin","analyst").ok    ? fail("finance_admin should NOT create any admin") : pass("finance_admin blocked from creating admins");
+canCreateAdmin("owner",       "co_owner").ok      ? pass("owner can create co_owner") : fail("owner cannot create co_owner");
+canCreateAdmin("owner",       "security").ok      ? pass("owner can create security") : fail("owner cannot create security");
+canCreateAdmin("owner",       "compliance").ok    ? pass("owner can create compliance") : fail("owner cannot create compliance");
+canCreateAdmin("owner",       "analyst").ok       ? pass("owner can create analyst") : fail("owner cannot create analyst");
+canCreateAdmin("co_owner",    "analyst").ok       ? pass("co_owner can create analyst") : fail("co_owner cannot create analyst");
+canCreateAdmin("co_owner",    "security").ok      ? pass("co_owner can create security") : fail("co_owner cannot create security");
+canCreateAdmin("co_owner",    "owner").ok         ? fail("co_owner should NOT create owner") : pass("co_owner blocked from creating owner");
+canCreateAdmin("co_owner",    "co_owner").ok      ? fail("co_owner should NOT create co_owner") : pass("co_owner blocked from creating co_owner");
+canCreateAdmin("super_admin", "analyst").ok       ? fail("super_admin should NOT create admins") : pass("super_admin blocked from creating admins");
+canCreateAdmin("finance_admin","analyst").ok      ? fail("finance_admin should NOT create any admin") : pass("finance_admin blocked from creating admins");
 canCreateAdmin("moderator",   "support_admin").ok ? fail("moderator should NOT create admin") : pass("moderator blocked from creating admins");
-canCreateAdmin("owner",       "fake_role")      .ok ? fail("invalid role should be rejected") : pass("invalid role rejected by API");
+canCreateAdmin("owner",       "fake_role").ok     ? fail("invalid role should be rejected") : pass("invalid role rejected by API");
 
 section("9. permissions.ts ADMIN_ROLES ↔ create-admin ADMIN_ROLES — in sync");
 const sorted1 = [...PERMISSIONS_ADMIN_ROLES].sort();
