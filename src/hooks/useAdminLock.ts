@@ -37,9 +37,13 @@ export function useAdminLock(enabled: boolean) {
     sessionStorage.setItem(LOCK_KEY, reason);
     setLockReason(reason);
     setIsLocked(true);
-    // Stop idle timers while locked — they'll restart on unlock
+    // Stop ALL timers while locked — they restart on unlock.
+    // Critically, hardLogoutRef must be cleared so the hard-logout doesn't
+    // fire while the lock screen is visible, causing a surprise redirect to login.
     clearTimeout(idleLockRef.current);
     clearTimeout(warnRef.current);
+    clearTimeout(hardLogoutRef.current);
+    clearTimeout(tabSwitchLockRef.current);
   }, []);
 
   // ── Reset idle timers ─────────────────────────────────────────────────────
