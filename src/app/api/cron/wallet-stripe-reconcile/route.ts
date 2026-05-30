@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe/server";
-import { sendAdminAlert } from "@/lib/alerts";
+import { sendAdminAlert } from "@/lib/adminAlerts";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
