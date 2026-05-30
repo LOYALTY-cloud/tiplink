@@ -1325,14 +1325,12 @@ export default function AdminChatPage() {
         {session.status === "closed" && (
           <>
             <p className="text-white/40 text-sm self-center">Session closed</p>
-            {session.closed_at && (Date.now() - new Date(session.closed_at).getTime()) < 10 * 60 * 1000 && (
-              <button
-                onClick={handleReopen}
-                className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 px-4 py-2 rounded-xl text-sm font-medium transition"
-              >
-                Reopen Session
-              </button>
-            )}
+            <button
+              onClick={handleReopen}
+              className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 px-4 py-2 rounded-xl text-sm font-medium transition"
+            >
+              Reopen Session
+            </button>
           </>
         )}
       </div>

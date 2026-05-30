@@ -4,8 +4,6 @@ import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 
 export const runtime = "nodejs";
 
-const REOPEN_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
-
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -32,14 +30,6 @@ export async function POST(req: Request) {
 
     if (!session) {
       return NextResponse.json({ error: "Session not found or not closed" }, { status: 404 });
-    }
-
-    // Check reopen window
-    if (session.closed_at) {
-      const closedAge = Date.now() - new Date(session.closed_at).getTime();
-      if (closedAge > REOPEN_WINDOW_MS) {
-        return NextResponse.json({ error: "Reopen window expired (10 min max)" }, { status: 410 });
-      }
     }
 
     const now = new Date().toISOString();
