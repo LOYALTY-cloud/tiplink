@@ -24,6 +24,8 @@ const TYPE_LINK_FALLBACK: Record<string, string> = {
   support_alert: "/admin/tickets",
   fraud_alert: "/admin/fraud",
   payout_alert: "/admin/transactions",
+  security_alert: "/admin/security",
+  ai_alert: "/admin/owner-ai",
 };
 
 function getDefaultNotificationLink(type: string): string | null {

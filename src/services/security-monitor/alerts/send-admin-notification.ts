@@ -11,7 +11,7 @@ const log = createLogger("alert-admin-notification");
 export async function sendAdminNotification(alert: SecurityAlert): Promise<void> {
   try {
     await createAdminNotification({
-      roleTarget: ["super_admin"],
+      roleTarget: ["owner", "co_owner", "super_admin", "security"],
       type: "security_alert",
       title: `[${alert.severity}] ${alert.type.replace(/_/g, " ")}`,
       message: alert.summary,

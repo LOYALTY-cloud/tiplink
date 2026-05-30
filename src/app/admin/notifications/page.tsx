@@ -44,6 +44,8 @@ const TYPE_LINK_FALLBACK: Record<string, string> = {
   support_alert: "/admin/tickets",
   fraud_alert: "/admin/fraud",
   payout_alert: "/admin/transactions",
+  security_alert: "/admin/security",
+  ai_alert: "/admin/owner-ai",
 };
 
 function normalizeNotification(raw: Partial<AdminNotif> & { id: string }): AdminNotif {
@@ -90,7 +92,7 @@ function isActive(raw: Partial<AdminNotif>) {
 }
 
 function notificationBucket(type: string): FilterKey {
-  if (type.includes("finance") || type.includes("payout") || type.includes("withdrawal")) return "finance";
+  if (type.includes("finance") || type.includes("payout") || type.includes("withdrawal") || type === "ai_alert") return "finance";
   if (type.includes("support") || type.includes("ticket")) return "support";
   return "system";
 }
