@@ -52,7 +52,7 @@ export async function GET(req: Request) {
     const cutoff = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000).toISOString();
     const { data: tips, error } = await supabaseAdmin
       .from("tip_intents")
-      .select("amount, platform_fee, stripe_fee, refund_status, created_at")
+      .select("tip_amount, platform_fee, stripe_fee, refund_status, created_at")
       .eq("status", "succeeded")
       .gte("created_at", cutoff)
       .order("created_at", { ascending: true });
@@ -96,7 +96,7 @@ export async function GET(req: Request) {
     const dailyMap = new Map<string, { fees: number; stripeFees: number; volume: number; refunds: number; count: number }>();
 
     for (const tip of tips) {
-      const amount = Number(tip.amount || 0);
+      const amount = Number(tip.tip_amount || 0);
       const platformFee = Number(tip.platform_fee || 0);
       const stripeFee = Number(tip.stripe_fee || 0);
       const isRefunded = tip.refund_status && tip.refund_status !== "none";
