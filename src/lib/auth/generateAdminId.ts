@@ -2,10 +2,14 @@ import crypto from "crypto";
 
 export const ROLE_PREFIXES: Record<string, string> = {
   owner: "OWN",
+  co_owner: "COW",
   super_admin: "ADM",
+  security: "SEC",
   finance_admin: "FIN",
+  compliance: "CMP",
   support_admin: "SUP",
   moderator: "MOD",
+  analyst: "ANL",
 };
 
 /** Cryptographically secure random string from a character set */

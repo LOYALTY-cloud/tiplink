@@ -6,11 +6,15 @@ import { ui } from "@/lib/ui";
 import { getAdminHeaders } from "@/lib/auth/adminSession";
 
 const ROLES = [
-  { value: "moderator", label: "Moderator" },
-  { value: "support_admin", label: "Support Admin" },
-  { value: "finance_admin", label: "Finance Admin" },
-  { value: "super_admin", label: "Super Admin" },
-  { value: "owner", label: "Owner" },
+  { value: "analyst",      label: "Analyst" },
+  { value: "moderator",    label: "Moderator" },
+  { value: "support_admin",label: "Support Admin" },
+  { value: "compliance",   label: "Compliance" },
+  { value: "finance_admin",label: "Finance Admin" },
+  { value: "security",     label: "Security" },
+  { value: "super_admin",  label: "Super Admin" },
+  { value: "co_owner",     label: "Co-Owner" },
+  { value: "owner",        label: "Owner" },
 ] as const;
 
 type CreateResult = {
