@@ -7,7 +7,7 @@ export const PERMISSIONS = {
   risk_eval:     ["owner", "co_owner", "super_admin", "finance_admin"],
   view_admin:    ["owner", "co_owner", "super_admin", "finance_admin", "support_admin", "moderator", "security", "compliance", "analyst"],
   revenue:       ["owner", "co_owner", "super_admin", "analyst"],
-  manage_staff:  ["owner"],
+  manage_staff:  ["owner", "co_owner"],
   staff:         ["owner", "co_owner", "super_admin", "finance_admin", "support_admin"],
   payroll:       ["owner", "super_admin"],
   activity:      ["owner", "co_owner", "super_admin", "security"],

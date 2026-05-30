@@ -50,6 +50,12 @@ export default function RevenuePage() {
   const toaster = useToast(3000);
   const { pulseClass, label: connectionLabel } = useConnectionState("revenue-probe");
   const [revenueGlow, setRevenueGlow] = useState(false);
+  const [discrepancies, setDiscrepancies] = useState<{
+    user_id: string; handle: string; stripe_account_id: string;
+    our_balance: number; stripe_balance: number; drift: number;
+    direction: string; detected_at: string; resolved: boolean;
+  }[]>([]);
+  const [discLoading, setDiscLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -62,9 +68,24 @@ export default function RevenuePage() {
         return;
       }
       await fetchRevenue(range);
+      fetchDiscrepancies();
     })();
    
   }, [router]);
+
+  async function fetchDiscrepancies() {
+    setDiscLoading(true);
+    try {
+      const headers = getAdminHeaders();
+      const res = await fetch("/api/admin/wallet-discrepancies", { headers });
+      if (res.ok) {
+        const json = await res.json();
+        setDiscrepancies(json.discrepancies ?? []);
+      }
+    } catch { /* silent */ } finally {
+      setDiscLoading(false);
+    }
+  }
 
   async function fetchRevenue(r: RangeLabel) {
     try {
@@ -349,6 +370,42 @@ export default function RevenuePage() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* WALLET/STRIPE BALANCE DISCREPANCIES */}
+      <div className="mt-6 bg-white/[0.03] border border-white/10 rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-white/80">Wallet vs Stripe Discrepancies</h2>
+          <button
+            onClick={fetchDiscrepancies}
+            className="text-xs text-white/40 hover:text-white/70 transition-colors"
+          >
+            {discLoading ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+        {discLoading ? (
+          <p className="text-xs text-white/40">Loading…</p>
+        ) : discrepancies.length === 0 ? (
+          <p className="text-xs text-emerald-400/70">✓ All wallet balances match Stripe</p>
+        ) : (
+          <div className="space-y-2">
+            {discrepancies.filter(d => !d.resolved).map((d) => (
+              <div key={d.user_id} className="flex items-center justify-between bg-yellow-500/5 border border-yellow-500/20 rounded-xl px-3 py-2 text-xs">
+                <div>
+                  <span className="text-white/80 font-medium">@{d.handle}</span>
+                  <span className="text-white/40 ml-2">{d.stripe_account_id}</span>
+                </div>
+                <div className="flex gap-4 items-center">
+                  <span className="text-white/50">Our: <span className="text-white/80">${d.our_balance.toFixed(2)}</span></span>
+                  <span className="text-white/50">Stripe: <span className="text-white/80">${d.stripe_balance.toFixed(2)}</span></span>
+                  <span className={`font-semibold ${Math.abs(d.drift) > 10 ? "text-red-400" : "text-yellow-400"}`}>
+                    Δ ${d.drift > 0 ? "+" : ""}{d.drift.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -45,9 +45,7 @@ export async function GET(req: Request) {
       .eq("user_id", session.userId)
       .maybeSingle();
 
-    if (!admin) {
-      return NextResponse.json({ open: 0, critical: 0, action: 0, mine: 0 });
-    }
+    const adminRowId = admin?.id ?? session.userId;
 
     const { data, error } = await supabaseAdmin
       .from("admin_notifications")
@@ -59,7 +57,7 @@ export async function GET(req: Request) {
     if (error) return NextResponse.json({ error: "Failed to fetch notification stats." }, { status: 500 });
 
     const visible = ((data ?? []) as AdminNotificationRow[])
-      .filter((notification) => canViewNotification(notification, session.role, admin.id));
+      .filter((notification) => canViewNotification(notification, session.role, adminRowId));
 
     return NextResponse.json({
       open: visible.filter((notification) => (notification.status ?? "open") === "open").length,
@@ -68,7 +66,7 @@ export async function GET(req: Request) {
       mine: visible.filter((notification) => {
         const status = notification.status ?? "open";
         const targetId = notification.admin_target ?? notification.admin_id;
-        return targetId === admin.id && status !== "resolved" && status !== "dismissed";
+        return targetId === adminRowId && status !== "resolved" && status !== "dismissed";
       }).length,
     });
   } catch {

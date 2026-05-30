@@ -12,6 +12,11 @@ const TYPE_LINK_FALLBACK: Record<string, string> = {
   support_alert: "/admin/tickets",
   fraud_alert: "/admin/fraud",
   payout_alert: "/admin/transactions",
+  security_alert: "/admin/security",
+  ai_alert: "/admin/owner-ai",
+  marketplace_alert: "/admin/marketplace",
+  store_alert: "/admin/stores",
+  dmca_alert: "/admin/dmca",
 };
 
 function getNotificationLink(notification: AdminNotificationRow): string | null {
@@ -37,6 +42,7 @@ type AdminNotificationRow = {
   role_target: string[] | null;
   admin_target: string | null;
   admin_id: string | null;
+  metadata: Record<string, unknown> | null;
   ticket: {
     id: string;
     type: string;
@@ -93,7 +99,8 @@ export async function GET(req: Request) {
       .eq("user_id", session.userId)
       .maybeSingle();
 
-    if (!admin) return NextResponse.json({ notifications: [] });
+    // Fall back to userId so role/global notifications still work without an admins row
+    const adminRowId = admin?.id ?? session.userId;
 
     const url = new URL(req.url);
     const includeRead = url.searchParams.get("includeRead") === "1";
@@ -101,7 +108,7 @@ export async function GET(req: Request) {
 
     const { data, error } = await supabaseAdmin
       .from("admin_notifications")
-      .select("id, type, title, message, link, read, status, requires_action, resolved_at, archived, created_at, ticket_id, priority, visibility, role_target, admin_target, admin_id, ticket:ticket_id(id, type, status, message, created_at, acknowledged_at)")
+      .select("id, type, title, message, link, read, status, requires_action, resolved_at, archived, created_at, ticket_id, priority, visibility, role_target, admin_target, admin_id, metadata, ticket:ticket_id(id, type, status, message, created_at, acknowledged_at)")
       .order("created_at", { ascending: false })
       .limit(120);
 
@@ -112,7 +119,7 @@ export async function GET(req: Request) {
       ticket: normalizeTicket(notification.ticket),
     }));
     const visible = allNotifications.filter((notification) =>
-      canViewNotification(notification, session.role, admin.id),
+      canViewNotification(notification, session.role, adminRowId),
     );
 
     const activeOnly = visible.filter((notification) => {
@@ -132,6 +139,7 @@ export async function GET(req: Request) {
       archived: notification.archived ?? false,
       priority: notification.priority ?? "medium",
       visibility: notification.visibility ?? "private",
+      metadata: notification.metadata ?? null,
     }));
 
     return NextResponse.json({ notifications });
@@ -151,7 +159,7 @@ export async function POST(req: Request) {
       .eq("user_id", session.userId)
       .maybeSingle();
 
-    if (!admin) return NextResponse.json({ ok: true });
+    const adminRowId = admin?.id ?? session.userId;
 
     const body = await req.json().catch(() => ({}));
     const notificationId = typeof body?.notificationId === "string" ? body.notificationId : null;
@@ -168,7 +176,7 @@ export async function POST(req: Request) {
     const visibleUnreadIds = ((allRows ?? []) as AdminNotificationRow[])
       .filter((notification) => !notification.read)
       .filter((notification) => !(notification.archived ?? false))
-      .filter((notification) => canViewNotification(notification, session.role as RoleName, admin.id))
+      .filter((notification) => canViewNotification(notification, session.role as RoleName, adminRowId))
       .map((notification) => notification.id);
 
     if (!all && notificationId && !visibleUnreadIds.includes(notificationId)) {

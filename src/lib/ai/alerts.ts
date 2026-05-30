@@ -134,7 +134,7 @@ export async function runAIAlerts(): Promise<number> {
       message: alert.message,
       priority: alert.priority,
       visibility: "role",
-      roleTarget: ["owner", "super_admin"],
+      roleTarget: ["owner", "co_owner", "super_admin", "finance_admin"],
       requiresAction: true,
       status: "open",
       link: "/admin/owner-ai",

@@ -8,15 +8,18 @@ import { sendEmail } from "@/lib/emailService";
 
 export const runtime = "nodejs";
 
-const ADMIN_ROLES = ["owner", "super_admin", "finance_admin", "support_admin", "moderator"];
+const ADMIN_ROLES = [
+  "owner", "co_owner", "super_admin", "security",
+  "finance_admin", "compliance", "support_admin", "moderator", "analyst",
+];
 
 export async function POST(req: Request) {
   try {
     const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    // Only owner and super_admin can provision admins
-    requireRole(session.role, ["owner", "super_admin"]);
+    // Only owner and co_owner can provision admins
+    requireRole(session.role, ["owner", "co_owner"]);
 
     const body = await req.json();
     const { firstName, lastName, email, role, targetUserId } = body;
@@ -29,13 +32,29 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
 
-    // Cannot create owner accounts unless you are the owner
+    // Cannot create owner accounts unless you are the owner (co_owner cannot elevate to owner)
     if (role === "owner" && session.role !== "owner") {
       return NextResponse.json({ error: "Only the owner can create owner accounts" }, { status: 403 });
     }
 
+    // co_owner cannot create another co_owner
+    if (role === "co_owner" && session.role !== "owner") {
+      return NextResponse.json({ error: "Only the owner can create co-owner accounts" }, { status: 403 });
+    }
+
     const displayName = `${firstName.trim()} ${lastName.trim()}`;
-    const roleName = role === "owner" ? "Owner" : role === "super_admin" ? "Super Admin" : role === "finance_admin" ? "Finance Admin" : role === "moderator" ? "Moderator" : "Support Agent";
+    const ROLE_DISPLAY: Record<string, string> = {
+      owner: "Owner",
+      co_owner: "Co-Owner",
+      super_admin: "Super Admin",
+      security: "Security",
+      finance_admin: "Finance Admin",
+      compliance: "Compliance",
+      support_admin: "Support Admin",
+      moderator: "Moderator",
+      analyst: "Analyst",
+    };
+    const roleName = ROLE_DISPLAY[role] ?? role;
 
     // Generate unique admin ID (retry on collision)
     let adminId = generateAdminId(role);

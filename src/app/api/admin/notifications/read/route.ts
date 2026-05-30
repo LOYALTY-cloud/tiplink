@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       .eq("user_id", session.userId)
       .maybeSingle();
 
-    if (!admin) return NextResponse.json({ error: "Admin not found" }, { status: 404 });
+    const adminRowId = admin?.id ?? session.userId;
 
     const { data: notification, error: fetchError } = await supabaseAdmin
       .from("admin_notifications")
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
     if ((row.archived ?? false) || (status !== "open" && status !== "in_progress")) {
       return NextResponse.json({ error: "Notification is not active" }, { status: 400 });
     }
-    if (!canViewNotification(row, session.role, admin.id)) {
+    if (!canViewNotification(row, session.role, adminRowId)) {
       return NextResponse.json({ error: "Notification not visible" }, { status: 403 });
     }
 
