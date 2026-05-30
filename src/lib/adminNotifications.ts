@@ -26,6 +26,22 @@ const TYPE_LINK_FALLBACK: Record<string, string> = {
   payout_alert: "/admin/transactions",
   security_alert: "/admin/security",
   ai_alert: "/admin/owner-ai",
+  marketplace_alert: "/admin/marketplace",
+  store_alert: "/admin/stores",
+  dmca_alert: "/admin/dmca",
+};
+
+/** Default roleTarget per notification type — used when caller doesn't specify. */
+const TYPE_DEFAULT_ROLES: Record<string, string[]> = {
+  ai_alert:          ["owner", "co_owner", "super_admin", "finance_admin"],
+  finance_alert:     ["owner", "co_owner", "super_admin", "finance_admin"],
+  payout_alert:      ["owner", "co_owner", "super_admin", "finance_admin"],
+  security_alert:    ["owner", "co_owner", "super_admin", "security", "compliance"],
+  fraud_alert:       ["owner", "co_owner", "super_admin", "finance_admin", "security", "compliance"],
+  support_alert:     ["owner", "co_owner", "super_admin", "support_admin", "moderator"],
+  marketplace_alert: ["owner", "co_owner", "super_admin", "moderator"],
+  store_alert:       ["owner", "co_owner", "super_admin", "moderator"],
+  dmca_alert:        ["owner", "co_owner", "super_admin", "compliance", "support_admin"],
 };
 
 function getDefaultNotificationLink(type: string): string | null {
@@ -55,12 +71,17 @@ export async function createAdminNotification({
   visibility = "private",
   metadata,
 }: CreateAdminNotificationParams): Promise<void> {
+  // If no explicit roleTarget, fall back to the type default.
+  // If a type default exists, upgrade visibility to "role" automatically.
+  const resolvedRoleTarget = roleTarget ?? TYPE_DEFAULT_ROLES[type] ?? null;
+  const resolvedVisibility = resolvedRoleTarget && !roleTarget ? "role" : visibility;
+
   const { error } = await supabaseAdmin
     .from("admin_notifications")
     .insert({
       admin_id: adminId ?? adminTarget ?? null,
       admin_target: adminTarget ?? adminId ?? null,
-      role_target: roleTarget ?? null,
+      role_target: resolvedRoleTarget,
       ticket_id: ticketId ?? null,
       type,
       title,
@@ -69,7 +90,7 @@ export async function createAdminNotification({
       status,
       requires_action: requiresAction,
       priority,
-      visibility,
+      visibility: resolvedVisibility,
       metadata: metadata ?? null,
     })
     .select("id")

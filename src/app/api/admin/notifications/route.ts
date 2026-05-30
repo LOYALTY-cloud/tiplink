@@ -14,6 +14,9 @@ const TYPE_LINK_FALLBACK: Record<string, string> = {
   payout_alert: "/admin/transactions",
   security_alert: "/admin/security",
   ai_alert: "/admin/owner-ai",
+  marketplace_alert: "/admin/marketplace",
+  store_alert: "/admin/stores",
+  dmca_alert: "/admin/dmca",
 };
 
 function getNotificationLink(notification: AdminNotificationRow): string | null {
