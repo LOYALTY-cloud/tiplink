@@ -19,11 +19,8 @@ const REASONS = [
   { value: "impersonation",  label: "Impersonation" },
   { value: "stolen_content", label: "Stolen / Copied Content" },
   { value: "payment_abuse",  label: "Payment Abuse / Chargeback Fraud" },
-  { value: "spam",           label: "Spam" },
-  { value: "harassment",     label: "Harassment" },
   { value: "inappropriate",  label: "Inappropriate Content" },
   { value: "fake_tips",      label: "Fake Tips / Fake Support" },
-  { value: "payout_abuse",   label: "Payout Abuse" },
   { value: "other",          label: "Other" },
 ];
 

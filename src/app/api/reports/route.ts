@@ -11,20 +11,17 @@ const VALID_REASONS: Record<string, string> = {
   impersonation:  "Impersonation",
   stolen_content: "Stolen / Copied Content",
   payment_abuse:  "Payment Abuse / Chargeback Fraud",
-  spam:           "Spam",
-  harassment:     "Harassment",
   inappropriate:  "Inappropriate Content",
   fake_tips:      "Fake Tips / Fake Support",
-  payout_abuse:   "Payout Abuse",
   other:          "Other",
 };
 
 // These reasons always flag requires_manual_review
-const MANUAL_REVIEW_REASONS = new Set(["fraud", "impersonation", "payment_abuse", "fake_tips", "payout_abuse"]);
+const MANUAL_REVIEW_REASONS = new Set(["fraud", "impersonation", "payment_abuse", "fake_tips"]);
 // These target_types always flag requires_manual_review
 const MANUAL_REVIEW_TARGETS = new Set(["transaction"]);
 // These trigger high/critical priority
-const HIGH_PRIORITY_REASONS = new Set(["fraud", "impersonation", "payment_abuse", "fake_tips", "payout_abuse"]);
+const HIGH_PRIORITY_REASONS = new Set(["fraud", "impersonation", "payment_abuse", "fake_tips"]);
 
 /** POST /api/reports — submit a user report */
 export async function POST(req: Request) {
