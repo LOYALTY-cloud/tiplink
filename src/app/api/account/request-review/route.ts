@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createAdminNotification } from "@/lib/adminNotifications";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,25 @@ export async function POST(req: Request) {
       target_user: userId,
       metadata: { source: "dashboard", requested_at: new Date().toISOString() },
       severity: "info",
+    });
+
+    // Fetch display name for the notification message
+    const { data: profileData } = await supabaseAdmin
+      .from("profiles")
+      .select("display_name, handle")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    const displayName = profileData?.display_name || profileData?.handle || "A user";
+
+    await createAdminNotification({
+      type: "review_request",
+      title: "Account Review Requested",
+      message: `${displayName} has requested a review of their restricted account.`,
+      link: `/admin/users/${userId}`,
+      priority: "high",
+      requiresAction: true,
+      metadata: { user_id: userId, display_name: displayName, source: "dashboard" },
     });
 
     return NextResponse.json({ ok: true });

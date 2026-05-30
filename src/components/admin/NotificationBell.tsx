@@ -35,6 +35,7 @@ const TYPE_LINK_FALLBACK: Record<string, string> = {
   marketplace_alert: "/admin/marketplace",
   store_alert: "/admin/stores",
   dmca_alert: "/admin/dmca",
+  review_request: "/admin/users",
 };
 
 function normalizeNotification(raw: Partial<AdminNotif> & { id: string }): AdminNotif {

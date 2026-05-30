@@ -168,13 +168,15 @@ export default function AdminLayout({
 
   useEffect(() => {
     const onWarning = () => setSessionWarning(true);
-
     window.addEventListener("session_warning", onWarning);
-
-    return () => {
-      window.removeEventListener("session_warning", onWarning);
-    };
+    return () => window.removeEventListener("session_warning", onWarning);
   }, []);
+
+  // Dismiss the warning modal the moment the lock screen activates so it
+  // doesn't re-appear immediately after the admin unlocks.
+  useEffect(() => {
+    if (isLocked) setSessionWarning(false);
+  }, [isLocked]);
 
   useEffect(() => {
     // Skip auth check for login page
@@ -674,7 +676,11 @@ export default function AdminLayout({
     return (
       <AdminLockScreen
         lockReason={lockReason}
-        onUnlock={unlock}
+        onUnlock={async (passcode) => {
+          const result = await unlock(passcode);
+          if (result.ok) setSessionWarning(false);
+          return result;
+        }}
         adminName={email || undefined}
         adminRole={userRole || undefined}
       />

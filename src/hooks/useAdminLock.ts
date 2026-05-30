@@ -8,7 +8,7 @@ export type LockReason = "idle" | "tab_switch" | "manual";
 const LOCK_KEY              = "admin_lock_reason";  // sessionStorage
 const IDLE_LOCK_MS          = 5  * 60 * 1000;       // 5 min  → soft lock
 const WARN_MS               = 4  * 60 * 1000;       // 4 min  → warning event
-const HARD_LOGOUT_MS        = 10 * 60 * 1000;       // 10 min → full logout
+const HARD_LOGOUT_MS        = 8  * 60 * 1000;       // 8 min  → full logout
 const TAB_SWITCH_GRACE_MS   = 3  * 60 * 1000;       // 3 min  → grace before tab-switch lock
 const LAST_ACTIVE_KEY       = "admin_last_active";   // sessionStorage
 const TAB_HIDDEN_AT_KEY     = "admin_tab_hidden_at"; // sessionStorage
@@ -37,9 +37,13 @@ export function useAdminLock(enabled: boolean) {
     sessionStorage.setItem(LOCK_KEY, reason);
     setLockReason(reason);
     setIsLocked(true);
-    // Stop idle timers while locked — they'll restart on unlock
+    // Stop ALL timers while locked — they restart on unlock.
+    // Critically, hardLogoutRef must be cleared so the hard-logout doesn't
+    // fire while the lock screen is visible, causing a surprise redirect to login.
     clearTimeout(idleLockRef.current);
     clearTimeout(warnRef.current);
+    clearTimeout(hardLogoutRef.current);
+    clearTimeout(tabSwitchLockRef.current);
   }, []);
 
   // ── Reset idle timers ─────────────────────────────────────────────────────
@@ -87,11 +91,14 @@ export function useAdminLock(enabled: boolean) {
         sessionStorage.setItem(TAB_HIDDEN_AT_KEY, String(Date.now()));
         // Schedule lock after grace period
         tabSwitchLockRef.current = setTimeout(() => {
-          sessionStorage.setItem(LOCK_KEY, "tab_switch");
+          lock("tab_switch");
         }, TAB_SWITCH_GRACE_MS);
-        // Pause idle timers while hidden
+        // Pause ALL timers while hidden — including hardLogoutRef so the
+        // hard-logout doesn't fire while the admin is on another tab.
+        // Elapsed time is checked via LAST_ACTIVE_KEY when tab becomes visible.
         clearTimeout(idleLockRef.current);
         clearTimeout(warnRef.current);
+        clearTimeout(hardLogoutRef.current);
       } else {
         // Tab became visible — cancel pending tab-switch lock
         clearTimeout(tabSwitchLockRef.current);
@@ -100,8 +107,7 @@ export function useAdminLock(enabled: boolean) {
         // Check if lock was already set (grace period elapsed before return)
         const reason = sessionStorage.getItem(LOCK_KEY) as LockReason | null;
         if (reason) {
-          setLockReason(reason);
-          setIsLocked(true);
+          lock(reason); // use lock() so all timers are cleared
           return;
         }
 
@@ -128,8 +134,7 @@ export function useAdminLock(enabled: boolean) {
 
     const reason = sessionStorage.getItem(LOCK_KEY) as LockReason | null;
     if (reason) {
-      setLockReason(reason);
-      setIsLocked(true);
+      lock(reason); // use lock() so all timers are cleared
       return; // Don't start idle timers until unlocked
     }
 

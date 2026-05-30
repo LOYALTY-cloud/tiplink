@@ -29,6 +29,7 @@ const TYPE_LINK_FALLBACK: Record<string, string> = {
   marketplace_alert: "/admin/marketplace",
   store_alert: "/admin/stores",
   dmca_alert: "/admin/dmca",
+  review_request: "/admin/users",
 };
 
 /** Default roleTarget per notification type — used when caller doesn't specify. */
@@ -42,6 +43,7 @@ const TYPE_DEFAULT_ROLES: Record<string, string[]> = {
   marketplace_alert: ["owner", "co_owner", "super_admin", "moderator"],
   store_alert:       ["owner", "co_owner", "super_admin", "moderator"],
   dmca_alert:        ["owner", "co_owner", "super_admin", "compliance", "support_admin"],
+  review_request:    ["owner", "co_owner", "super_admin", "support_admin", "moderator"],
 };
 
 function getDefaultNotificationLink(type: string): string | null {

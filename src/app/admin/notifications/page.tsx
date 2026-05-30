@@ -49,6 +49,7 @@ const TYPE_LINK_FALLBACK: Record<string, string> = {
   marketplace_alert: "/admin/marketplace",
   store_alert: "/admin/stores",
   dmca_alert: "/admin/dmca",
+  review_request: "/admin/users",
 };
 
 function normalizeNotification(raw: Partial<AdminNotif> & { id: string }): AdminNotif {
@@ -96,7 +97,7 @@ function isActive(raw: Partial<AdminNotif>) {
 
 function notificationBucket(type: string): FilterKey {
   if (type.includes("finance") || type.includes("payout") || type.includes("withdrawal") || type === "ai_alert") return "finance";
-  if (type.includes("support") || type.includes("ticket")) return "support";
+  if (type.includes("support") || type.includes("ticket") || type === "review_request") return "support";
   return "system";
 }
 
