@@ -54,13 +54,13 @@ export async function POST(req: Request) {
     });
 
     // Fetch display name for the notification message
-    const { data: profile } = await supabaseAdmin
+    const { data: profileData } = await supabaseAdmin
       .from("profiles")
       .select("display_name, handle")
       .eq("user_id", userId)
       .maybeSingle();
 
-    const displayName = profile?.display_name || profile?.handle || "A user";
+    const displayName = profileData?.display_name || profileData?.handle || "A user";
 
     await createAdminNotification({
       type: "review_request",
