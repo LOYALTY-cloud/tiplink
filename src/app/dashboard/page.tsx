@@ -34,6 +34,12 @@ export default function DashboardPage() {
   } | null>(null);
   const [loadingWallet, setLoadingWallet] = useState(true);
   const [tipFloat, setTipFloat] = useState<number | null>(null);
+  const [stripeAvailability, setStripeAvailability] = useState<{
+    instant_net: number;
+    stripe_pending: number;
+    payouts_enabled: boolean;
+    stripe_connected: boolean;
+  } | null>(null);
 
   // Creator application
   const [isCreator, setIsCreator] = useState<boolean | null>(null);
@@ -156,6 +162,25 @@ export default function DashboardPage() {
       }
 
       await reloadWallet(user.id);
+
+      // Load Stripe availability for instant withdrawal preview
+      const { data: sessForStripe } = await supabase.auth.getSession();
+      const stripeToken = sessForStripe.session?.access_token;
+      if (stripeToken) {
+        fetch("/api/wallet/withdrawal-availability", {
+          headers: { Authorization: `Bearer ${stripeToken}` },
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => {
+            if (j) setStripeAvailability({
+              instant_net: Number(j.instant_net ?? 0),
+              stripe_pending: Number(j.stripe_pending ?? 0),
+              payouts_enabled: Boolean(j.payouts_enabled),
+              stripe_connected: Boolean(j.stripe_connected),
+            });
+          })
+          .catch(() => {});
+      }
     })();
   }, []);
 
@@ -463,6 +488,25 @@ export default function DashboardPage() {
             >
               +{formatMoney(tipFloat)}
             </span>
+          )}
+          {/* Stripe balance breakdown — shown once loaded */}
+          {stripeAvailability && stripeAvailability.stripe_connected && (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5">
+              {stripeAvailability.instant_net > 0 && (
+                <p className="text-xs text-white/45">
+                  <span className="text-white/30">Instant withdrawal · </span>
+                  <span className="text-emerald-400/80 font-medium">{formatMoney(stripeAvailability.instant_net)}</span>
+                  <span className="text-white/25"> after 5% fee</span>
+                </p>
+              )}
+              {stripeAvailability.stripe_pending > 0 && (
+                <p className="text-xs text-white/35">
+                  <span className="text-white/25">Pending · </span>
+                  <span className="text-white/50 font-medium">{formatMoney(stripeAvailability.stripe_pending)}</span>
+                  <span className="text-white/25"> clearing</span>
+                </p>
+              )}
+            </div>
           )}
         </div>
         <div className="flex gap-3 w-full md:w-auto">
