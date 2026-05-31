@@ -358,6 +358,223 @@ export async function handleStripeEvent(
     case "payment_intent.succeeded": {
       const pi = event.data.object as Stripe.PaymentIntent;
 
+      // ── Custom theme purchase fallback ──────────────────────────────────────
+      // When a user pays via the card UI (create-payment-intent + Stripe Elements)
+      // the client calls confirm-purchase after payment to unlock the theme.
+      // If the browser dies between payment capture and that call, the funds land
+      // on the platform but the theme is never unlocked and the creator never paid.
+      // This webhook handler is the safety net: it processes the purchase exactly
+      // as confirm-purchase would, making the flow reliable regardless of client state.
+      if (pi.metadata?.type === "custom_theme_purchase") {
+        const buyerId  = pi.metadata?.buyer_id  as string | undefined;
+        const sellerId = pi.metadata?.seller_id as string | undefined;
+        const themeId  = pi.metadata?.theme_id  as string | undefined;
+
+        if (!buyerId || !themeId) {
+          console.warn("payment_intent.succeeded: custom_theme_purchase missing buyer_id or theme_id", { piId: pi.id });
+          break;
+        }
+
+        // Idempotency: skip if already unlocked (confirm-purchase may have run first)
+        const { data: existingUnlock } = await supabaseClient
+          .from("theme_unlocks")
+          .select("id")
+          .eq("user_id", buyerId)
+          .eq("theme_id", themeId)
+          .maybeSingle();
+
+        if (existingUnlock) {
+          console.log(`payment_intent.succeeded: custom theme ${themeId} already unlocked for buyer ${buyerId} — skipping`);
+          break;
+        }
+
+        const amountDollars = (pi.amount_received > 0 ? pi.amount_received : pi.amount) / 100;
+        const feeCents      = parseInt(pi.metadata?.platform_fee_cents ?? "0", 10);
+        const platformFee   = feeCents / 100;
+        const creatorEarns  = Math.max(0, Number((amountDollars - platformFee).toFixed(2)));
+
+        const { data: snapshotTheme } = await supabaseClient
+          .from("themes")
+          .select("id, user_id, name, config, parent_theme_id, version")
+          .eq("id", themeId)
+          .maybeSingle();
+
+        const payoutSellerId = snapshotTheme?.user_id ?? sellerId;
+        if (!payoutSellerId || payoutSellerId === buyerId) {
+          console.error("payment_intent.succeeded: invalid custom theme payout attribution", { piId: pi.id, buyerId, sellerId, themeId });
+          break;
+        }
+
+        // Unlock the theme
+        const { error: unlockErr } = await supabaseClient
+          .from("theme_unlocks")
+          .upsert(
+            {
+              user_id: buyerId,
+              theme_id: themeId,
+              creator_id: payoutSellerId,
+              theme_name: snapshotTheme?.name ?? null,
+              theme_config: snapshotTheme?.config ?? null,
+              parent_theme_id: snapshotTheme?.parent_theme_id ?? null,
+              theme_version: typeof snapshotTheme?.version === "number" ? snapshotTheme.version : 1,
+              unlocked_via: "payment",
+              source: "payment",
+              amount_paid: amountDollars,
+            },
+            { onConflict: "user_id,theme_id", ignoreDuplicates: true }
+          );
+
+        if (unlockErr) {
+          console.error("payment_intent.succeeded: theme_unlocks upsert error", unlockErr);
+          break;
+        }
+
+        // Record activity
+        await supabaseClient.from("user_theme_activity").insert({
+          user_id: buyerId,
+          theme_id: themeId,
+          creator_id: payoutSellerId,
+          action: "purchase",
+          category_slug: null,
+          animation_type:
+            snapshotTheme?.config && typeof snapshotTheme.config === "object"
+              ? ((snapshotTheme.config as Record<string, unknown>).motion as string | null) ??
+                ((snapshotTheme.config as Record<string, unknown>).animationType as string | null) ??
+                null
+              : null,
+          price: amountDollars,
+        });
+
+        // Record revenue — pi.id as stripe_session_id for unique tracking (idempotent)
+        const transferEligibleAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        const { error: saleErr } = await supabaseClient.from("theme_sales").upsert(
+          {
+            theme_id: themeId,
+            buyer_id: buyerId,
+            seller_id: payoutSellerId,
+            stripe_session_id: pi.id,
+            amount: amountDollars,
+            platform_fee: platformFee,
+            creator_earnings: creatorEarns,
+            transfer_status: "pending",
+            transfer_eligible_at: transferEligibleAt,
+          },
+          { onConflict: "stripe_session_id", ignoreDuplicates: true }
+        );
+
+        if (saleErr) {
+          console.error("payment_intent.succeeded: theme_sales upsert failed", { piId: pi.id, error: saleErr.message });
+        }
+
+        // Stripe transfer to creator
+        let stripeTransferId: string | null = null;
+        let transferStatus = "pending";
+
+        if (creatorEarns > 0) {
+          try {
+            const { data: sellerProfile } = await supabaseClient
+              .from("profiles")
+              .select("stripe_account_id, stripe_charges_enabled")
+              .eq("id", payoutSellerId)
+              .maybeSingle();
+
+            const connectedAccountId = sellerProfile?.stripe_account_id as string | null;
+            const canReceiveTransfer = sellerProfile?.stripe_charges_enabled === true;
+
+            if (connectedAccountId && canReceiveTransfer) {
+              const { stripe: stripeClient } = await import("@/lib/stripe/server");
+              const transfer = await stripeClient.transfers.create({
+                amount: Math.round(creatorEarns * 100),
+                currency: "usd",
+                destination: connectedAccountId,
+                metadata: {
+                  type: "theme_sale_transfer",
+                  theme_id: themeId,
+                  seller_user_id: payoutSellerId,
+                  buyer_user_id: buyerId,
+                  payment_intent_id: pi.id,
+                  source: "webhook_fallback",
+                },
+              });
+              stripeTransferId = transfer.id;
+              transferStatus = "transferred";
+              await supabaseClient
+                .from("theme_sales")
+                .update({ stripe_transfer_id: stripeTransferId, transfer_status: "transferred" })
+                .eq("stripe_session_id", pi.id);
+              console.log(`payment_intent.succeeded fallback: theme transfer ${transfer.id} → ${connectedAccountId} ($${creatorEarns.toFixed(2)})`);
+            } else {
+              transferStatus = "skipped";
+              await supabaseClient
+                .from("theme_sales")
+                .update({ transfer_status: "skipped" })
+                .eq("stripe_session_id", pi.id);
+            }
+          } catch (transferErr) {
+            console.error("payment_intent.succeeded fallback: Stripe transfer failed", { piId: pi.id, error: transferErr });
+            transferStatus = "failed";
+            await supabaseClient
+              .from("theme_sales")
+              .update({ transfer_status: "failed" })
+              .eq("stripe_session_id", pi.id)
+              .catch(() => {});
+            sendAdminAlert({
+              subject: "webhook fallback: custom theme transfer failed",
+              body: `Failed to transfer $${creatorEarns.toFixed(2)} to creator ${payoutSellerId} for theme ${themeId} (buyer ${buyerId}, PI ${pi.id}). MANUAL TRANSFER REQUIRED.`,
+              severity: "critical",
+              meta: { themeId, buyerId, sellerId: payoutSellerId, piId: pi.id, creatorEarns },
+            });
+          }
+
+          // Credit creator's internal wallet ledger
+          try {
+            await ledgerFn({
+              user_id: payoutSellerId,
+              type: "theme_sale",
+              amount: creatorEarns,
+              reference_id: pi.id,
+              meta: {
+                theme_id: themeId,
+                theme_name: snapshotTheme?.name ?? null,
+                buyer_id: buyerId,
+                gross: amountDollars,
+                platform_fee: platformFee,
+                payment_intent_id: pi.id,
+                stripe_transfer_id: stripeTransferId,
+                transfer_status: transferStatus,
+                source: "webhook_fallback",
+              },
+            });
+          } catch (ledgerErr) {
+            console.error("payment_intent.succeeded fallback: ledger credit failed", { piId: pi.id, error: ledgerErr });
+          }
+        }
+
+        // Notify both parties
+        void createNotification({
+          userId: payoutSellerId,
+          type: "theme_sold",
+          title: "Theme sold 🎉",
+          body: `${snapshotTheme?.name ?? "Your theme"} was purchased`,
+          category: "sales",
+          actorId: buyerId,
+          entityId: themeId,
+          meta: { amount: amountDollars },
+        });
+        void createNotification({
+          userId: buyerId,
+          type: "theme_unlocked",
+          title: "Theme unlocked 🎨",
+          body: `${snapshotTheme?.name ?? "A theme"} has been added to your library`,
+          category: "sales",
+          actorId: payoutSellerId,
+          entityId: themeId,
+        });
+
+        console.log(`payment_intent.succeeded fallback: custom theme ${themeId} unlocked for buyer ${buyerId}; creator earns $${creatorEarns.toFixed(2)}`);
+        break;
+      }
+
       // Prefer receipt_id metadata to find our pre-created tip_intents row
       const receiptId = (pi.metadata?.receipt_id as string) || null;
 
