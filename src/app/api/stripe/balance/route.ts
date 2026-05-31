@@ -33,22 +33,15 @@ export async function GET(req: Request) {
 
   try {
     const stripe = getStripe();
-
-    // Fetch balance + pending balance transactions in parallel
     const nowUnix = Math.floor(Date.now() / 1000);
-    const [balance, pendingTxns] = await Promise.all([
-      stripe.balance.retrieve(
-        { expand: ["instant_available.net_available"] },
-        { stripeAccount: profile.stripe_account_id }
-      ),
-      stripe.balanceTransactions.list(
-        { available_on: { gt: nowUnix }, limit: 100 },
-        { stripeAccount: profile.stripe_account_id }
-      ),
-    ]);
 
-    // Sum net_available amounts for USD across all instant_available entries.
-    // net_available accounts for the instant payout fee (typically 1.5% or 1% + $0.25).
+    // Step 1: get the balance (required — if this fails, return error)
+    const balance = await stripe.balance.retrieve(
+      { expand: ["instant_available.net_available"] },
+      { stripeAccount: profile.stripe_account_id }
+    );
+
+    // Sum net_available for instant payout (accounts for the instant fee)
     let netCents = 0;
     for (const entry of balance.instant_available ?? []) {
       if (entry.currency !== "usd") continue;
@@ -60,28 +53,38 @@ export async function GET(req: Request) {
       }
     }
 
-    // Sum pending USD balance
+    // Sum pending USD balance from the balance object directly
     const pendingCents = (balance.pending ?? [])
       .filter((p) => p.currency === "usd")
       .reduce((sum, p) => sum + p.amount, 0);
 
-    // Find soonest available_on date across pending transactions
+    // Step 2: get the soonest available_on date — optional, non-fatal
     let soonestAvailableOn: number | null = null;
-    for (const txn of pendingTxns.data) {
-      if (txn.currency !== "usd") continue;
-      if (txn.net < 0) continue; // skip refunds/fees
-      const ao = (txn as { available_on?: number }).available_on;
-      if (typeof ao === "number" && ao > nowUnix) {
-        if (soonestAvailableOn === null || ao < soonestAvailableOn) {
-          soonestAvailableOn = ao;
+    if (pendingCents > 0) {
+      try {
+        const pendingTxns = await stripe.balanceTransactions.list(
+          { available_on: { gt: nowUnix }, limit: 100 },
+          { stripeAccount: profile.stripe_account_id }
+        );
+        for (const txn of pendingTxns.data) {
+          if (txn.currency !== "usd") continue;
+          if (txn.net < 0) continue; // skip refunds/fees
+          const ao = txn.available_on as number | undefined;
+          if (typeof ao === "number" && ao > nowUnix) {
+            if (soonestAvailableOn === null || ao < soonestAvailableOn) {
+              soonestAvailableOn = ao;
+            }
+          }
         }
+      } catch (txnErr) {
+        // Non-fatal — we still return pendingAmount, just without the date
+        console.warn("stripe/balance: balanceTransactions.list failed", txnErr instanceof Error ? txnErr.message : txnErr);
       }
     }
 
     return NextResponse.json({
       instantAvailable: netCents / 100,
       pendingAmount: pendingCents / 100,
-      // ISO date string (midnight UTC of arrival day) or null
       pendingAvailableOn: soonestAvailableOn
         ? new Date(soonestAvailableOn * 1000).toISOString()
         : null,

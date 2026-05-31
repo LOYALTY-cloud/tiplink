@@ -167,7 +167,7 @@ export default function DashboardPage() {
         fetch("/api/stripe/balance", {
           headers: { Authorization: `Bearer ${stripeToken}` },
         })
-          .then((r) => (r.ok ? r.json() : null))
+          .then((r) => r.json().catch(() => null))
           .then((j) => {
             if (!j) return;
             if (typeof j.instantAvailable === "number") setInstantAvailable(j.instantAvailable);
