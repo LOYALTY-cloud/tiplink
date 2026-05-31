@@ -53,6 +53,25 @@ export default function DashboardPage() {
     if (!targetId) return;
 
     setLoadingWallet(true);
+
+    // Fetch enriched balance (includes Stripe pending + instant)
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess.session?.access_token;
+    if (token) {
+      try {
+        const res = await fetch("/api/wallet/balance", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const j = await res.json().catch(() => null);
+        if (j && !j.error) {
+          setWallet({ balance: Number(j.total_balance ?? 0), withdraw_fee: 0 });
+          if (typeof j.instant_available === "number") setInstantAvailable(j.instant_available);
+          if (typeof j.available_soon === "number" && j.available_soon > 0) setPendingAmount(j.available_soon);
+        }
+      } catch { /* silently fall back to DB */ }
+    }
+
+    // Fallback: read balance directly from DB (e.g. token missing)
     const { data: walletData } = await supabase
       .from("wallets")
       .select("balance, withdraw_fee")
@@ -60,14 +79,10 @@ export default function DashboardPage() {
       .maybeSingle()
       .returns<WalletRow | null>();
 
-    if (walletData) {
-      setWallet({
-        balance: Number(walletData.balance ?? 0),
-        withdraw_fee: Number(walletData.withdraw_fee ?? 0),
-      });
-    } else {
-      setWallet({ balance: 0, withdraw_fee: 0 });
-    }
+    setWallet((prev) => ({
+      balance: prev?.balance ?? Number(walletData?.balance ?? 0),
+      withdraw_fee: Number(walletData?.withdraw_fee ?? 0),
+    }));
     setLoadingWallet(false);
   };
 
@@ -159,25 +174,6 @@ export default function DashboardPage() {
       }
 
       await reloadWallet(user.id);
-
-      // Load Stripe instant payout availability
-      const { data: sessForStripe } = await supabase.auth.getSession();
-      const stripeToken = sessForStripe.session?.access_token;
-      if (stripeToken) {
-        fetch("/api/stripe/balance", {
-          headers: { Authorization: `Bearer ${stripeToken}` },
-        })
-          .then((r) => r.json().catch(() => null))
-          .then((j) => {
-            if (!j) return;
-            if (typeof j.instantAvailable === "number") setInstantAvailable(j.instantAvailable);
-            if (typeof j.pendingAmount === "number" && j.pendingAmount > 0) {
-              setPendingAmount(j.pendingAmount);
-              setPendingAvailableOn(typeof j.pendingAvailableOn === "string" ? j.pendingAvailableOn : null);
-            }
-          })
-          .catch(() => {});
-      }
     })();
   }, []);
 
@@ -469,57 +465,66 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* HERO WALLET — dominant balance + primary actions */}
-      <div className={`${ui.card} p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-5`}>
-        <div className="relative">
-          <p className="text-sm text-white/50 uppercase tracking-wider font-medium">Available Balance</p>
-          <h1 className={`text-3xl md:text-4xl font-bold mt-1 ${loadingWallet ? "text-white/20 animate-pulse" : "text-emerald-400"}`}>
+      {/* HERO WALLET — 3-card balance breakdown */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Available Balance */}
+        <div className="relative rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+          <p className="text-xs uppercase tracking-[0.18em] text-white/45">Available Balance</p>
+          <h1 className={`mt-2 text-3xl font-bold ${loadingWallet ? "text-white/20 animate-pulse" : "text-white"}`}>
             {loadingWallet ? "$—.——" : formatMoney(wallet?.balance ?? 0)}
           </h1>
+          <p className="mt-1 text-xs text-white/40">Total wallet balance</p>
           {/* Floating +$X tip animation */}
           {tipFloat !== null && (
             <span
               key={Date.now()}
-              className="absolute -right-2 top-0 text-lg font-bold text-emerald-400 pointer-events-none"
+              className="absolute right-4 top-4 text-base font-bold text-emerald-400 pointer-events-none"
               style={{ animation: "floatTip 1.5s ease forwards" }}
             >
               +{formatMoney(tipFloat)}
             </span>
           )}
-          {!loadingWallet && instantAvailable !== null && instantAvailable > 0 && (
-            <p className="text-xs text-white/45 mt-1">
-              <span className="text-white/30">Instant payout available · </span>
-              <span className="text-emerald-400/80 font-medium">{formatMoney(instantAvailable)}</span>
-            </p>
-          )}
-          {!loadingWallet && pendingAmount !== null && pendingAmount > 0 && (
-            <p className="text-xs mt-1 flex items-center gap-1.5">
-              <span className="text-amber-400/70 font-medium">{formatMoney(pendingAmount)}</span>
-              <span className="text-white/30">arriving</span>
-              <span className="text-amber-400/70 font-medium">
-                {pendingAvailableOn
-                  ? new Date(pendingAvailableOn).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                  : "soon"}
-              </span>
-            </p>
-          )}
         </div>
-        <div className="flex gap-3 w-full md:w-auto">
-          <button
-            onClick={() => router.push("/dashboard/wallet")}
-            disabled={isClosed}
-            className={`${ui.btnPrimary} w-full md:w-auto disabled:opacity-40 disabled:cursor-not-allowed`}
-          >
-            Withdraw
-          </button>
-          <button
-            onClick={copy}
-            disabled={!handle || isClosed}
-            className={`${ui.btnGhost} w-full md:w-auto disabled:opacity-40 disabled:cursor-not-allowed`}
-          >
-            Copy Link
-          </button>
+
+        {/* Available Soon */}
+        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
+          <p className="text-xs uppercase tracking-[0.18em] text-amber-300">Available Soon</p>
+          <p className={`mt-2 text-3xl font-bold ${loadingWallet ? "text-amber-200/20 animate-pulse" : "text-amber-200"}`}>
+            {loadingWallet ? "$—.——" : formatMoney(pendingAmount ?? 0)}
+          </p>
+          <p className="mt-1 text-xs text-amber-300/70">
+            {pendingAvailableOn
+              ? `Arrives ${new Date(pendingAvailableOn).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+              : "Processing by Stripe"}
+          </p>
         </div>
+
+        {/* Instant Withdrawal */}
+        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
+          <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">Instant Withdrawal</p>
+          <p className={`mt-2 text-3xl font-bold ${loadingWallet ? "text-emerald-400/20 animate-pulse" : "text-emerald-400"}`}>
+            {loadingWallet ? "$—.——" : formatMoney(instantAvailable ?? 0)}
+          </p>
+          <p className="mt-1 text-xs text-emerald-300">⚡ Available now</p>
+        </div>
+      </div>
+
+      {/* Primary actions row */}
+      <div className="flex gap-3">
+        <button
+          onClick={() => router.push("/dashboard/wallet")}
+          disabled={isClosed}
+          className={`${ui.btnPrimary} disabled:opacity-40 disabled:cursor-not-allowed`}
+        >
+          Withdraw
+        </button>
+        <button
+          onClick={copy}
+          disabled={!handle || isClosed}
+          className={`${ui.btnGhost} disabled:opacity-40 disabled:cursor-not-allowed`}
+        >
+          Copy Link
+        </button>
       </div>
 
       {/* Activate Payouts CTA — shown when Stripe is not connected */}
