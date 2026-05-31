@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server";
-import { createSupabaseRouteClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { WalletRow } from "@/types/db";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const supabase = await createSupabaseRouteClient();
-    const { data: userRes } = await supabase.auth.getUser();
-    const user = userRes.user;
+    const token = req.headers.get("authorization")?.replace("Bearer ", "");
+    if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+    const { data: { user } } = await supabaseAdmin.auth.getUser(token);
     if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
     // Fetch wallet balance
-    const { data: wallet } = await supabase
+    const { data: wallet } = await supabaseAdmin
       .from("wallets")
       .select("balance,currency")
       .eq("user_id", user.id)
