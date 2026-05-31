@@ -490,11 +490,12 @@ export default function DashboardPage() {
             </span>
           )}
           {/* Stripe balance breakdown — shown once loaded */}
-          {!loadingWallet && (wallet?.balance ?? 0) > 0 && (() => {
+          {!loadingWallet && (() => {
+            const bal = wallet?.balance ?? 0;
             // Use real Stripe instant_net if available, otherwise estimate from wallet balance (5% fee)
             const instantNet = (stripeAvailability?.instant_net ?? 0) > 0
               ? stripeAvailability!.instant_net
-              : Math.max(0, Math.floor((wallet!.balance * 0.95) * 100) / 100);
+              : Math.max(0, Math.floor((bal * 0.95) * 100) / 100);
             const pending = stripeAvailability?.stripe_pending ?? 0;
             return (
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5">
