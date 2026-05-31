@@ -233,6 +233,33 @@ export async function POST(req: Request) {
       } catch (_) {}
     }
 
+    // ── Credit creator's internal wallet ledger ────────────────────────────
+    // No Stripe charge on wallet purchases, so no Stripe transfer is possible.
+    // The creator's 98.5% earnings are credited here as their accounting record;
+    // they can withdraw via the normal withdrawal flow.
+    if (creatorEarns > 0) {
+      try {
+        await addLedgerEntry({
+          user_id: payoutSellerId,
+          type: "theme_sale",
+          amount: creatorEarns,
+          reference_id: theme_id,
+          meta: {
+            action: "theme_sale",
+            theme_id,
+            theme_name: theme.name ?? null,
+            buyer_id: userId,
+            gross: price,
+            platform_fee: platformFee,
+            payment_method: "wallet_balance",
+          },
+          status: "completed",
+        });
+      } catch (ledgerErr) {
+        console.error("buy-with-balance: creator wallet ledger credit failed:", ledgerErr);
+      }
+    }
+
     // ── Activity log ───────────────────────────────────────────────────────
     void supabaseAdmin
       .from("user_theme_activity")

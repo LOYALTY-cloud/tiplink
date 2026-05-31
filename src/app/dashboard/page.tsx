@@ -34,6 +34,7 @@ export default function DashboardPage() {
   } | null>(null);
   const [loadingWallet, setLoadingWallet] = useState(true);
   const [tipFloat, setTipFloat] = useState<number | null>(null);
+  const [instantAvailable, setInstantAvailable] = useState<number | null>(null);
 
   // Creator application
   const [isCreator, setIsCreator] = useState<boolean | null>(null);
@@ -156,6 +157,22 @@ export default function DashboardPage() {
       }
 
       await reloadWallet(user.id);
+
+      // Load Stripe instant payout availability
+      const { data: sessForStripe } = await supabase.auth.getSession();
+      const stripeToken = sessForStripe.session?.access_token;
+      if (stripeToken) {
+        fetch("/api/stripe/balance", {
+          headers: { Authorization: `Bearer ${stripeToken}` },
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => {
+            if (j && typeof j.instantAvailable === "number") {
+              setInstantAvailable(j.instantAvailable);
+            }
+          })
+          .catch(() => {});
+      }
     })();
   }, []);
 
@@ -463,6 +480,12 @@ export default function DashboardPage() {
             >
               +{formatMoney(tipFloat)}
             </span>
+          )}
+          {!loadingWallet && instantAvailable !== null && instantAvailable > 0 && (
+            <p className="text-xs text-white/45 mt-1">
+              <span className="text-white/30">Instant payout available · </span>
+              <span className="text-emerald-400/80 font-medium">{formatMoney(instantAvailable)}</span>
+            </p>
           )}
         </div>
         <div className="flex gap-3 w-full md:w-auto">
