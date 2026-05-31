@@ -165,6 +165,98 @@ export async function POST(req: Request) {
     } catch (_) {}
   }
 
+  // ── Transfer creator earnings to their connected Stripe account ──────────
+  // Platform already collected the full charge; 1.5% fee stays here naturally.
+  // We transfer the remaining 98.5% (creatorEarns) to the creator's connected account.
+  let stripeTransferId: string | null = null;
+  let transferStatus = "pending";
+
+  if (creatorEarns > 0) {
+    try {
+      const { data: sellerProfile } = await supabaseAdmin
+        .from("profiles")
+        .select("stripe_account_id, stripe_charges_enabled")
+        .eq("user_id", payoutSellerId)
+        .maybeSingle();
+
+      const connectedAccountId = (sellerProfile?.stripe_account_id as string | null) ?? null;
+      const canReceiveTransfer = sellerProfile?.stripe_charges_enabled === true;
+
+      if (connectedAccountId && canReceiveTransfer) {
+        const transfer = await stripe.transfers.create({
+          amount: Math.round(creatorEarns * 100),
+          currency: "usd",
+          destination: connectedAccountId,
+          description: `Theme sale earnings for theme ${themeId}`,
+          metadata: {
+            type: "theme_sale_transfer",
+            theme_id: themeId,
+            seller_user_id: payoutSellerId,
+            buyer_user_id: userId,
+            payment_intent_id: payment_intent_id,
+          },
+        });
+        stripeTransferId = transfer.id;
+        transferStatus = "transferred";
+        await supabaseAdmin
+          .from("theme_sales")
+          .update({ stripe_transfer_id: stripeTransferId, transfer_status: "transferred" })
+          .eq("stripe_session_id", pi.id);
+      } else {
+        // Creator not yet connected — earnings stay on platform until they connect
+        transferStatus = "skipped";
+        await supabaseAdmin
+          .from("theme_sales")
+          .update({ transfer_status: "skipped" })
+          .eq("stripe_session_id", pi.id);
+      }
+    } catch (transferErr) {
+      const msg = transferErr instanceof Error ? transferErr.message : String(transferErr);
+      console.error("confirm-purchase: Stripe transfer failed:", msg);
+      transferStatus = "failed";
+      await supabaseAdmin
+        .from("theme_sales")
+        .update({ transfer_status: "failed" })
+        .eq("stripe_session_id", pi.id)
+        .catch(() => {});
+      try {
+        const { sendAdminAlert } = await import("@/lib/adminAlerts");
+        sendAdminAlert({
+          subject: "confirm-purchase: creator transfer failed",
+          body: `Failed to transfer $${creatorEarns.toFixed(2)} to creator ${payoutSellerId} for theme ${themeId} (buyer ${userId}, PI ${pi.id}). MANUAL TRANSFER REQUIRED.`,
+          severity: "critical",
+          meta: { themeId, buyerId: userId, sellerId: payoutSellerId, piId: pi.id, creatorEarns, error: msg },
+        });
+      } catch (_) {}
+    }
+  }
+
+  // ── Credit creator's internal wallet ledger ──────────────────────────────
+  if (creatorEarns > 0) {
+    try {
+      const { addLedgerEntry } = await import("@/lib/ledger");
+      await addLedgerEntry({
+        user_id: payoutSellerId,
+        type: "theme_sale",
+        amount: creatorEarns,
+        reference_id: pi.id,
+        meta: {
+          theme_id: themeId,
+          theme_name: theme?.name ?? null,
+          buyer_id: userId,
+          gross: amountDollars,
+          platform_fee: platformFee,
+          payment_intent_id: payment_intent_id,
+          stripe_transfer_id: stripeTransferId,
+          transfer_status: transferStatus,
+        },
+        status: "completed",
+      });
+    } catch (ledgerErr) {
+      console.error("confirm-purchase: creator wallet ledger credit failed:", ledgerErr);
+    }
+  }
+
   // ── Increment unlock counter (best-effort) ───────────────────────────────
   void supabaseAdmin
     .rpc("increment_theme_unlock", { theme_id_input: themeId });

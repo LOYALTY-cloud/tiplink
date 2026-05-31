@@ -228,6 +228,12 @@ export async function POST(req: Request) {
         .filter((b) => b.currency === "usd")
         .reduce((sum, b) => sum + (b.amount || 0), 0);
 
+    // instant_available is a Stripe-maintained subset: only funds on instant-eligible payout instruments
+    const instantAvailableCents =
+      ((bal as any).instant_available || [])
+        .filter((b: any) => b.currency === "usd")
+        .reduce((sum: number, b: any) => sum + (b.amount || 0), 0);
+
     const reqCents = toCents(amt);
 
     if (reqCents > availableUsdCents) {
@@ -582,10 +588,39 @@ export async function POST(req: Request) {
       const payoutMethod = "instant" as const;
       let payout;
 
+      // Verify the net payout amount is covered by instant-eligible Stripe funds.
+      // instant_available is a subset of available — if this check fails, funds exist
+      // but are not yet on an instant-eligible instrument.
+      const netCents = toCents(netAmount);
+      if (netCents > instantAvailableCents) {
+        // Reverse the already-recorded ledger debit and mark the withdrawal failed
+        try {
+          await addLedgerEntry({
+            user_id: userId,
+            type: "withdrawal_reversal",
+            amount: Number(amt.toFixed(2)),
+            reference_id: w.id,
+            meta: { action: "withdrawal_reversal", reason: "instant_unavailable" },
+          });
+        } catch (_) {}
+        try {
+          await supabaseAdmin.from("withdrawals").update({ status: "failed", failure_reason: "instant_unavailable" }).eq("id", w.id);
+        } catch (_) {}
+        try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
+        return NextResponse.json(
+          {
+            error: `Only $${fromCents(instantAvailableCents).toFixed(2)} of your balance is available for instant withdrawal. The remaining balance is still settling (typically 2–3 business days).`,
+            instant_available_cents: instantAvailableCents,
+            available_cents: availableUsdCents,
+          },
+          { status: 400 }
+        );
+      }
+
       try {
         payout = await stripe.payouts.create(
           {
-            amount: reqCents,
+            amount: netCents,
             currency: "usd",
             method: "instant",
             statement_descriptor: "1NELINK PAYOUT",
@@ -647,6 +682,34 @@ export async function POST(req: Request) {
           status: payout.status, // usually 'pending' then webhook updates to 'paid'
         })
         .eq("id", w.id);
+
+      // Transfer the platform fee from the connected account back to 1neLink.
+      // This must happen after the payout succeeds so the fee is never sent to the user's bank.
+      // If the transfer fails it is non-fatal (payout already cleared) but we alert immediately
+      // so finance can reclaim manually.
+      if (withdrawalFee > 0 && process.env.STRIPE_PLATFORM_ACCOUNT_ID) {
+        try {
+          await stripe.transfers.create(
+            {
+              amount: toCents(withdrawalFee),
+              currency: "usd",
+              destination: process.env.STRIPE_PLATFORM_ACCOUNT_ID,
+              description: `Platform fee for withdrawal ${w.id}`,
+              metadata: { withdrawal_id: w.id, user_id: userId, fee_usd: withdrawalFee.toFixed(2) },
+            },
+            { stripeAccount }
+          );
+        } catch (feeErr) {
+          const feeErrMsg = feeErr instanceof Error ? feeErr.message : String(feeErr ?? "Fee transfer failed");
+          console.error("Fee transfer failed:", feeErrMsg);
+          sendAdminAlert({
+            subject: "Platform fee transfer failed",
+            body: `Failed to transfer $${withdrawalFee.toFixed(2)} platform fee for withdrawal ${w.id} (user ${userId}). Payout was already sent. MANUAL FEE RECOVERY REQUIRED.`,
+            severity: "critical",
+            meta: { withdrawal_id: w.id, user_id: userId, fee_usd: withdrawalFee.toFixed(2), error: feeErrMsg },
+          });
+        }
+      }
     }
 
     // Track daily withdrawal total (inside lock to prevent race condition)

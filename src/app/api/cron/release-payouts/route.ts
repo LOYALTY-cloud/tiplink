@@ -6,6 +6,7 @@ import { createNotification } from "@/lib/notifications";
 import { humanizePayoutFailure } from "@/lib/payoutErrors";
 import { reversePayoutOnce } from "@/lib/payoutReversals";
 import { triggerAIAlerts } from "@/lib/ai/alerts";
+import { sendAdminAlert } from "@/lib/adminAlerts";
 
 export const runtime = "nodejs";
 
@@ -95,6 +96,9 @@ export async function GET(req: Request) {
       // Verify connected Stripe balance can cover the payout
       const amount = Number(w.amount);
       const reqCents = Math.round(amount * 100);
+      // Use the pre-computed net amount stored on the withdrawal row (gross minus fee).
+      // The fee stays in the connected account balance; only the net reaches the user's bank.
+      const netCents = Math.round(Number(w.net) * 100);
 
       try {
         const bal = await stripe.balance.retrieve({ stripeAccount: prof.stripe_account_id });
@@ -117,9 +121,9 @@ export async function GET(req: Request) {
       // Create the Stripe payout
       const payout = await stripe.payouts.create(
         {
-          amount: reqCents,
+          amount: netCents,
           currency: "usd",
-          method: "instant",
+          method: "standard",
           statement_descriptor: "1NELINK PAYOUT",
           metadata: { withdrawal_id: w.id, user_id: w.user_id },
           ...(w.payout_destination ? { destination: w.payout_destination } : {}),
@@ -132,10 +136,37 @@ export async function GET(req: Request) {
         .from("withdrawals")
         .update({
           stripe_payout_id: payout.id,
-          payout_method: "instant",
+          payout_method: "standard",
           status: payout.status, // Stripe will fire payout.paid webhook → notification sent there
         })
         .eq("id", w.id);
+
+      // Transfer the platform fee from the connected account back to 1neLink.
+      const fee = Number(w.fee);
+      if (fee > 0 && process.env.STRIPE_PLATFORM_ACCOUNT_ID) {
+        try {
+          await stripe.transfers.create(
+            {
+              amount: Math.round(fee * 100),
+              currency: "usd",
+              destination: process.env.STRIPE_PLATFORM_ACCOUNT_ID,
+              description: `Platform fee for withdrawal ${w.id}`,
+              metadata: { withdrawal_id: w.id, user_id: w.user_id, fee_usd: fee.toFixed(2) },
+            },
+            { stripeAccount: prof.stripe_account_id }
+          );
+        } catch (feeErr) {
+          const feeErrMsg = feeErr instanceof Error ? feeErr.message : String(feeErr ?? "Fee transfer failed");
+          console.error(`[release-payouts] Fee transfer failed for withdrawal ${w.id}:`, feeErrMsg);
+          // Non-fatal — payout already sent. Alert finance for manual recovery.
+          sendAdminAlert({
+            subject: "Platform fee transfer failed (cron)",
+            body: `Failed to transfer $${fee.toFixed(2)} platform fee for withdrawal ${w.id} (user ${w.user_id}). Payout was already sent. MANUAL FEE RECOVERY REQUIRED.`,
+            severity: "critical",
+            meta: { withdrawal_id: w.id, user_id: w.user_id, fee_usd: fee.toFixed(2), error: feeErrMsg },
+          });
+        }
+      }
 
       released++;
       console.log(`[release-payouts] Released withdrawal ${w.id} for user ${w.user_id}: payout ${payout.id}`);
