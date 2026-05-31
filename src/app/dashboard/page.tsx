@@ -35,6 +35,8 @@ export default function DashboardPage() {
   const [loadingWallet, setLoadingWallet] = useState(true);
   const [tipFloat, setTipFloat] = useState<number | null>(null);
   const [instantAvailable, setInstantAvailable] = useState<number | null>(null);
+  const [pendingAmount, setPendingAmount] = useState<number | null>(null);
+  const [pendingAvailableOn, setPendingAvailableOn] = useState<string | null>(null);
 
   // Creator application
   const [isCreator, setIsCreator] = useState<boolean | null>(null);
@@ -167,8 +169,11 @@ export default function DashboardPage() {
         })
           .then((r) => (r.ok ? r.json() : null))
           .then((j) => {
-            if (j && typeof j.instantAvailable === "number") {
-              setInstantAvailable(j.instantAvailable);
+            if (!j) return;
+            if (typeof j.instantAvailable === "number") setInstantAvailable(j.instantAvailable);
+            if (typeof j.pendingAmount === "number" && j.pendingAmount > 0) {
+              setPendingAmount(j.pendingAmount);
+              setPendingAvailableOn(typeof j.pendingAvailableOn === "string" ? j.pendingAvailableOn : null);
             }
           })
           .catch(() => {});
@@ -485,6 +490,17 @@ export default function DashboardPage() {
             <p className="text-xs text-white/45 mt-1">
               <span className="text-white/30">Instant payout available · </span>
               <span className="text-emerald-400/80 font-medium">{formatMoney(instantAvailable)}</span>
+            </p>
+          )}
+          {!loadingWallet && pendingAmount !== null && pendingAmount > 0 && (
+            <p className="text-xs mt-1 flex items-center gap-1.5">
+              <span className="text-amber-400/70 font-medium">{formatMoney(pendingAmount)}</span>
+              <span className="text-white/30">arriving</span>
+              <span className="text-amber-400/70 font-medium">
+                {pendingAvailableOn
+                  ? new Date(pendingAvailableOn).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                  : "soon"}
+              </span>
             </p>
           )}
         </div>

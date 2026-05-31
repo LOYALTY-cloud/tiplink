@@ -33,14 +33,22 @@ export async function GET(req: Request) {
 
   try {
     const stripe = getStripe();
-    const balance = await stripe.balance.retrieve(
-      { expand: ["instant_available.net_available"] },
-      { stripeAccount: profile.stripe_account_id }
-    );
+
+    // Fetch balance + pending balance transactions in parallel
+    const nowUnix = Math.floor(Date.now() / 1000);
+    const [balance, pendingTxns] = await Promise.all([
+      stripe.balance.retrieve(
+        { expand: ["instant_available.net_available"] },
+        { stripeAccount: profile.stripe_account_id }
+      ),
+      stripe.balanceTransactions.list(
+        { available_on: { gt: nowUnix }, limit: 100 },
+        { stripeAccount: profile.stripe_account_id }
+      ),
+    ]);
 
     // Sum net_available amounts for USD across all instant_available entries.
     // net_available accounts for the instant payout fee (typically 1.5% or 1% + $0.25).
-    // Each entry in net_available is per-destination; we sum them all.
     let netCents = 0;
     for (const entry of balance.instant_available ?? []) {
       if (entry.currency !== "usd") continue;
@@ -48,16 +56,38 @@ export async function GET(req: Request) {
       if (Array.isArray(netAvail) && netAvail.length > 0) {
         netCents += netAvail.reduce((sum, d) => sum + (d.amount ?? 0), 0);
       } else {
-        // Stripe returned instant_available but no net_available breakdown —
-        // fall back to the gross amount so the UI still shows something.
         netCents += entry.amount ?? 0;
       }
     }
 
-    return NextResponse.json({ instantAvailable: netCents / 100 });
+    // Sum pending USD balance
+    const pendingCents = (balance.pending ?? [])
+      .filter((p) => p.currency === "usd")
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    // Find soonest available_on date across pending transactions
+    let soonestAvailableOn: number | null = null;
+    for (const txn of pendingTxns.data) {
+      if (txn.currency !== "usd") continue;
+      if (txn.net < 0) continue; // skip refunds/fees
+      const ao = (txn as { available_on?: number }).available_on;
+      if (typeof ao === "number" && ao > nowUnix) {
+        if (soonestAvailableOn === null || ao < soonestAvailableOn) {
+          soonestAvailableOn = ao;
+        }
+      }
+    }
+
+    return NextResponse.json({
+      instantAvailable: netCents / 100,
+      pendingAmount: pendingCents / 100,
+      // ISO date string (midnight UTC of arrival day) or null
+      pendingAvailableOn: soonestAvailableOn
+        ? new Date(soonestAvailableOn * 1000).toISOString()
+        : null,
+    });
   } catch (err) {
     console.error("stripe/balance error", err);
-    // Non-fatal — caller handles null gracefully
     return NextResponse.json({ error: "Failed to fetch balance" }, { status: 500 });
   }
 }
