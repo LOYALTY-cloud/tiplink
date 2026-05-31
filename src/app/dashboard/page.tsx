@@ -490,9 +490,8 @@ export default function DashboardPage() {
             </span>
           )}
           {/* Stripe balance breakdown — shown once loaded */}
-          {!loadingWallet && (() => {
-            const bal = wallet?.balance ?? 0;
-            // Use real Stripe instant_net if available, otherwise estimate from wallet balance (5% fee)
+          {!loadingWallet && (wallet?.balance ?? 0) > 0 && (() => {
+            const bal = wallet!.balance;
             const instantNet = (stripeAvailability?.instant_net ?? 0) > 0
               ? stripeAvailability!.instant_net
               : Math.max(0, Math.floor((bal * 0.95) * 100) / 100);
@@ -500,9 +499,8 @@ export default function DashboardPage() {
             return (
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5">
                 <p className="text-xs text-white/45">
-                  <span className="text-white/30">Instant withdrawal · </span>
+                  <span className="text-white/30">Instant payout available · </span>
                   <span className="text-emerald-400/80 font-medium">{formatMoney(instantNet)}</span>
-                  <span className="text-white/25"> after 5% fee</span>
                 </p>
                 {pending > 0 && (
                   <p className="text-xs text-white/35">
