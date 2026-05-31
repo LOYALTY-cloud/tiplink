@@ -489,29 +489,24 @@ export default function DashboardPage() {
               +{formatMoney(tipFloat)}
             </span>
           )}
-          {/* Stripe balance breakdown — shown once loaded */}
-          {!loadingWallet && (wallet?.balance ?? 0) > 0 && (() => {
-            const bal = wallet!.balance;
-            const instantNet = (stripeAvailability?.instant_net ?? 0) > 0
-              ? stripeAvailability!.instant_net
-              : Math.max(0, Math.floor((bal * 0.95) * 100) / 100);
-            const pending = stripeAvailability?.stripe_pending ?? 0;
-            return (
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5">
+          {/* Stripe balance breakdown — only shown when real Stripe data is available */}
+          {stripeAvailability?.stripe_connected && (stripeAvailability.instant_net > 0 || stripeAvailability.stripe_pending > 0) && (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5">
+              {stripeAvailability.instant_net > 0 && (
                 <p className="text-xs text-white/45">
                   <span className="text-white/30">Instant payout available · </span>
-                  <span className="text-emerald-400/80 font-medium">{formatMoney(instantNet)}</span>
+                  <span className="text-emerald-400/80 font-medium">{formatMoney(stripeAvailability.instant_net)}</span>
                 </p>
-                {pending > 0 && (
-                  <p className="text-xs text-white/35">
-                    <span className="text-white/25">Pending · </span>
-                    <span className="text-white/50 font-medium">{formatMoney(pending)}</span>
-                    <span className="text-white/25"> clearing</span>
-                  </p>
-                )}
-              </div>
-            );
-          })()}
+              )}
+              {stripeAvailability.stripe_pending > 0 && (
+                <p className="text-xs text-white/35">
+                  <span className="text-white/25">Pending · </span>
+                  <span className="text-white/50 font-medium">{formatMoney(stripeAvailability.stripe_pending)}</span>
+                  <span className="text-white/25"> clearing</span>
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex gap-3 w-full md:w-auto">
           <button
