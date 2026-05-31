@@ -1,75 +1,98 @@
 import { NextResponse } from "next/server";
-import { createSupabaseRouteClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getNetWithdrawalAmount } from "@/lib/walletFees";
 import type { WalletRow } from "@/types/db";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const supabase = await createSupabaseRouteClient();
-    const { data: userRes } = await supabase.auth.getUser();
-    const user = userRes.user;
+    const token = req.headers.get("authorization")?.replace("Bearer ", "");
+    if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+    const { data: { user } } = await supabaseAdmin.auth.getUser(token);
     if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-    // Fetch wallet balance
-    const { data: wallet } = await supabase
+    // Fetch DB wallet balance (canonical ledger)
+    const { data: wallet } = await supabaseAdmin
       .from("wallets")
       .select("balance,currency")
       .eq("user_id", user.id)
       .maybeSingle()
       .returns<WalletRow | null>();
 
-    const totalBalance = Number(wallet?.balance ?? 0);
+    const dbBalance = Number(wallet?.balance ?? 0);
 
-    // Fetch Stripe connected account for enriched balance data
+    // Fetch Stripe connected account for the real Stripe balances
     const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("stripe_account_id")
       .eq("user_id", user.id)
       .maybeSingle();
 
-    let instantAvailable = 0;
-    let availableSoon = 0;
+    let stripeAvailable = 0;
+    let stripePending = 0;
+    let pendingAvailableOn: string | null = null;
 
     if (profile?.stripe_account_id) {
       try {
         const { getStripe } = await import("@/lib/stripe/server");
         const stripe = getStripe();
+        const nowUnix = Math.floor(Date.now() / 1000);
 
         const bal = await stripe.balance.retrieve(
-          { expand: ["instant_available.net_available"] },
+          {},
           { stripeAccount: profile.stripe_account_id }
         );
 
-        // Instant available (net of Stripe's instant payout fee)
-        for (const entry of bal.instant_available ?? []) {
-          if (entry.currency !== "usd") continue;
-          const netAvail = (entry as unknown as { net_available?: { amount: number }[] }).net_available;
-          if (Array.isArray(netAvail) && netAvail.length > 0) {
-            instantAvailable += netAvail.reduce((sum, d) => sum + (d.amount ?? 0), 0);
-          } else {
-            instantAvailable += entry.amount ?? 0;
-          }
-        }
-        instantAvailable = instantAvailable / 100;
-
-        // Pending (available soon) — funds in transit not yet settled
-        const pendingCents = (bal.pending ?? [])
+        stripeAvailable = (bal.available ?? [])
           .filter((p) => p.currency === "usd")
-          .reduce((sum, p) => sum + p.amount, 0);
-        availableSoon = pendingCents / 100;
+          .reduce((sum, p) => sum + p.amount, 0) / 100;
+
+        stripePending = (bal.pending ?? [])
+          .filter((p) => p.currency === "usd")
+          .reduce((sum, p) => sum + p.amount, 0) / 100;
+
+        // Fetch soonest available_on date for pending funds
+        if (stripePending > 0) {
+          try {
+            const txns = await stripe.balanceTransactions.list(
+              { available_on: { gt: nowUnix }, limit: 100 },
+              { stripeAccount: profile.stripe_account_id }
+            );
+            let soonest: number | null = null;
+            for (const txn of txns.data) {
+              if (txn.currency !== "usd" || txn.net < 0) continue;
+              const ao = txn.available_on as number | undefined;
+              if (typeof ao === "number" && ao > nowUnix) {
+                if (soonest === null || ao < soonest) soonest = ao;
+              }
+            }
+            if (soonest) pendingAvailableOn = new Date(soonest * 1000).toISOString();
+          } catch { /* non-fatal — date just won't show */ }
+        }
+
       } catch (stripeErr) {
-        // Non-fatal — return wallet balance without Stripe enrichment
         console.warn("wallet/balance: Stripe fetch failed", stripeErr instanceof Error ? stripeErr.message : stripeErr);
       }
     }
 
+    // Available balance = DB wallet (primary) OR Stripe available+pending if no wallet row yet
+    const stripeTotal = stripeAvailable + stripePending;
+    const availableBalance = dbBalance > 0 ? dbBalance : stripeTotal;
+
+    // Available Soon = all balance (settled + in transit from Stripe)
+    const availableSoon = dbBalance > 0 ? dbBalance + stripePending : stripeTotal;
+
+    // Instant Withdrawal = available balance after our 5% instant fee
+    const instantAvailable = getNetWithdrawalAmount(availableBalance, "instant");
+
     return NextResponse.json({
-      total_balance: totalBalance,
-      available_balance: totalBalance,
+      total_balance: availableBalance,
+      available_balance: availableBalance,
       available_soon: availableSoon,
       instant_available: instantAvailable,
+      pending_available_on: pendingAvailableOn,
       currency: wallet?.currency ?? "usd",
     });
   } catch (err: unknown) {

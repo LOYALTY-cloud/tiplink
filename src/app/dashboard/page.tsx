@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { getNetWithdrawalAmount } from "@/lib/walletFees";
 import type { ProfileRow, WalletRow } from "@/types/db";
 import { useToast } from "@/lib/useToast";
 import { formatMoney } from "@/lib/walletFees";
@@ -64,11 +65,15 @@ export default function DashboardPage() {
         });
         const j = await res.json().catch(() => null);
         if (j && !j.error) {
-          setWallet({ balance: Number(j.total_balance ?? 0), withdraw_fee: 0 });
-          if (typeof j.instant_available === "number") setInstantAvailable(j.instant_available);
-          if (typeof j.available_soon === "number" && j.available_soon > 0) setPendingAmount(j.available_soon);
+          const bal = Number(j.total_balance ?? 0);
+          setWallet({ balance: bal, withdraw_fee: 0 });
+          setInstantAvailable(typeof j.instant_available === "number" ? j.instant_available : getNetWithdrawalAmount(bal, "instant"));
+          setPendingAmount(typeof j.available_soon === "number" ? j.available_soon : bal);
+          if (typeof j.pending_available_on === "string") setPendingAvailableOn(j.pending_available_on);
+          setLoadingWallet(false);
+          return;
         }
-      } catch { /* silently fall back to DB */ }
+      } catch { /* fall through to DB fallback */ }
     }
 
     // Fallback: read balance directly from DB (e.g. token missing)
@@ -79,10 +84,10 @@ export default function DashboardPage() {
       .maybeSingle()
       .returns<WalletRow | null>();
 
-    setWallet((prev) => ({
-      balance: prev?.balance ?? Number(walletData?.balance ?? 0),
-      withdraw_fee: Number(walletData?.withdraw_fee ?? 0),
-    }));
+    const bal = Number(walletData?.balance ?? 0);
+    setWallet({ balance: bal, withdraw_fee: Number(walletData?.withdraw_fee ?? 0) });
+    setInstantAvailable(getNetWithdrawalAmount(bal, "instant"));
+    setPendingAmount(bal);
     setLoadingWallet(false);
   };
 
@@ -494,7 +499,7 @@ export default function DashboardPage() {
           </p>
           <p className="mt-1 text-xs text-amber-300/70">
             {pendingAvailableOn
-              ? `Arrives ${new Date(pendingAvailableOn).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+              ? `Arrives ${new Date(pendingAvailableOn).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`
               : "Processing by Stripe"}
           </p>
         </div>
