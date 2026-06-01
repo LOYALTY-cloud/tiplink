@@ -100,12 +100,19 @@ export async function GET(req: Request) {
   week += themeSalesWeek;
   month += themeSalesMonth;
 
-  // Daily chart aggregation
+  // Daily chart aggregation (tips + theme sales)
   const dailyMap = new Map<string, { volume: number; count: number }>();
   for (const r of rows) {
     const day = r.created_at.slice(0, 10);
     const entry = dailyMap.get(day) ?? { volume: 0, count: 0 };
     entry.volume += Number(r.amount);
+    entry.count += 1;
+    dailyMap.set(day, entry);
+  }
+  for (const r of themeSalesRows) {
+    const day = r.created_at.slice(0, 10);
+    const entry = dailyMap.get(day) ?? { volume: 0, count: 0 };
+    entry.volume += Number(r.creator_earnings);
     entry.count += 1;
     dailyMap.set(day, entry);
   }
