@@ -515,22 +515,6 @@ export default function DashboardPage() {
       </div>
 
       {/* Primary actions row */}
-      <div className="flex gap-3">
-        <button
-          onClick={() => router.push("/dashboard/wallet")}
-          disabled={isClosed}
-          className={`${ui.btnPrimary} disabled:opacity-40 disabled:cursor-not-allowed`}
-        >
-          Withdraw
-        </button>
-        <button
-          onClick={copy}
-          disabled={!handle || isClosed}
-          className={`${ui.btnGhost} disabled:opacity-40 disabled:cursor-not-allowed`}
-        >
-          Copy Link
-        </button>
-      </div>
 
       {/* Activate Payouts CTA — shown when Stripe is not connected */}
       {!chargesEnabled && !isClosed && accountStatus !== "restricted" && (
