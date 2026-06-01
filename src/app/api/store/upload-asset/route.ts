@@ -81,7 +81,13 @@ export async function POST(req: Request) {
     if (msg.includes("bucket") || msg.includes("not found")) {
       return NextResponse.json({ error: "Storage not configured. Please contact support." }, { status: 500 });
     }
-    return NextResponse.json({ error: "Image upload failed. Please try again." }, { status: 500 });
+    if (msg.includes("mime") || msg.includes("type") || msg.includes("content-type")) {
+      return NextResponse.json({ error: "File type not allowed by storage bucket." }, { status: 400 });
+    }
+    if (msg.includes("size") || msg.includes("too large") || msg.includes("payload")) {
+      return NextResponse.json({ error: "File too large for storage bucket limit." }, { status: 413 });
+    }
+    return NextResponse.json({ error: `Image upload failed: ${uploadErr.message}` }, { status: 500 });
   }
 
   const { data } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);
