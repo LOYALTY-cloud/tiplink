@@ -18,8 +18,8 @@ export interface RiskFactors {
 
 export function calculateRiskScore(factors: RiskFactors): number {
   let score = 0;
-  if (factors.logoDetection) score += 40;
-  if (factors.duplicateSimilarity > 80) score += 30;
+  if (factors.logoDetection) score += 75;
+  if (factors.duplicateSimilarity > 80) score += 20;
   if (factors.creatorStrikes > 0) score += 10;
   if (factors.suspiciousKeywords) score += 10;
   if (factors.massUploads) score += 10;
