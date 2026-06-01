@@ -28,7 +28,7 @@ export function calculateRiskScore(factors: RiskFactors): number {
 
 export function determineThemeStatus(score: number): ThemeStatus {
   if (score <= 30) return "approved";
-  if (score <= 60) return "pending_review";
+  if (score <= 70) return "pending_review";
   return "flagged";
 }
 
@@ -58,9 +58,6 @@ export const PROTECTED_BRANDS: string[] = [
   "nba", "nfl", "nhl", "mlb", "fifa", "uefa", "olympic", "espn",
   // Banking / Finance
   "visa", "mastercard", "paypal", "stripe", "coinbase",
-  // Generic fraud signals
-  "official", "verified", "authentic", "licensed", "certified", "authorized",
-  "government", "irs", "fbi", "nsa",
 ];
 
 /** @deprecated use PROTECTED_BRANDS */
