@@ -8,7 +8,8 @@ import { DashboardDrawer } from "@/components/DashboardDrawer";
 import { NotificationBell } from "@/components/NotificationBell";
 import { NotificationToast } from "@/components/NotificationToast";
 import { ui } from "@/lib/ui";
-import { useInactivity } from "@/hooks/useInactivity";
+import { useUserLock } from "@/hooks/useUserLock";
+import UserLockScreen from "@/components/UserLockScreen";
 import SessionWarningModal from "@/components/SessionWarningModal";
 import AccountStatusBadge from "@/components/AccountStatusBadge";
 import { GlobalToastProvider } from "@/components/GlobalToast";
@@ -25,7 +26,8 @@ export default function DashboardLayout({
   const [sessionWarning, setSessionWarning] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  useInactivity();
+  const lockEnabled = !!email;
+  const { isLocked, lockReason, unlock, resetActivity } = useUserLock(lockEnabled);
 
   useEffect(() => {
     setMounted(true);
@@ -96,6 +98,21 @@ export default function DashboardLayout({
 
   const tabClass = (href: string) =>
     mounted && pathname === href ? ui.navActive : ui.navIdle;
+
+  // Show lock screen over everything when session is locked
+  if (isLocked) {
+    return (
+      <UserLockScreen
+        lockReason={lockReason}
+        onUnlock={async (pw) => {
+          const result = await unlock(pw);
+          if (result.ok) setSessionWarning(false);
+          return result;
+        }}
+        email={email}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen">
@@ -180,7 +197,7 @@ export default function DashboardLayout({
         open={sessionWarning}
         onStay={() => {
           setSessionWarning(false);
-          window.dispatchEvent(new Event("mousemove"));
+          resetActivity();
         }}
       />
     </div>

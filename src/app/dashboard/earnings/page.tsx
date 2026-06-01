@@ -176,6 +176,8 @@ export default function CreatorEarningsPage() {
       const meta = (tx.meta ?? {}) as Record<string, unknown>;
       const todayKey = new Date().toISOString().slice(0, 10);
 
+      const isTip = tx.type === "tip_received";
+
       setData((prev) => {
         if (!prev) return prev;
         const next = { ...prev };
@@ -183,8 +185,15 @@ export default function CreatorEarningsPage() {
         next.week = Math.round((next.week + amount) * 100) / 100;
         next.month = Math.round((next.month + amount) * 100) / 100;
         next.total = Math.round((next.total + amount) * 100) / 100;
-        next.tipCount += 1;
-        next.avgTip = Math.round((next.total / next.tipCount) * 100) / 100;
+
+        if (isTip) {
+          next.tipCount += 1;
+          next.avgTip = Math.round((next.total / next.tipCount) * 100) / 100;
+        } else {
+          // theme_sale
+          next.themeSalesCount += 1;
+          next.themeSalesTotal = Math.round((next.themeSalesTotal + amount) * 100) / 100;
+        }
 
         // Patch daily chart
         const dailyCopy = next.daily.map((d) => ({ ...d }));
@@ -197,17 +206,29 @@ export default function CreatorEarningsPage() {
         }
         next.daily = dailyCopy;
 
-        // Prepend to tip feed
-        next.recentTips = [
-          {
-            amount,
-            created_at: new Date().toISOString(),
-            tipper_name: (meta.tipper_name as string) ?? null,
-            message: (meta.message as string) ?? null,
-            anonymous: Boolean(meta.anonymous),
-          },
-          ...next.recentTips,
-        ].slice(0, 20);
+        if (isTip) {
+          // Prepend to tip feed
+          next.recentTips = [
+            {
+              amount,
+              created_at: new Date().toISOString(),
+              tipper_name: (meta.tipper_name as string) ?? null,
+              message: (meta.message as string) ?? null,
+              anonymous: Boolean(meta.anonymous),
+            },
+            ...next.recentTips,
+          ].slice(0, 20);
+        } else {
+          // Prepend to theme sales feed
+          next.recentThemeSales = [
+            {
+              creator_earnings: amount,
+              created_at: new Date().toISOString(),
+              theme_id: (tx.meta as Record<string, unknown>)?.theme_id as string ?? "",
+            },
+            ...next.recentThemeSales,
+          ].slice(0, 10);
+        }
 
         return next;
       });
@@ -241,7 +262,7 @@ export default function CreatorEarningsPage() {
         },
         (payload) => {
           const tx = payload.new as Record<string, unknown>;
-          if (tx.type === "tip_received") handleRealtimeTx(payload as any);
+          if (tx.type === "tip_received" || tx.type === "theme_sale") handleRealtimeTx(payload as any);
         }
       )
       .subscribe();
