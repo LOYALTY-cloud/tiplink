@@ -76,7 +76,11 @@ export async function POST(req: Request) {
     });
 
   if (uploadErr) {
-    console.error("store/upload-asset:", uploadErr);
+    console.error("store/upload-asset:", uploadErr.message, uploadErr);
+    const msg = uploadErr.message?.toLowerCase() ?? "";
+    if (msg.includes("bucket") || msg.includes("not found")) {
+      return NextResponse.json({ error: "Storage not configured. Please contact support." }, { status: 500 });
+    }
     return NextResponse.json({ error: "Image upload failed. Please try again." }, { status: 500 });
   }
 
