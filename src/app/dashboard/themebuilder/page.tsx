@@ -103,13 +103,50 @@ async function getToken(): Promise<string | null> {
   return sessionData.session.access_token;
 }
 
+// Max pixel dimensions before resizing kicks in
+const RESIZE_LIMITS = {
+  avatar: { maxW: 400, maxH: 400 },
+  banner: { maxW: 1500, maxH: 500 },
+};
+
+async function resizeImageIfNeeded(file: File, type: "avatar" | "banner"): Promise<File> {
+  const { maxW, maxH } = RESIZE_LIMITS[type];
+  return new Promise((resolve) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      if (img.width <= maxW && img.height <= maxH) {
+        resolve(file);
+        return;
+      }
+      const scale = Math.min(maxW / img.width, maxH / img.height);
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        (blob) => resolve(blob ? new File([blob], file.name, { type: "image/jpeg" }) : file),
+        "image/jpeg",
+        0.88,
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(file); };
+    img.src = objectUrl;
+  });
+}
+
 async function uploadStoreAsset(
   file: File,
   type: "avatar" | "banner",
   token: string,
 ): Promise<string> {
+  const resized = await resizeImageIfNeeded(file, type);
   const form = new FormData();
-  form.append("file", file);
+  form.append("file", resized);
   form.append("type", type);
   const res = await fetch("/api/store/upload-asset", {
     method: "POST",
