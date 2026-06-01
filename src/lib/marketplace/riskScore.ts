@@ -18,17 +18,17 @@ export interface RiskFactors {
 
 export function calculateRiskScore(factors: RiskFactors): number {
   let score = 0;
-  if (factors.logoDetection) score += 40;
-  if (factors.duplicateSimilarity > 80) score += 30;
+  if (factors.logoDetection) score += 75;
+  if (factors.duplicateSimilarity > 80) score += 20;
   if (factors.creatorStrikes > 0) score += 10;
-  if (factors.suspiciousKeywords) score += 10;
+  if (factors.suspiciousKeywords) score += 40; // brand name in title/desc → pending_review minimum
   if (factors.massUploads) score += 10;
   return Math.min(score, 100);
 }
 
 export function determineThemeStatus(score: number): ThemeStatus {
   if (score <= 30) return "approved";
-  if (score <= 60) return "pending_review";
+  if (score <= 70) return "pending_review";
   return "flagged";
 }
 
@@ -46,10 +46,20 @@ export const PROTECTED_BRANDS: string[] = [
   "apple", "google", "microsoft", "samsung", "meta", "facebook", "instagram",
   "twitter", "x.com", "amazon", "netflix", "spotify", "tiktok", "snapchat",
   "youtube", "tesla", "openai",
-  // Fashion / Luxury
-  "nike", "adidas", "gucci", "louis vuitton", "chanel", "prada", "versace",
-  "supreme", "off-white", "balenciaga", "rolex", "dior", "hermes", "burberry",
-  "fendi", "yves saint laurent", "givenchy", "alexander mcqueen",
+  // Fashion / Luxury / Streetwear
+  "nike", "adidas", "gucci", "louis vuitton", "lv", "chanel", "prada", "versace",
+  "supreme", "off-white", "balenciaga", "rolex", "dior", "hermes", "hermès",
+  "burberry", "fendi", "yves saint laurent", "ysl", "givenchy", "alexander mcqueen",
+  "mcm", "coach", "michael kors", "kate spade", "marc jacobs", "tory burch",
+  "valentino", "bottega veneta", "loewe", "celine", "céline", "miu miu",
+  "dolce gabbana", "dolce & gabbana", "moschino", "vivienne westwood",
+  "ralph lauren", "polo ralph lauren", "tommy hilfiger", "calvin klein",
+  "hugo boss", "lacoste", "fred perry", "stone island", "moncler",
+  "canada goose", "north face", "the north face", "columbia", "under armour",
+  "new balance", "puma", "reebok", "converse", "vans", "jordan", "air jordan",
+  "yeezy", "bape", "a bathing ape", "palace", "kith", "stussy",
+  "cartier", "tiffany", "tiffany & co", "omega", "tag heuer", "patek philippe",
+  "audemars piguet", "ap", "richard mille",
   // Entertainment
   "disney", "marvel", "dc comics", "warner bros", "universal", "paramount",
   "dreamworks", "pixar", "star wars", "harry potter", "pokemon", "nintendo",
@@ -58,9 +68,6 @@ export const PROTECTED_BRANDS: string[] = [
   "nba", "nfl", "nhl", "mlb", "fifa", "uefa", "olympic", "espn",
   // Banking / Finance
   "visa", "mastercard", "paypal", "stripe", "coinbase",
-  // Generic fraud signals
-  "official", "verified", "authentic", "licensed", "certified", "authorized",
-  "government", "irs", "fbi", "nsa",
 ];
 
 /** @deprecated use PROTECTED_BRANDS */
