@@ -45,7 +45,7 @@ export async function GET(req: Request) {
         .from("themes")
         .select(`
           id, name, description, category, tags, status, risk_score,
-          moderation_reason, duplicate_warning, preview_images,
+          moderation_reason, duplicate_warning, preview_images, config,
           created_at, user_id
         `)
         .eq("user_id", profile.user_id)
@@ -104,8 +104,8 @@ export async function GET(req: Request) {
       const { data: themes } = await supabaseAdmin
         .from("themes")
         .select(`
-          id, name, tags, status, risk_score,
-          moderation_reason, duplicate_warning, preview_images,
+          id, name, description, category, tags, status, risk_score,
+          moderation_reason, duplicate_warning, preview_images, config,
           created_at, user_id
         `)
         .eq("id", q)
@@ -152,8 +152,8 @@ export async function GET(req: Request) {
     const { data: themes, error } = await supabaseAdmin
       .from("themes")
       .select(`
-        id, name, tags, status, risk_score,
-        moderation_reason, duplicate_warning, preview_images,
+        id, name, description, category, tags, status, risk_score,
+        moderation_reason, duplicate_warning, preview_images, config,
         created_at, user_id
       `)
       .in("status", statusFilter)

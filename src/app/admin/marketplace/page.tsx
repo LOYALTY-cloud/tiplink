@@ -24,6 +24,8 @@ type QueueTheme = {
   moderation_reason: string | null;
   duplicate_warning: boolean;
   preview_images: string[] | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config: any | null;
   created_at: string;
   user_id: string;
   report_count: number;
@@ -500,6 +502,52 @@ export default function MarketplaceModerationPage() {
                       className="h-28 w-auto rounded-lg object-cover flex-shrink-0 bg-white/5"
                     />
                   ))}
+                </div>
+              )}
+
+              {/* Live theme preview — rendered from config when no preview images */}
+              {(!selected.preview_images || selected.preview_images.length === 0) && selected.config && (
+                <div className="mb-4">
+                  <p className="text-[11px] text-white/30 uppercase tracking-wide mb-2">Live Preview</p>
+                  <div
+                    className="rounded-xl overflow-hidden border border-white/10 w-full"
+                    style={{
+                      background: selected.config.background ?? selected.config.backgroundColor ?? selected.config.bgColor ?? "#111",
+                      minHeight: 120,
+                      padding: "16px",
+                    }}
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      {/* Avatar placeholder */}
+                      <div
+                        className="w-14 h-14 rounded-full border-2 flex items-center justify-center text-lg font-bold"
+                        style={{
+                          borderColor: selected.config.accentColor ?? selected.config.accent ?? selected.config.primaryColor ?? "#fff",
+                          color: selected.config.accentColor ?? selected.config.accent ?? "#fff",
+                          background: selected.config.cardBackground ?? selected.config.cardBg ?? "rgba(255,255,255,0.08)",
+                        }}
+                      >
+                        @
+                      </div>
+                      {/* Name */}
+                      <p
+                        className="text-sm font-semibold"
+                        style={{ color: selected.config.textColor ?? selected.config.text ?? "#fff" }}
+                      >
+                        {selected.name}
+                      </p>
+                      {/* Sample button */}
+                      <div
+                        className="rounded-full px-4 py-1.5 text-xs font-semibold mt-1"
+                        style={{
+                          background: selected.config.buttonColor ?? selected.config.accentColor ?? selected.config.accent ?? "#7c3aed",
+                          color: selected.config.buttonTextColor ?? selected.config.buttonText ?? "#fff",
+                        }}
+                      >
+                        Send Tip
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
