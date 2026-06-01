@@ -60,7 +60,7 @@ export default function EarningsCard({ userId }: { userId: string }) {
         },
         (payload) => {
           const tx = payload.new as Record<string, unknown>
-          if (tx.type === "tip_received") handleTip(payload as any)
+          if (tx.type === "tip_received" || tx.type === "theme_sale") handleTip(payload as any)
         }
       )
       .subscribe()

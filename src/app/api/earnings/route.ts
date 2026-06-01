@@ -36,7 +36,7 @@ export async function GET(req: Request) {
       .from("transactions_ledger")
       .select("amount")
       .eq("user_id", user_id)
-      .eq("type", "tip_received")
+      .in("type", ["tip_received", "theme_sale"])
       .gte("created_at", date.toISOString())
 
     return data?.reduce((sum, row) => sum + Number((row as any).amount), 0) ?? 0
