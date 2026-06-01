@@ -41,18 +41,19 @@ export async function GET(req: Request) {
         });
       }
 
-      const { data: themes } = await supabaseAdmin
+      const { data: themes, error: themesErr } = await supabaseAdmin
         .from("themes")
         .select(`
           id, name, description, category, tags, status, risk_score,
           moderation_reason, duplicate_warning, preview_images,
-          created_at, user_id,
-          creator:profiles!themes_user_id_fkey (
-            display_name, handle, avatar_url
-          )
+          created_at, user_id
         `)
         .eq("user_id", profile.user_id)
         .order("created_at", { ascending: false });
+
+      if (themesErr) {
+        console.error("[queue] handle themes query error:", JSON.stringify(themesErr));
+      }
 
       const themeIds = (themes ?? []).map((t: { id: string }) => t.id);
 
@@ -75,6 +76,11 @@ export async function GET(req: Request) {
 
       const enriched = (themes ?? []).map((t: Record<string, unknown>) => ({
         ...t,
+        creator: {
+          display_name: profile.display_name,
+          handle: profile.handle,
+          avatar_url: profile.avatar_url,
+        },
         report_count: reportCounts[t.id as string] ?? 0,
         dmca_count: dmcaCounts[t.id as string] ?? 0,
       }));
