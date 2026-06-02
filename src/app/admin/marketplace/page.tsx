@@ -16,8 +16,6 @@ type CreatorFilter = {
 type QueueTheme = {
   id: string;
   name: string;
-  description: string | null;
-  category: string | null;
   tags: string[] | null;
   status: string;
   risk_score: number;
@@ -445,7 +443,7 @@ export default function MarketplaceModerationPage() {
                         </span>
                       </div>
                       <p className={`${ui.muted2} text-xs mt-0.5 truncate`}>
-                        {t.creator?.handle ?? t.user_id} · {t.category}
+                        {t.creator?.handle ?? t.user_id}
                       </p>
                       <div className="flex items-center gap-3 mt-1">
                         <span className={`text-xs px-2 py-0.5 rounded-full border ${riskColor(t.risk_score)}`}>
@@ -505,61 +503,86 @@ export default function MarketplaceModerationPage() {
                 </div>
               )}
 
-              {/* Live theme preview — rendered from config when no preview images */}
-              {(!selected.preview_images || selected.preview_images.length === 0) && selected.config && (
-                <div className="mb-4">
-                  <p className="text-[11px] text-white/30 uppercase tracking-wide mb-2">Live Preview</p>
-                  <div
-                    className="rounded-xl overflow-hidden border border-white/10 w-full"
-                    style={{
-                      background: selected.config.background ?? selected.config.backgroundColor ?? selected.config.bgColor ?? "#111",
-                      minHeight: 120,
-                      padding: "16px",
-                    }}
-                  >
-                    <div className="flex flex-col items-center gap-2">
-                      {/* Avatar placeholder */}
-                      <div
-                        className="w-14 h-14 rounded-full border-2 flex items-center justify-center text-lg font-bold"
-                        style={{
-                          borderColor: selected.config.accentColor ?? selected.config.accent ?? selected.config.primaryColor ?? "#fff",
-                          color: selected.config.accentColor ?? selected.config.accent ?? "#fff",
-                          background: selected.config.cardBackground ?? selected.config.cardBg ?? "rgba(255,255,255,0.08)",
-                        }}
-                      >
-                        @
-                      </div>
-                      {/* Name */}
-                      <p
-                        className="text-sm font-semibold"
-                        style={{ color: selected.config.textColor ?? selected.config.text ?? "#fff" }}
-                      >
-                        {selected.name}
-                      </p>
-                      {/* Sample button */}
-                      <div
-                        className="rounded-full px-4 py-1.5 text-xs font-semibold mt-1"
-                        style={{
-                          background: selected.config.buttonColor ?? selected.config.accentColor ?? selected.config.accent ?? "#7c3aed",
-                          color: selected.config.buttonTextColor ?? selected.config.buttonText ?? "#fff",
-                        }}
-                      >
-                        Send Tip
+              {/* Live theme preview — always shown when config is available */}
+              {selected.config && (() => {
+                const cfg = selected.config;
+                const isVideo = cfg.backgroundMediaType === "video" || Boolean(cfg.backgroundVideo);
+                const bgSrc = isVideo
+                  ? (cfg.backgroundVideoPoster || cfg.background)
+                  : cfg.background;
+                const bgStyle = bgSrc
+                  ? bgSrc.startsWith("#") || bgSrc.startsWith("rgb") || bgSrc.startsWith("hsl") || bgSrc.startsWith("linear") || bgSrc.startsWith("radial")
+                    ? bgSrc
+                    : `url(${bgSrc}) center/cover no-repeat`
+                  : "#0a0a14";
+                const primaryColor = cfg.primaryColor ?? "#00ff99";
+                const textColor = cfg.textColor ?? "#ffffff";
+                const cardBg = (() => {
+                  if (cfg.cardBgMode === "gradient" && cfg.cardGradientFrom && cfg.cardGradientTo) {
+                    return `linear-gradient(${cfg.cardGradientDir ?? "to bottom right"}, ${cfg.cardGradientFrom}, ${cfg.cardGradientTo})`;
+                  }
+                  if (cfg.cardBgMode === "transparent") return "rgba(255,255,255,0.06)";
+                  return cfg.cardBackground ?? "rgba(255,255,255,0.08)";
+                })();
+
+                return (
+                  <div className="mb-4">
+                    <p className="text-[11px] text-white/30 uppercase tracking-wide mb-2">Config Preview</p>
+                    <div
+                      className="rounded-xl overflow-hidden border border-white/10 relative"
+                      style={{ background: bgStyle, minHeight: 140 }}
+                    >
+                      {/* Overlay for image backgrounds */}
+                      {bgSrc && !bgSrc.startsWith("#") && !bgSrc.startsWith("rgb") && (
+                        <div className="absolute inset-0 bg-black/40 pointer-events-none" />
+                      )}
+                      {isVideo && (
+                        <div className="absolute top-2 left-2 z-10 rounded-full bg-black/60 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white/80">
+                          video
+                        </div>
+                      )}
+                      <div className="relative z-10 flex flex-col items-center gap-2 py-5 px-4">
+                        {/* Avatar placeholder */}
+                        <div className="w-12 h-12 rounded-2xl bg-white/20 mb-0.5" />
+                        {/* Name */}
+                        <p className="text-sm font-bold" style={{ color: textColor }}>
+                          {selected.name}
+                        </p>
+                        {/* Card */}
+                        <div
+                          className="w-full max-w-[200px] rounded-xl px-3 py-2 flex flex-col gap-1.5"
+                          style={{ background: cardBg }}
+                        >
+                          <div className="grid grid-cols-3 gap-1">
+                            {[5, 10, 20].map((amt) => (
+                              <div
+                                key={amt}
+                                className="rounded-lg py-1 text-center text-[10px] font-bold text-black"
+                                style={{ background: primaryColor }}
+                              >
+                                ${amt}
+                              </div>
+                            ))}
+                          </div>
+                          <div
+                            className="rounded-lg py-1.5 text-center text-xs font-semibold text-black"
+                            style={{ background: primaryColor }}
+                          >
+                            Send Tip
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               <div className="space-y-2 text-sm mb-4">
                 <div className="flex gap-2">
                   <span className={ui.muted2}>Creator:</span>
                   <span className="text-white">{selected.creator?.display_name ?? selected.creator?.handle ?? selected.user_id}</span>
                 </div>
-                <div className="flex gap-2">
-                  <span className={ui.muted2}>Category:</span>
-                  <span className="text-white">{selected.category}</span>
-                </div>
+
                 {selected.tags && selected.tags.length > 0 && (
                   <div className="flex gap-2 flex-wrap">
                     {selected.tags.map((tg) => (
@@ -571,9 +594,6 @@ export default function MarketplaceModerationPage() {
                   <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-amber-400 text-xs">
                     {selected.moderation_reason}
                   </div>
-                )}
-                {selected.description && (
-                  <p className={`${ui.muted2} text-xs mt-2`}>{selected.description}</p>
                 )}
               </div>
 

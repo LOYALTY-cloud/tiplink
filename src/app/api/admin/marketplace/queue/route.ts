@@ -44,7 +44,7 @@ export async function GET(req: Request) {
       const { data: themes, error: themesErr } = await supabaseAdmin
         .from("themes")
         .select(`
-          id, name, status, risk_score,
+          id, name, tags, status, risk_score,
           moderation_reason, duplicate_warning, preview_images, config,
           created_at, user_id
         `)
@@ -104,7 +104,7 @@ export async function GET(req: Request) {
       const { data: themes } = await supabaseAdmin
         .from("themes")
         .select(`
-          id, name, status, risk_score,
+          id, name, tags, status, risk_score,
           moderation_reason, duplicate_warning, preview_images, config,
           created_at, user_id
         `)
