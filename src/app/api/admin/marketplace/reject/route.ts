@@ -44,12 +44,13 @@ export async function POST(req: Request) {
       .eq("user_id", theme.user_id)
       .maybeSingle();
 
-    // Update theme: rejected, not public, store reason
+    // Update theme: removed (not approved), not public, store reason
     const { error: updateErr } = await supabaseAdmin
       .from("themes")
       .update({
-        status: "rejected",
+        status: "removed",
         is_public: false,
+        is_market_active: false,
         moderation_reason: reason,
       })
       .eq("id", themeId);
