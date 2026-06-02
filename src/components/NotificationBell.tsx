@@ -134,6 +134,7 @@ export function NotificationBell() {
     if (type === "payout_failed") return "❌";
     if (type === "theme_sold") return "🎉";
     if (type === "theme_unlocked") return "🎨";
+    if (type === "theme_rejected") return "🚫";
     if (type === "security") return "🔒";
     if (type === "support") return "💬";
     return "🔔";

@@ -1985,26 +1985,26 @@ export default function ThemeBuilderDashboard() {
                                       {typeof t.unlock_count === "number" && t.unlock_count > 0 && (
                                         <span className="text-[10px] text-white/25">{t.unlock_count} sold</span>
                                       )}
-                                      {t.is_market_active === false && (
+                                      {t.is_market_active === false && t.status !== "removed" && (
                                         <span className="text-[10px] text-red-400/80">Market off</span>
                                       )}
-                                      {t.status === "rejected" && (
+                                      {(t.status === "rejected" || t.status === "removed") && (
                                         <span className="text-[10px] font-semibold text-red-400 bg-red-500/15 border border-red-500/25 px-1.5 py-0.5 rounded-full">Rejected</span>
                                       )}
                                       {t.status === "pending_review" && (
                                         <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/15 border border-blue-500/25 px-1.5 py-0.5 rounded-full">In Review</span>
                                       )}
                                     </div>
-                                    {t.status === "rejected" && t.moderation_reason && (
+                                    {(t.status === "rejected" || t.status === "removed") && t.moderation_reason && (
                                       <p className="text-[10px] text-red-300/70 mt-1 max-w-[180px] leading-snug line-clamp-2">{t.moderation_reason}</p>
                                     )}
                                   </div>
                                 </div>
                                 <button
-                                  disabled={publishingTheme === t.id || t.is_market_active === false || isBanned || t.status === "rejected"}
-                                  title={isBanned ? (isPermanentBan ? "Permanently banned from Theme Store" : `Suspended until ${banUntilFormatted}`) : t.status === "rejected" ? "This theme was rejected and cannot be published" : undefined}
+                                  disabled={publishingTheme === t.id || t.is_market_active === false || isBanned || t.status === "rejected" || t.status === "removed"}
+                                  title={isBanned ? (isPermanentBan ? "Permanently banned from Theme Store" : `Suspended until ${banUntilFormatted}`) : (t.status === "rejected" || t.status === "removed") ? "This theme was rejected and cannot be published" : undefined}
                                   onClick={async () => {
-                                    if (isBanned || t.status === "rejected") return;
+                                    if (isBanned || t.status === "rejected" || t.status === "removed") return;
                                     setPublishingTheme(t.id);
                                     try {
                                       const token = await getToken();
@@ -2025,7 +2025,7 @@ export default function ThemeBuilderDashboard() {
                                   className={`text-xs font-semibold px-3.5 py-1.5 rounded-lg transition disabled:opacity-40 shrink-0 ${
                                     isBanned
                                       ? "bg-white/5 text-white/25 cursor-not-allowed"
-                                      : t.status === "rejected"
+                                      : (t.status === "rejected" || t.status === "removed")
                                       ? "bg-red-500/10 text-red-400/60 border border-red-500/20 cursor-not-allowed"
                                       : t.is_market_active === false
                                       ? "bg-white/5 text-white/25 cursor-not-allowed"
@@ -2038,7 +2038,7 @@ export default function ThemeBuilderDashboard() {
                                     ? "…"
                                     : isBanned
                                     ? "Suspended"
-                                    : t.status === "rejected"
+                                    : (t.status === "rejected" || t.status === "removed")
                                     ? "Rejected"
                                     : t.is_market_active === false
                                     ? "Inactive"

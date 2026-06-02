@@ -4,6 +4,7 @@ import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
 import { sendEmail } from "@/lib/emailService";
 import { emailFooter } from "@/lib/email/footer";
+import { createNotification } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -44,12 +45,13 @@ export async function POST(req: Request) {
       .eq("user_id", theme.user_id)
       .maybeSingle();
 
-    // Update theme: rejected, not public, store reason
+    // Update theme: removed (not approved), not public, store reason
     const { error: updateErr } = await supabaseAdmin
       .from("themes")
       .update({
-        status: "rejected",
+        status: "removed",
         is_public: false,
+        is_market_active: false,
         moderation_reason: reason,
       })
       .eq("id", themeId);
@@ -73,6 +75,17 @@ export async function POST(req: Request) {
       event_type: "human_reject",
       ai_reason: reason,
       reviewed_by: session.userId,
+    });
+
+    // In-app notification (non-blocking, skip email — dedicated email sent below)
+    void createNotification({
+      userId: theme.user_id,
+      type: "theme_rejected",
+      title: `Your theme "${themeName}" was not approved`,
+      body: reason,
+      category: "system",
+      entityId: themeId,
+      skipEmail: true,
     });
 
     // Send rejection email to creator

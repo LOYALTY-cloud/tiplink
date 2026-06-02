@@ -45,8 +45,8 @@ export async function POST(req: Request) {
   }
 
   const update = active
-    ? { is_market_active: true, is_public: true }
-    : { is_market_active: false, is_public: false, store_id: null };
+    ? { is_market_active: true, is_public: true, status: "pending_review" }
+    : { is_market_active: false, is_public: false, store_id: null, status: "draft" };
 
   const { error: updateErr } = await supabaseAdmin
     .from("themes")

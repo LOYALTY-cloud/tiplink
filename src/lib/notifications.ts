@@ -13,6 +13,7 @@ type NotificationType =
   | "verification_needed"
   | "theme_sold"
   | "theme_unlocked"
+  | "theme_rejected"
   | "creator_approved"
   | "security"
   | "support";
@@ -59,6 +60,7 @@ export async function createNotification({
   actorId,
   entityId,
   meta,
+  skipEmail = false,
 }: {
   userId: string;
   type: NotificationType;
@@ -67,6 +69,7 @@ export async function createNotification({
   category?: NotificationCategory;
   actorId?: string;
   entityId?: string;
+  skipEmail?: boolean;
   meta?: {
     amount?: number;
     fee?: number;
@@ -130,6 +133,7 @@ export async function createNotification({
       (type === "verification_needed" && prefs.notify_security !== false) ||
       (type === "security" && prefs.notify_security !== false) ||
       isThemeSalesType || // theme purchase notifications always sent
+      type === "theme_rejected" || // rejection notifications always sent
       type === "support"; // support notifications are always sent
 
     if (!allowed) return;
@@ -146,7 +150,7 @@ export async function createNotification({
     });
 
     // 4. Send branded email (non-blocking — won't break webhook)
-    if (email) {
+    if (email && !skipEmail) {
       const html = buildEmailHtml({ type, title, body, meta });
       sendEmailAsync({
         type: "NOTIFICATION",

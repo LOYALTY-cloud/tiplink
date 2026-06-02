@@ -16,14 +16,14 @@ type CreatorFilter = {
 type QueueTheme = {
   id: string;
   name: string;
-  description: string | null;
-  category: string | null;
   tags: string[] | null;
   status: string;
   risk_score: number;
   moderation_reason: string | null;
   duplicate_warning: boolean;
   preview_images: string[] | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config: any | null;
   created_at: string;
   user_id: string;
   report_count: number;
@@ -246,7 +246,8 @@ export default function MarketplaceModerationPage() {
         headers: { ...getAdminHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ themeId, reason: strikeReason.trim() }),
       });
-      const json = await res.json();
+      const text = await res.text();
+      const json = text ? JSON.parse(text) : {};
       if (res.ok) {
         showToast(`Strike issued (${json.strikes} total) 🚨`);
         setThemes((prev) => prev.filter((t) => t.id !== themeId));
@@ -277,7 +278,8 @@ export default function MarketplaceModerationPage() {
         setActionPanel(null);
         setRejectReason("");
       } else {
-        const json = await res.json();
+        const text = await res.text();
+        const json = text ? JSON.parse(text) : {};
         showToast(json.error ?? "Failed to reject theme.");
       }
     } finally {
@@ -295,7 +297,7 @@ export default function MarketplaceModerationPage() {
   return (
     <div className={`${ui.page} p-4 sm:p-6`}>
       {toast && (
-        <div className="fixed top-4 right-4 z-50 bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white shadow-xl">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 sm:left-auto sm:right-4 sm:translate-x-0 z-50 bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm text-white shadow-xl whitespace-nowrap">
           {toast}
         </div>
       )}
@@ -420,74 +422,97 @@ export default function MarketplaceModerationPage() {
                   : "No themes in this queue."}
               </div>
             ) : (
-              themes.map((t) => (
-                <div
-                  key={t.id}
-                  onClick={() => { setSelected(t); setActionPanel(null); }}
-                  className={`${ui.card} p-4 cursor-pointer transition hover:border-white/20 active:scale-[0.99]
-                    ${selected?.id === t.id ? "border-blue-500/40 bg-blue-500/5" : ""}`}
-                >
-                  <div className="flex items-start gap-3">
-                    {t.preview_images?.[0] && (
-                      <img
-                        src={t.preview_images[0]}
-                        alt={t.name}
-                        className="w-14 h-14 rounded-lg object-cover flex-shrink-0 bg-white/5"
-                      />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-white text-sm truncate">{t.name}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full border ${statusPill(t.status)}`}>
-                          {t.status.replace("_", " ")}
-                        </span>
+              themes.map((t) => {
+                // Color swatch from config when no preview image
+                const swatchBg = !t.preview_images?.[0] && t.config
+                  ? (t.config.background?.startsWith("http") ? `url(${t.config.background}) center/cover` : t.config.background ?? "#1a1a2e")
+                  : null;
+                const swatchAccent = t.config?.primaryColor ?? "#00ff99";
+                return (
+                  <div
+                    key={t.id}
+                    onClick={() => { setSelected(t); setActionPanel(null); }}
+                    className={`${ui.card} p-3.5 sm:p-4 cursor-pointer transition hover:border-white/20 active:scale-[0.99] min-h-[72px]
+                      ${selected?.id === t.id ? "border-blue-500/40 bg-blue-500/5" : ""}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      {/* Thumbnail — preview image or config swatch */}
+                      {t.preview_images?.[0] ? (
+                        <img
+                          src={t.preview_images[0]}
+                          alt={t.name}
+                          className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg object-cover flex-shrink-0 bg-white/5"
+                        />
+                      ) : (
+                        <div
+                          className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg flex-shrink-0 flex items-end justify-end p-1 overflow-hidden"
+                          style={{ background: swatchBg ?? "#1a1a2e" }}
+                        >
+                          <div className="w-5 h-1.5 rounded-full" style={{ background: swatchAccent }} />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-white text-sm truncate max-w-[140px] sm:max-w-none">{t.name}</span>
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full border flex-shrink-0 ${statusPill(t.status)}`}>
+                            {t.status.replace(/_/g, " ")}
+                          </span>
+                        </div>
+                        <p className={`${ui.muted2} text-xs mt-0.5 truncate`}>
+                          @{t.creator?.handle ?? t.user_id.slice(0, 8)}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full border ${riskColor(t.risk_score)}`}>
+                            Risk {t.risk_score}
+                          </span>
+                          {t.report_count > 0 && (
+                            <span className="text-[11px] text-red-400">⚠ {t.report_count}</span>
+                          )}
+                          {t.dmca_count > 0 && (
+                            <span className="text-[11px] text-red-500">⚖ {t.dmca_count}</span>
+                          )}
+                          {t.duplicate_warning && (
+                            <span className="text-[11px] text-amber-400">⛔ Dupe</span>
+                          )}
+                        </div>
                       </div>
-                      <p className={`${ui.muted2} text-xs mt-0.5 truncate`}>
-                        {t.creator?.handle ?? t.user_id} · {t.category}
-                      </p>
-                      <div className="flex items-center gap-3 mt-1">
-                        <span className={`text-xs px-2 py-0.5 rounded-full border ${riskColor(t.risk_score)}`}>
-                          Risk {t.risk_score}
-                        </span>
-                        {t.report_count > 0 && (
-                          <span className="text-xs text-red-400">⚠ {t.report_count} report{t.report_count !== 1 ? "s" : ""}</span>
-                        )}
-                        {t.dmca_count > 0 && (
-                          <span className="text-xs text-red-500">⚖ {t.dmca_count} DMCA</span>
-                        )}
-                        {t.duplicate_warning && (
-                          <span className="text-xs text-amber-400">⛔ Duplicate</span>
-                        )}
-                      </div>
+                      {/* Chevron hint on mobile */}
+                      <svg className="w-4 h-4 text-white/20 flex-shrink-0 lg:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
           {/* Detail panel — fixed full-screen overlay on mobile, sticky side panel on desktop */}
           {selected && (
-            <div className="fixed inset-0 z-40 overflow-y-auto bg-[#030810] lg:static lg:z-auto lg:overflow-visible lg:bg-transparent">
-              <div className={`${ui.card} p-4 sm:p-5 min-h-full lg:min-h-0 lg:h-fit lg:sticky lg:top-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] lg:pb-5`}>
-                <div className="flex items-center justify-between mb-4">
-                  {/* Back button — mobile only */}
-                  <button
-                    onClick={() => setSelected(null)}
-                    className="lg:hidden flex items-center gap-1.5 text-white/60 hover:text-white text-sm transition"
-                  >
-                    ← Back
-                  </button>
-                  <h2 className={`${ui.h2} truncate hidden lg:block`}>{selected.name}</h2>
-                  <button
-                    onClick={() => setSelected(null)}
-                    className="hidden lg:block text-white/40 hover:text-white text-xl leading-none"
-                  >
-                    ✕
-                  </button>
-                </div>
-                {/* Name shown below back button on mobile */}
-                <h2 className={`${ui.h2} truncate mb-4 lg:hidden`}>{selected.name}</h2>
+            <div className="fixed inset-0 z-40 flex flex-col bg-[#030810] lg:static lg:z-auto lg:flex lg:flex-col lg:bg-transparent">
+              {/* ── Sticky header (mobile + desktop) ── */}
+              <div className={`flex-shrink-0 flex items-center gap-3 px-4 py-3 border-b border-white/10 bg-[#030810]/95 backdrop-blur-md lg:bg-transparent lg:border-0 lg:px-0 lg:pt-0 lg:pb-3 lg:backdrop-blur-none`}>
+                <button
+                  onClick={() => setSelected(null)}
+                  className="lg:hidden flex items-center justify-center w-8 h-8 rounded-lg bg-white/8 text-white/60 hover:text-white hover:bg-white/15 transition flex-shrink-0"
+                >
+                  ‹
+                </button>
+                <h2 className="flex-1 text-base sm:text-lg font-semibold text-white truncate">{selected.name}</h2>
+                <span className={`text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${statusPill(selected.status)}`}>
+                  {selected.status.replace(/_/g, " ")}
+                </span>
+                <button
+                  onClick={() => setSelected(null)}
+                  className="hidden lg:flex items-center justify-center w-7 h-7 text-white/40 hover:text-white transition flex-shrink-0"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* ── Scrollable body ── */}
+              <div className={`flex-1 overflow-y-auto overscroll-contain lg:overflow-visible`}>
+              <div className={`${ui.card} lg:h-fit lg:sticky lg:top-4 p-4 sm:p-5 rounded-none lg:rounded-2xl`}>
 
               {/* Preview images */}
               {selected.preview_images && selected.preview_images.length > 0 && (
@@ -503,15 +528,86 @@ export default function MarketplaceModerationPage() {
                 </div>
               )}
 
+              {/* Live theme preview — always shown when config is available */}
+              {selected.config && (() => {
+                const cfg = selected.config;
+                const isVideo = cfg.backgroundMediaType === "video" || Boolean(cfg.backgroundVideo);
+                const bgSrc = isVideo
+                  ? (cfg.backgroundVideoPoster || cfg.background)
+                  : cfg.background;
+                const bgStyle = bgSrc
+                  ? bgSrc.startsWith("#") || bgSrc.startsWith("rgb") || bgSrc.startsWith("hsl") || bgSrc.startsWith("linear") || bgSrc.startsWith("radial")
+                    ? bgSrc
+                    : `url(${bgSrc}) center/cover no-repeat`
+                  : "#0a0a14";
+                const primaryColor = cfg.primaryColor ?? "#00ff99";
+                const textColor = cfg.textColor ?? "#ffffff";
+                const cardBg = (() => {
+                  if (cfg.cardBgMode === "gradient" && cfg.cardGradientFrom && cfg.cardGradientTo) {
+                    return `linear-gradient(${cfg.cardGradientDir ?? "to bottom right"}, ${cfg.cardGradientFrom}, ${cfg.cardGradientTo})`;
+                  }
+                  if (cfg.cardBgMode === "transparent") return "rgba(255,255,255,0.06)";
+                  return cfg.cardBackground ?? "rgba(255,255,255,0.08)";
+                })();
+
+                return (
+                  <div className="mb-4">
+                    <p className="text-[11px] text-white/30 uppercase tracking-wide mb-2">Config Preview</p>
+                    <div
+                      className="rounded-xl overflow-hidden border border-white/10 relative"
+                      style={{ background: bgStyle, minHeight: 140 }}
+                    >
+                      {/* Overlay for image backgrounds */}
+                      {bgSrc && !bgSrc.startsWith("#") && !bgSrc.startsWith("rgb") && (
+                        <div className="absolute inset-0 bg-black/40 pointer-events-none" />
+                      )}
+                      {isVideo && (
+                        <div className="absolute top-2 left-2 z-10 rounded-full bg-black/60 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white/80">
+                          video
+                        </div>
+                      )}
+                      <div className="relative z-10 flex flex-col items-center gap-2 py-5 px-4">
+                        {/* Avatar placeholder */}
+                        <div className="w-12 h-12 rounded-2xl bg-white/20 mb-0.5" />
+                        {/* Name */}
+                        <p className="text-sm font-bold" style={{ color: textColor }}>
+                          {selected.name}
+                        </p>
+                        {/* Card */}
+                        <div
+                          className="w-full max-w-[200px] rounded-xl px-3 py-2 flex flex-col gap-1.5"
+                          style={{ background: cardBg }}
+                        >
+                          <div className="grid grid-cols-3 gap-1">
+                            {[5, 10, 20].map((amt) => (
+                              <div
+                                key={amt}
+                                className="rounded-lg py-1 text-center text-[10px] font-bold text-black"
+                                style={{ background: primaryColor }}
+                              >
+                                ${amt}
+                              </div>
+                            ))}
+                          </div>
+                          <div
+                            className="rounded-lg py-1.5 text-center text-xs font-semibold text-black"
+                            style={{ background: primaryColor }}
+                          >
+                            Send Tip
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="space-y-2 text-sm mb-4">
                 <div className="flex gap-2">
                   <span className={ui.muted2}>Creator:</span>
                   <span className="text-white">{selected.creator?.display_name ?? selected.creator?.handle ?? selected.user_id}</span>
                 </div>
-                <div className="flex gap-2">
-                  <span className={ui.muted2}>Category:</span>
-                  <span className="text-white">{selected.category}</span>
-                </div>
+
                 {selected.tags && selected.tags.length > 0 && (
                   <div className="flex gap-2 flex-wrap">
                     {selected.tags.map((tg) => (
@@ -523,9 +619,6 @@ export default function MarketplaceModerationPage() {
                   <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-amber-400 text-xs">
                     {selected.moderation_reason}
                   </div>
-                )}
-                {selected.description && (
-                  <p className={`${ui.muted2} text-xs mt-2`}>{selected.description}</p>
                 )}
               </div>
 
@@ -612,36 +705,137 @@ export default function MarketplaceModerationPage() {
                 </div>
               )}
 
-              {/* Main action buttons */}
-              {!actionPanel && (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    className="rounded-xl px-3 py-3 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-sm font-semibold hover:bg-emerald-500/30 transition disabled:opacity-50 col-span-2"
-                    disabled={actionState === "loading"}
-                    onClick={() => doApprove(selected.id)}
-                  >
-                    {actionState === "loading" ? "…" : "✅ Approve"}
-                  </button>
-                  <button
-                    className="rounded-xl px-3 py-3 bg-red-600/20 border border-red-600/30 text-red-400 text-sm font-semibold hover:bg-red-600/30 transition col-span-2"
-                    onClick={() => setActionPanel("reject")}
-                  >
-                    🚫 Reject
-                  </button>
-                  <button
-                    className="rounded-xl px-3 py-3 bg-amber-500/20 border border-amber-500/30 text-amber-400 text-sm font-semibold hover:bg-amber-500/30 transition"
-                    onClick={() => setActionPanel("flag")}
-                  >
-                    🚩 Flag
-                  </button>
-                  <button
-                    className="rounded-xl px-3 py-3 bg-red-500/20 border border-red-500/30 text-red-400 text-sm font-semibold hover:bg-red-500/30 transition"
-                    onClick={() => setActionPanel("strike")}
-                  >
-                    ⚡ Strike Creator
-                  </button>
-                </div>
-              )}
+              </div>
+              </div>
+
+              {/* ── Desktop-only action buttons (inside card) ── */}
+              <div className="hidden lg:block p-5 pt-0">
+                {!actionPanel && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      className="rounded-xl px-3 py-3 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-sm font-semibold hover:bg-emerald-500/30 transition disabled:opacity-50 col-span-2"
+                      disabled={actionState === "loading"}
+                      onClick={() => doApprove(selected.id)}
+                    >
+                      {actionState === "loading" ? "…" : "✅ Approve"}
+                    </button>
+                    <button
+                      className="rounded-xl px-3 py-3 bg-red-600/20 border border-red-600/30 text-red-400 text-sm font-semibold hover:bg-red-600/30 transition col-span-2"
+                      onClick={() => setActionPanel("reject")}
+                    >
+                      🚫 Reject
+                    </button>
+                    <button
+                      className="rounded-xl px-3 py-3 bg-amber-500/20 border border-amber-500/30 text-amber-400 text-sm font-semibold hover:bg-amber-500/30 transition"
+                      onClick={() => setActionPanel("flag")}
+                    >
+                      🚩 Flag
+                    </button>
+                    <button
+                      className="rounded-xl px-3 py-3 bg-red-500/20 border border-red-500/30 text-red-400 text-sm font-semibold hover:bg-red-500/30 transition"
+                      onClick={() => setActionPanel("strike")}
+                    >
+                      ⚡ Strike Creator
+                    </button>
+                  </div>
+                )}
+              </div>
+              {/* ── Sticky footer: action buttons (mobile) ── */}
+              <div className="flex-shrink-0 border-t border-white/10 bg-[#030810]/95 backdrop-blur-md lg:hidden px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 space-y-2">
+                {!actionPanel && (
+                  <>
+                    <button
+                      className="w-full rounded-xl px-3 py-3 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-sm font-semibold hover:bg-emerald-500/30 transition disabled:opacity-50"
+                      disabled={actionState === "loading"}
+                      onClick={() => doApprove(selected.id)}
+                    >
+                      {actionState === "loading" ? "…" : "✅ Approve"}
+                    </button>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        className="rounded-xl px-3 py-2.5 bg-red-600/20 border border-red-600/30 text-red-400 text-sm font-semibold hover:bg-red-600/30 transition"
+                        onClick={() => setActionPanel("reject")}
+                      >
+                        🚫 Reject
+                      </button>
+                      <button
+                        className="rounded-xl px-3 py-2.5 bg-amber-500/20 border border-amber-500/30 text-amber-400 text-sm font-semibold hover:bg-amber-500/30 transition"
+                        onClick={() => setActionPanel("flag")}
+                      >
+                        🚩 Flag
+                      </button>
+                      <button
+                        className="rounded-xl px-3 py-2.5 bg-red-500/20 border border-red-500/30 text-red-400 text-sm font-semibold hover:bg-red-500/30 transition"
+                        onClick={() => setActionPanel("strike")}
+                      >
+                        ⚡ Strike
+                      </button>
+                    </div>
+                  </>
+                )}
+                {actionPanel === "flag" && (
+                  <div className="space-y-2">
+                    <textarea
+                      className={`${ui.input} min-h-[64px] resize-none text-sm w-full`}
+                      placeholder="Reason for flagging…"
+                      autoFocus
+                      value={flagReason}
+                      onChange={(e) => setFlagReason(e.target.value)}
+                    />
+                    <div className="flex gap-2">
+                      <button className={`${ui.btnGhost} text-sm flex-1 py-2.5`} onClick={() => setActionPanel(null)}>Cancel</button>
+                      <button
+                        className="flex-1 rounded-xl px-4 py-2.5 bg-amber-500/20 border border-amber-500/30 text-amber-400 text-sm font-semibold disabled:opacity-50 transition"
+                        disabled={!flagReason.trim() || actionState === "loading"}
+                        onClick={() => doFlag(selected.id)}
+                      >
+                        {actionState === "loading" ? "Flagging…" : "Flag Theme"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {actionPanel === "reject" && (
+                  <div className="space-y-2">
+                    <textarea
+                      className={`${ui.input} min-h-[72px] resize-none text-sm w-full`}
+                      placeholder="Rejection reason (sent to creator)…"
+                      autoFocus
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                    />
+                    <div className="flex gap-2">
+                      <button className={`${ui.btnGhost} text-sm flex-1 py-2.5`} onClick={() => setActionPanel(null)}>Cancel</button>
+                      <button
+                        className="flex-1 rounded-xl px-4 py-2.5 bg-red-600/20 border border-red-600/30 text-red-400 text-sm font-semibold disabled:opacity-50 transition"
+                        disabled={!rejectReason.trim() || actionState === "loading"}
+                        onClick={() => doReject(selected.id)}
+                      >
+                        {actionState === "loading" ? "Rejecting…" : "🚫 Reject & Notify"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {actionPanel === "strike" && (
+                  <div className="space-y-2">
+                    <textarea
+                      className={`${ui.input} min-h-[64px] resize-none text-sm w-full`}
+                      placeholder="Reason for strike…"
+                      autoFocus
+                      value={strikeReason}
+                      onChange={(e) => setStrikeReason(e.target.value)}
+                    />
+                    <div className="flex gap-2">
+                      <button className={`${ui.btnGhost} text-sm flex-1 py-2.5`} onClick={() => setActionPanel(null)}>Cancel</button>
+                      <button
+                        className="flex-1 rounded-xl px-4 py-2.5 bg-red-500/20 border border-red-500/30 text-red-400 text-sm font-semibold disabled:opacity-50 transition"
+                        disabled={!strikeReason.trim() || actionState === "loading"}
+                        onClick={() => doStrike(selected.id)}
+                      >
+                        {actionState === "loading" ? "Issuing…" : "Issue Strike"}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
