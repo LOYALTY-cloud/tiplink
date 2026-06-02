@@ -246,7 +246,8 @@ export default function MarketplaceModerationPage() {
         headers: { ...getAdminHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ themeId, reason: strikeReason.trim() }),
       });
-      const json = await res.json();
+      const text = await res.text();
+      const json = text ? JSON.parse(text) : {};
       if (res.ok) {
         showToast(`Strike issued (${json.strikes} total) 🚨`);
         setThemes((prev) => prev.filter((t) => t.id !== themeId));
@@ -277,7 +278,8 @@ export default function MarketplaceModerationPage() {
         setActionPanel(null);
         setRejectReason("");
       } else {
-        const json = await res.json();
+        const text = await res.text();
+        const json = text ? JSON.parse(text) : {};
         showToast(json.error ?? "Failed to reject theme.");
       }
     } finally {
