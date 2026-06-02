@@ -4,6 +4,7 @@ import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
 import { sendEmail } from "@/lib/emailService";
 import { emailFooter } from "@/lib/email/footer";
+import { createNotification } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -74,6 +75,17 @@ export async function POST(req: Request) {
       event_type: "human_reject",
       ai_reason: reason,
       reviewed_by: session.userId,
+    });
+
+    // In-app notification (non-blocking, skip email — dedicated email sent below)
+    void createNotification({
+      userId: theme.user_id,
+      type: "theme_rejected",
+      title: `Your theme "${themeName}" was not approved`,
+      body: reason,
+      category: "system",
+      entityId: themeId,
+      skipEmail: true,
     });
 
     // Send rejection email to creator
