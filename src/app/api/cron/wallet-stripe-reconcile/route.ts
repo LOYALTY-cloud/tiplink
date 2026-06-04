@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe/server";
 import { sendAdminAlert } from "@/lib/adminAlerts";
+import { addLedgerEntry } from "@/lib/ledger";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -70,6 +71,7 @@ export async function GET(req: Request) {
 
   let checked = 0;
   let errors = 0;
+  let autoCorrections = 0;
 
   for (const profile of profiles) {
     const accountId = profile.stripe_account_id as string;
@@ -81,12 +83,52 @@ export async function GET(req: Request) {
         { stripeAccount: accountId }
       );
 
-      // Use available balance (what they can actually withdraw)
       const stripeAvailable =
         (stripeBalance.available.find((b) => b.currency === "usd")?.amount ?? 0) / 100;
+      const stripePending =
+        (stripeBalance.pending.find((b) => b.currency === "usd")?.amount ?? 0) / 100;
+      const stripeTotal = stripeAvailable + stripePending;
 
-      const drift = Math.round((ourBalance - stripeAvailable) * 100) / 100;
+      const drift = Math.round((ourBalance - stripeTotal) * 100) / 100;
       checked++;
+
+      // AUTO-CORRECT: Stripe shows exactly $0 (both available + pending) but DB is positive.
+      // This is unambiguous — the money has left Stripe (payout completed, webhook missed).
+      // Safe to auto-debit the DB balance to match.
+      if (stripeAvailable === 0 && stripePending === 0 && ourBalance > 0.01) {
+        try {
+          await addLedgerEntry({
+            user_id: profile.user_id as string,
+            type: "adjustment",
+            amount: -ourBalance,
+            reference_id: null,
+            meta: {
+              action: "reconcile_auto_correction",
+              reason: "Stripe balance is $0 (available + pending) — payout completed without webhook debit",
+              db_balance_before: ourBalance,
+              stripe_available: stripeAvailable,
+              stripe_pending: stripePending,
+              stripe_account_id: accountId,
+              corrected_at: new Date().toISOString(),
+            },
+          });
+
+          // Mark as resolved in discrepancies table
+          await supabaseAdmin
+            .from("wallet_stripe_discrepancies")
+            .update({ resolved: true, resolved_at: new Date().toISOString() })
+            .eq("user_id", profile.user_id as string)
+            .eq("resolved", false)
+            .catch(() => {});
+
+          autoCorrections++;
+          console.log(`[wallet-stripe-reconcile] Auto-corrected @${profile.handle}: zeroed DB balance $${ourBalance.toFixed(2)} (Stripe=$0)`);
+        } catch (corrErr) {
+          console.error(`[wallet-stripe-reconcile] Auto-correction failed for ${accountId}:`, corrErr);
+          errors++;
+        }
+        continue; // Don't add to discrepancies list since we fixed it
+      }
 
       // Only flag discrepancies above $1 threshold to avoid noise from timing
       if (Math.abs(drift) > 1) {
@@ -95,7 +137,7 @@ export async function GET(req: Request) {
           handle: (profile.handle as string) ?? "",
           stripe_account_id: accountId,
           our_balance: ourBalance,
-          stripe_balance: stripeAvailable,
+          stripe_balance: stripeTotal,
           drift,
           direction: drift > 0 ? "our_ahead" : "stripe_ahead",
         });
@@ -142,18 +184,19 @@ export async function GET(req: Request) {
       subject: `Wallet/Stripe balance drift detected — ${discrepancies.length} account(s)`,
       body: `${discrepancies.length} connected account(s) have balance discrepancies:\n\n${topDrifts}\n\nReview at /admin/revenue`,
       severity: discrepancies.some((d) => Math.abs(d.drift) > 50) ? "critical" : "warning",
-      meta: { count: discrepancies.length, checked },
+      meta: { count: discrepancies.length, checked, auto_corrections: autoCorrections },
     });
   }
 
   console.log(
-    `[wallet-stripe-reconcile] checked=${checked} discrepancies=${discrepancies.length} errors=${errors}`
+    `[wallet-stripe-reconcile] checked=${checked} discrepancies=${discrepancies.length} auto_corrections=${autoCorrections} errors=${errors}`
   );
 
   return NextResponse.json({
     ok: true,
     checked,
     discrepancies: discrepancies.length,
+    auto_corrections: autoCorrections,
     errors,
     details: discrepancies,
   });
