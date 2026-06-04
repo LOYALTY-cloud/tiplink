@@ -96,7 +96,7 @@ export default function DashboardPage() {
     const bal = Number(walletData?.balance ?? 0);
     setWallet({ balance: bal, withdraw_fee: Number(walletData?.withdraw_fee ?? 0) });
     setInstantAvailable(getNetWithdrawalAmount(bal, "instant"));
-    setPendingAmount(bal);
+    setPendingAmount(0); // no Stripe data available in fallback — pending is unknown, show $0
     setLoadingWallet(false);
   };
 
