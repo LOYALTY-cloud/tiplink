@@ -92,6 +92,10 @@ export default function DashboardLayout({
     for (const key of ["supabase.auth.token", "supabase.auth.token.0", "supabase.auth.token.1"]) {
       document.cookie = `${key}=; path=/; max-age=0; samesite=lax`;
     }
+    // Clear session-lock keys so they don't cause an immediate logout on next login
+    localStorage.removeItem("user_lock_reason");
+    localStorage.removeItem("user_last_active");
+    localStorage.removeItem("user_tab_hidden_at");
     await supabase.auth.signOut();
     router.replace("/login");
   };
