@@ -31,8 +31,9 @@ const fromCents = (n: number) => Number((n / 100).toFixed(2));
 export async function POST(req: Request) {
   let lockUserId: string | null = null;
   try {
-    const { amount, destination } = await req.json();
+    const { amount, destination, payout_type } = await req.json();
     const amt = Number(amount);
+    const payoutType: "instant" | "standard" = payout_type === "standard" ? "standard" : "instant";
 
     if (!Number.isFinite(amt) || amt <= 0) {
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
@@ -515,9 +516,9 @@ export async function POST(req: Request) {
       payoutPolicyReason = `${payoutPolicyReason} • Category: ${creatorCategory.name} (${categoryRisk})`;
     }
 
-    // Compute fee + net
-    const withdrawalFee = getWithdrawalFee(amt, "instant");
-    const netAmount = getNetWithdrawalAmount(amt, "instant");
+    // Compute fee + net based on payout type
+    const withdrawalFee = getWithdrawalFee(amt, payoutType);
+    const netAmount = getNetWithdrawalAmount(amt, payoutType);
 
     // Create withdrawal row first
     const { data: w, error: wErr } = await supabaseAdmin
@@ -562,7 +563,7 @@ export async function POST(req: Request) {
         reference_id: w.id,
         meta: {
           action: "withdrawal",
-          method: "instant",
+          method: payoutType,
           fee: withdrawalFee,
           net: netAmount,
           currency: "usd",
@@ -585,14 +586,14 @@ export async function POST(req: Request) {
     // Only trigger the Stripe payout immediately for "approved" withdrawals.
     // "pending" withdrawals are held until release_at — the release-payouts cron handles them.
     if (withdrawalStatus === "approved") {
-      const payoutMethod = "instant" as const;
+      const payoutMethod = payoutType;
       let payout;
 
-      // Verify the net payout amount is covered by instant-eligible Stripe funds.
-      // instant_available is a subset of available — if this check fails, funds exist
-      // but are not yet on an instant-eligible instrument.
       const netCents = toCents(netAmount);
-      if (netCents > instantAvailableCents) {
+
+      // For instant payouts: verify net is covered by instant-eligible Stripe funds.
+      // Standard payouts can draw from the full available balance — skip this check.
+      if (payoutType === "instant" && netCents > instantAvailableCents) {
         // Reverse the already-recorded ledger debit and mark the withdrawal failed
         try {
           await addLedgerEntry({
@@ -622,7 +623,7 @@ export async function POST(req: Request) {
           {
             amount: netCents,
             currency: "usd",
-            method: "instant",
+            ...(payoutType === "instant" ? { method: "instant" } : {}),
             statement_descriptor: "1NELINK PAYOUT",
             metadata: { withdrawal_id: w.id, user_id: userId },
             ...(payoutDestination ? { destination: payoutDestination } : {}),

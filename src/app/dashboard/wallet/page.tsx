@@ -56,6 +56,8 @@ export default function WalletPage() {
     temp_unfreeze_until: string | null;
   } | null>(null);
   const [instantAvailable, setInstantAvailable] = useState<number | null>(null);
+  const [stripeAvailable, setStripeAvailable] = useState<number | null>(null);
+  const [withdrawMode, setWithdrawMode] = useState<"instant" | "standard">("instant");
   const { toasts, show: showToast, dismiss } = useToast(4000);
   const router = useRouter();
   
@@ -134,17 +136,18 @@ export default function WalletPage() {
     return Number.isFinite(n) ? n : 0;
   }, [amountStr]);
 
-  const fee = useMemo(() => getWithdrawalFee(amount, "instant"), [amount]);
+  const fee = useMemo(() => getWithdrawalFee(amount, withdrawMode), [amount, withdrawMode]);
   const net = useMemo(() => Math.max(0, amount - fee), [amount, fee]);
 
+  const effectiveMax = withdrawMode === "standard" ? (stripeAvailable ?? availableBalance) : availableBalance;
   const amountTooLow = amount > 0 && amount < 1;
-  const amountTooHigh = amount > availableBalance;
+  const amountTooHigh = amount > effectiveMax;
   const invalid = amount <= 0 || amountTooLow || amountTooHigh;
 
   const tierLabel = useMemo(() => {
     if (amount <= 0) return null;
-    return "Instant: 5%";
-  }, [amount]);
+    return withdrawMode === "instant" ? "Instant: 5%" : "Standard: 3.5% + $0.30";
+  }, [amount, withdrawMode]);
 
   const loadPayout = async () => {
     const { data: userRes } = await supabase.auth.getUser();
@@ -304,6 +307,14 @@ export default function WalletPage() {
       if (res.ok) {
         const json = await res.json();
         setInstantAvailable(typeof json.instantAvailable === "number" ? json.instantAvailable : null);
+      }
+      // Also fetch stripe_available from wallet/balance
+      const res2 = await fetch("/api/wallet/balance", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res2.ok) {
+        const j2 = await res2.json();
+        setStripeAvailable(typeof j2.stripe_available === "number" ? j2.stripe_available : null);
       }
     } catch {
       // Non-blocking — wallet still works without Stripe balance
@@ -520,7 +531,7 @@ export default function WalletPage() {
   const onWithdraw = async () => {
     setWithdrawError(null);
       setWithdrawErrorKind("error");
-    if (amount > availableBalance) {
+    if (amount > effectiveMax) {
       setShowInsufficientModal(true);
       return;
     }
@@ -556,7 +567,7 @@ export default function WalletPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ amount, destination }),
+        body: JSON.stringify({ amount, destination, payout_type: withdrawMode }),
       });
       json = await res.json();
     } catch {
@@ -826,10 +837,38 @@ export default function WalletPage() {
       <div id="withdraw-section" className={`${ui.card} mt-6 p-4 space-y-4`}>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white/90">Withdraw</h2>
-          <span className={`${ui.chip} bg-blue-500/10 border-blue-400/20 text-blue-200`}>
-            Instant payouts
-          </span>
+          {/* Instant / Standard toggle */}
+          <div className="flex items-center bg-white/5 border border-white/10 rounded-xl p-0.5">
+            <button
+              type="button"
+              onClick={() => setWithdrawMode("instant")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                withdrawMode === "instant"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                  : "text-white/40 hover:text-white/60"
+              }`}
+            >
+              ⚡ Instant
+            </button>
+            <button
+              type="button"
+              onClick={() => setWithdrawMode("standard")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                withdrawMode === "standard"
+                  ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                  : "text-white/40 hover:text-white/60"
+              }`}
+            >
+              🏦 Standard
+            </button>
+          </div>
         </div>
+        {/* Mode description */}
+        <p className="text-xs text-white/40 -mt-2">
+          {withdrawMode === "instant"
+            ? "⚡ Arrives in minutes · 5% fee · requires instant-eligible card"
+            : "🏦 Arrives in 1–3 business days · 3.5% + $0.30 fee"}
+        </p>
 
         {/* Payout Method Selector */}
         {allMethods.length === 0 ? (
@@ -892,7 +931,7 @@ export default function WalletPage() {
           <button
             type="button"
             className={`${ui.btnGhost} ${ui.btnSmall} shrink-0`}
-            onClick={() => quickFill(availableBalance)}
+            onClick={() => quickFill(effectiveMax)}
           >
             Max
           </button>
@@ -916,7 +955,7 @@ export default function WalletPage() {
         {amountTooHigh && (
           <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-400/20 rounded-xl px-3 py-2">
             <span>⚠</span>
-            <span>Exceeds available balance of <strong>{formatMoney(availableBalance)}</strong></span>
+            <span>Exceeds {withdrawMode === "standard" ? "Stripe available" : "available"} balance of <strong>{formatMoney(effectiveMax)}</strong></span>
           </div>
         )}
         {amountTooLow && (

@@ -36,8 +36,16 @@ export default function DashboardPage() {
   const [loadingWallet, setLoadingWallet] = useState(true);
   const [tipFloat, setTipFloat] = useState<number | null>(null);
   const [instantAvailable, setInstantAvailable] = useState<number | null>(null);
+  const [stripeAvailable, setStripeAvailable] = useState<number | null>(null);
   const [pendingAmount, setPendingAmount] = useState<number | null>(null);
   const [pendingAvailableOn, setPendingAvailableOn] = useState<string | null>(null);
+  const [withdrawCardMode, setWithdrawCardMode] = useState<"instant" | "standard">(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("dashboard_withdraw_card_mode") as "instant" | "standard") || "instant";
+    }
+    return "instant";
+  });
+  const [showWithdrawCardMenu, setShowWithdrawCardMenu] = useState(false);
 
   // Creator application
   const [isCreator, setIsCreator] = useState<boolean | null>(null);
@@ -68,6 +76,7 @@ export default function DashboardPage() {
           const bal = Number(j.total_balance ?? 0);
           setWallet({ balance: bal, withdraw_fee: 0 });
           setInstantAvailable(typeof j.instant_available === "number" ? j.instant_available : getNetWithdrawalAmount(bal, "instant"));
+          setStripeAvailable(typeof j.stripe_available === "number" ? j.stripe_available : bal);
           setPendingAmount(typeof j.available_soon === "number" ? j.available_soon : bal);
           if (typeof j.pending_available_on === "string") setPendingAvailableOn(j.pending_available_on);
           setLoadingWallet(false);
@@ -504,13 +513,53 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Instant Withdrawal */}
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
-          <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">Instant Withdrawal</p>
+        {/* Instant / Standard Withdrawal toggle card */}
+        <div className="relative rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
+          <div className="flex items-start justify-between">
+            <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">
+              {withdrawCardMode === "instant" ? "Instant Withdrawal" : "Standard Withdrawal"}
+            </p>
+            {/* 3-dot menu */}
+            <div className="relative">
+              <button
+                onClick={() => setShowWithdrawCardMenu((v) => !v)}
+                className="text-white/30 hover:text-white/60 transition p-1 -mt-1 -mr-1 rounded-lg"
+                aria-label="Switch withdrawal type"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <circle cx="4" cy="10" r="1.5" /><circle cx="10" cy="10" r="1.5" /><circle cx="16" cy="10" r="1.5" />
+                </svg>
+              </button>
+              {showWithdrawCardMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowWithdrawCardMenu(false)} />
+                  <div className="absolute right-0 top-7 z-20 bg-[#0f1623] border border-white/10 rounded-xl shadow-xl w-52 py-1 text-sm">
+                    <button
+                      className={`w-full text-left px-4 py-2.5 hover:bg-white/5 transition flex items-center gap-2 ${withdrawCardMode === "instant" ? "text-emerald-400 font-medium" : "text-white/70"}`}
+                      onClick={() => { setWithdrawCardMode("instant"); localStorage.setItem("dashboard_withdraw_card_mode", "instant"); setShowWithdrawCardMenu(false); }}
+                    >
+                      <span>⚡</span> Instant <span className="ml-auto text-[11px] text-white/40">5% fee</span>
+                    </button>
+                    <button
+                      className={`w-full text-left px-4 py-2.5 hover:bg-white/5 transition flex items-center gap-2 ${withdrawCardMode === "standard" ? "text-emerald-400 font-medium" : "text-white/70"}`}
+                      onClick={() => { setWithdrawCardMode("standard"); localStorage.setItem("dashboard_withdraw_card_mode", "standard"); setShowWithdrawCardMenu(false); }}
+                    >
+                      <span>🏦</span> Standard <span className="ml-auto text-[11px] text-white/40">3.5% + $0.30</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
           <p className={`mt-2 text-3xl font-bold ${loadingWallet ? "text-emerald-400/20 animate-pulse" : "text-emerald-400"}`}>
-            {loadingWallet ? "$—.——" : formatMoney(instantAvailable ?? 0)}
+            {loadingWallet ? "$—.——" : withdrawCardMode === "instant"
+              ? formatMoney(instantAvailable ?? 0)
+              : formatMoney(getNetWithdrawalAmount(stripeAvailable ?? 0, "standard"))
+            }
           </p>
-          <p className="mt-1 text-xs text-emerald-300">⚡ Available now</p>
+          <p className="mt-1 text-xs text-emerald-300">
+            {withdrawCardMode === "instant" ? "⚡ Available now" : "🏦 1–3 business days"}
+          </p>
         </div>
       </div>
 
