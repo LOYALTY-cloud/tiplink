@@ -77,12 +77,12 @@ export async function GET(req: Request) {
       }
     }
 
-    // Available balance = DB wallet (primary) OR Stripe available+pending if no wallet row yet
+    // Available balance = DB wallet (primary) OR Stripe available if no wallet row yet
     const stripeTotal = stripeAvailable + stripePending;
-    const availableBalance = dbBalance > 0 ? dbBalance : stripeTotal;
+    const availableBalance = dbBalance > 0 ? dbBalance : stripeAvailable;
 
-    // Available Soon = all balance (settled + in transit from Stripe)
-    const availableSoon = dbBalance > 0 ? dbBalance + stripePending : stripeTotal;
+    // Available Soon = only Stripe pending (funds in transit, not yet settled)
+    const availableSoon = stripePending;
 
     // Instant Withdrawal = available balance after our 5% instant fee
     const instantAvailable = getNetWithdrawalAmount(availableBalance, "instant");
@@ -90,6 +90,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       total_balance: availableBalance,
       available_balance: availableBalance,
+      stripe_available: stripeAvailable,
       available_soon: availableSoon,
       instant_available: instantAvailable,
       pending_available_on: pendingAvailableOn,

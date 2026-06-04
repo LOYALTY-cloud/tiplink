@@ -71,6 +71,13 @@ export default function LoginPage() {
         return;
       }
 
+      // Clear any stale session-lock keys from a previous session so the
+      // useUserLock mount effect doesn't see an old timestamp and immediately
+      // call performLogout() on the very first render after login.
+      localStorage.removeItem("user_lock_reason");
+      localStorage.removeItem("user_last_active");
+      localStorage.removeItem("user_tab_hidden_at");
+
       setSuccess(true);
       // Hard navigation bypasses the Next.js router cache, which can otherwise
       // serve a stale /dashboard route that doesn't re-run middleware.
