@@ -90,6 +90,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       total_balance: availableBalance,
       available_balance: availableBalance,
+      stripe_available: stripeAvailable,
       available_soon: availableSoon,
       instant_available: instantAvailable,
       pending_available_on: pendingAvailableOn,
