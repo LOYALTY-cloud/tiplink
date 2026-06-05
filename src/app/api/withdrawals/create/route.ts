@@ -141,7 +141,57 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Withdrawal failed. Please try again." }, { status: 500 });
     }
 
-    const balance = Number((walletRow?.balance ?? 0) || 0);
+    let balance = Number((walletRow?.balance ?? 0) || 0);
+
+    // If the ledger wallet is empty but the user has a Stripe connected account,
+    // fall back to the live Stripe available balance — same as the display API.
+    // This handles cases where tip webhooks were missed and the ledger was never
+    // seeded. We read Stripe here (before the balance check) so the user is not
+    // blocked from withdrawing money that is genuinely in their account.
+    // The Stripe balance is re-verified later in the payout guard anyway.
+    if (balance === 0 && prof?.stripe_account_id) {
+      try {
+        const liveBal = await stripe.balance.retrieve({}, { stripeAccount: prof.stripe_account_id });
+        const liveAvailable = (liveBal.available ?? [])
+          .filter((b) => b.currency === "usd")
+          .reduce((sum, b) => sum + b.amount, 0) / 100;
+        const livePending = (liveBal.pending ?? [])
+          .filter((b) => b.currency === "usd")
+          .reduce((sum, b) => sum + b.amount, 0) / 100;
+        const liveTotal = liveAvailable + livePending;
+        if (liveTotal > 0) {
+          balance = liveTotal;
+          // Seed the ledger so the wallet balance is consistent going forward.
+          // Idempotency: only insert if no prior seeding entry exists.
+          const { data: seedExists } = await supabaseAdmin
+            .from("transactions_ledger")
+            .select("id")
+            .eq("user_id", userId)
+            .eq("type", "deposit")
+            .like("reference_id", "stripe_seed_%")
+            .maybeSingle();
+          if (!seedExists) {
+            const { addLedgerEntry: addEntry } = await import("@/lib/ledger");
+            await addEntry({
+              user_id: userId,
+              type: "deposit",
+              amount: liveTotal,
+              reference_id: `stripe_seed_${prof.stripe_account_id}`,
+              meta: {
+                action: "stripe_seed",
+                reason: "wallet ledger empty — seeded from live Stripe balance before withdrawal",
+                stripe_available: liveAvailable,
+                stripe_pending: livePending,
+                seeded_at: new Date().toISOString(),
+              },
+            });
+          }
+        }
+      } catch (e) {
+        // Non-fatal — proceed with balance=0; the payout guard below will block if Stripe is empty
+        console.warn("[withdrawal] Stripe balance seed fetch failed:", e instanceof Error ? e.message : e);
+      }
+    }
 
     // Re-fetch daily_withdrawn under lock to prevent stale-read bypass of daily limit
     {
