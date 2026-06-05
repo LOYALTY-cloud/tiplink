@@ -287,7 +287,13 @@ export async function POST(req: Request) {
 
     const reqCents = toCents(amt);
 
-    if (reqCents > availableUsdCents) {
+    // For instant payouts Stripe advances pending funds — the relevant ceiling is
+    // instantAvailableCents, not the standard availableUsdCents.  Only fall
+    // through to the pending-funds error for standard payouts (or when the
+    // amount also exceeds the instant ceiling).
+    const isInstantEligibleByStripe = payoutType === "instant" && reqCents <= instantAvailableCents;
+
+    if (reqCents > availableUsdCents && !isInstantEligibleByStripe) {
       // Check if funds exist but are still pending settlement in Stripe
       const pendingUsdCents =
         (bal.pending || [])
