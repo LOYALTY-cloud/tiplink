@@ -57,6 +57,7 @@ export default function WalletPage() {
   } | null>(null);
   const [instantAvailable, setInstantAvailable] = useState<number | null>(null);
   const [stripeAvailable, setStripeAvailable] = useState<number | null>(null);
+  const [stripeInstantGross, setStripeInstantGross] = useState<number | null>(null);
   const [withdrawMode, setWithdrawMode] = useState<"instant" | "standard">("instant");
   const { toasts, show: showToast, dismiss } = useToast(4000);
   const router = useRouter();
@@ -123,6 +124,7 @@ export default function WalletPage() {
           setWallet({ balance: bal, withdraw_fee: wfee });
           setInstantAvailable(typeof j.instant_available === "number" ? j.instant_available : null);
           setStripeAvailable(typeof j.stripe_available === "number" ? j.stripe_available : null);
+          setStripeInstantGross(typeof j.stripe_instant_gross === "number" ? j.stripe_instant_gross : null);
           setLoadingWallet(false);
           return;
         }
@@ -147,6 +149,7 @@ export default function WalletPage() {
     setWallet({ balance: bal, withdraw_fee: Number(data.withdraw_fee ?? 0) });
     setInstantAvailable(null); // Stripe data unavailable in fallback
     setStripeAvailable(null);
+    setStripeInstantGross(null);
     setLoadingWallet(false);
   };
 
@@ -163,7 +166,13 @@ export default function WalletPage() {
   const fee = useMemo(() => getWithdrawalFee(amount, withdrawMode), [amount, withdrawMode]);
   const net = useMemo(() => Math.max(0, amount - fee), [amount, fee]);
 
-  const effectiveMax = withdrawMode === "standard" ? (stripeAvailable ?? availableBalance) : availableBalance;
+  // effectiveMax: cap instant at Stripe's actual instant-eligible ceiling
+  // so the form never accepts more than the server will pay out.
+  const effectiveMax = withdrawMode === "standard"
+    ? (stripeAvailable ?? availableBalance)
+    : stripeInstantGross != null
+      ? Math.min(availableBalance, stripeInstantGross)
+      : availableBalance;
   const amountTooLow = amount > 0 && amount < 1;
   const amountTooHigh = amount > effectiveMax;
   const invalid = amount <= 0 || amountTooLow || amountTooHigh;
@@ -322,24 +331,10 @@ export default function WalletPage() {
   };
 
   const loadStripeBalance = async () => {
-    const token = await getAuthToken();
-    if (!token) return;
-    try {
-      // /api/stripe/balance returns the precise Stripe-calculated instant net
-      // (using instant_available.net_available). Use it to override the
-      // estimate from reloadWallet() if the value is available.
-      const res = await fetch("/api/stripe/balance", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (typeof json.instantAvailable === "number") {
-          setInstantAvailable(json.instantAvailable);
-        }
-      }
-    } catch {
-      // Non-blocking — wallet still works without Stripe's precise instant net
-    }
+    // Balance API already returns the correctly-calculated instant_available
+    // (our 5% fee on min(dbBalance, stripeInstantGross)). No separate Stripe
+    // fetch needed — calling it would override with Stripe's 1.5% fee figure
+    // which is a different number and confuses users.
   };
 
   const loadLatestWithdrawal = async () => {

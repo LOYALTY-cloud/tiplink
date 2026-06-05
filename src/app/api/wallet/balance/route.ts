@@ -32,6 +32,7 @@ export async function GET(req: Request) {
 
     let stripeAvailable = 0;
     let stripePending = 0;
+    let stripeInstantGross = 0; // raw Stripe instant_available (before any fee)
     let pendingAvailableOn: string | null = null;
 
     if (profile?.stripe_account_id) {
@@ -52,6 +53,12 @@ export async function GET(req: Request) {
         stripePending = (bal.pending ?? [])
           .filter((p) => p.currency === "usd")
           .reduce((sum, p) => sum + p.amount, 0) / 100;
+
+        // Raw instant_available — what Stripe will allow for instant payouts
+        // (before Stripe's own 1.5% fee). We apply our 5% fee on this ceiling.
+        stripeInstantGross = ((bal as any).instant_available ?? [])
+          .filter((p: any) => p.currency === "usd")
+          .reduce((sum: number, p: any) => sum + p.amount, 0) / 100;
 
         // Fetch soonest available_on date for pending funds
         if (stripePending > 0) {
@@ -78,19 +85,25 @@ export async function GET(req: Request) {
     }
 
     // Available balance = DB wallet (primary) OR Stripe available if no wallet row yet
-    const stripeTotal = stripeAvailable + stripePending;
     const availableBalance = dbBalance > 0 ? dbBalance : stripeAvailable;
 
     // Available Soon = only Stripe pending (funds in transit, not yet settled)
     const availableSoon = stripePending;
 
-    // Instant Withdrawal = available balance after our 5% instant fee
-    const instantAvailable = getNetWithdrawalAmount(availableBalance, "instant");
+    // Instant Withdrawal net = our 5% fee applied to the lesser of:
+    //   - the DB wallet balance (what we track), and
+    //   - Stripe's instant_available gross (what Stripe will actually pay out)
+    // This prevents showing a number the server would reject.
+    const instantCeiling = stripeInstantGross > 0
+      ? Math.min(availableBalance, stripeInstantGross)
+      : availableBalance;
+    const instantAvailable = getNetWithdrawalAmount(instantCeiling, "instant");
 
     return NextResponse.json({
       total_balance: availableBalance,
       available_balance: availableBalance,
       stripe_available: stripeAvailable,
+      stripe_instant_gross: stripeInstantGross,
       available_soon: availableSoon,
       instant_available: instantAvailable,
       pending_available_on: pendingAvailableOn,
