@@ -101,10 +101,35 @@ export default function WalletPage() {
     const user = userRes.user;
     if (!user) {
       setWallet({ balance: 0, withdraw_fee: 0 });
+      setInstantAvailable(0);
+      setStripeAvailable(0);
       setLoadingWallet(false);
       return;
     }
 
+    // Prefer the unified balance API — it returns wallet balance, Stripe
+    // available, and instant_available (after 5% fee) in one shot.
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess.session?.access_token;
+    if (token) {
+      try {
+        const res = await fetch("/api/wallet/balance", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const j = await res.json().catch(() => null);
+        if (j && !j.error) {
+          const bal = Number(j.available_balance ?? 0);
+          const wfee = Number(j.withdraw_fee ?? 0);
+          setWallet({ balance: bal, withdraw_fee: wfee });
+          setInstantAvailable(typeof j.instant_available === "number" ? j.instant_available : null);
+          setStripeAvailable(typeof j.stripe_available === "number" ? j.stripe_available : null);
+          setLoadingWallet(false);
+          return;
+        }
+      } catch { /* fall through to DB fallback */ }
+    }
+
+    // Fallback: read directly from DB when token is unavailable
     const { data, error } = await supabase
       .from("wallets")
       .select("balance, withdraw_fee")
@@ -118,11 +143,10 @@ export default function WalletPage() {
       return;
     }
 
-    setWallet({
-      balance: Number(data.balance ?? 0),
-      withdraw_fee: Number(data.withdraw_fee ?? 0),
-    });
-
+    const bal = Number(data.balance ?? 0);
+    setWallet({ balance: bal, withdraw_fee: Number(data.withdraw_fee ?? 0) });
+    setInstantAvailable(null); // Stripe data unavailable in fallback
+    setStripeAvailable(null);
     setLoadingWallet(false);
   };
 
@@ -301,23 +325,20 @@ export default function WalletPage() {
     const token = await getAuthToken();
     if (!token) return;
     try {
+      // /api/stripe/balance returns the precise Stripe-calculated instant net
+      // (using instant_available.net_available). Use it to override the
+      // estimate from reloadWallet() if the value is available.
       const res = await fetch("/api/stripe/balance", {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const json = await res.json();
-        setInstantAvailable(typeof json.instantAvailable === "number" ? json.instantAvailable : null);
-      }
-      // Also fetch stripe_available from wallet/balance
-      const res2 = await fetch("/api/wallet/balance", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res2.ok) {
-        const j2 = await res2.json();
-        setStripeAvailable(typeof j2.stripe_available === "number" ? j2.stripe_available : null);
+        if (typeof json.instantAvailable === "number") {
+          setInstantAvailable(json.instantAvailable);
+        }
       }
     } catch {
-      // Non-blocking — wallet still works without Stripe balance
+      // Non-blocking — wallet still works without Stripe's precise instant net
     }
   };
 
