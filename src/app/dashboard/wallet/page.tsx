@@ -166,22 +166,18 @@ export default function WalletPage() {
   const fee = useMemo(() => getWithdrawalFee(amount, withdrawMode), [amount, withdrawMode]);
   const net = useMemo(() => Math.max(0, amount - fee), [amount, fee]);
 
-  // effectiveMax for instant: max withdrawal amount the user can enter such that
-  // our net payout (amount × 0.95) stays within Stripe's net_available ceiling.
-  // Formula: amount ≤ stripe_instant_net / 0.95, also capped by DB balance.
+  // effectiveMax:
+  // - instant: Stripe net_available (= exactly what the bank receives; Stripe's
+  //   own fee is deducted from the connected account balance, not from the payout)
+  // - standard: Stripe settled available (no fees at all)
   const effectiveMax = withdrawMode === "standard"
     ? (stripeAvailable ?? availableBalance)
-    : stripeInstantNet != null
-      ? Math.min(availableBalance, stripeInstantNet / (1 - 0.05))
-      : availableBalance;
+    : stripeInstantNet ?? availableBalance;
   const amountTooLow = amount > 0 && amount < 1;
   const amountTooHigh = amount > effectiveMax;
   const invalid = amount <= 0 || amountTooLow || amountTooHigh;
 
-  const tierLabel = useMemo(() => {
-    if (amount <= 0) return null;
-    return withdrawMode === "instant" ? "Instant: 5%" : "Standard: 3.5% + $0.30";
-  }, [amount, withdrawMode]);
+  const tierLabel = null; // no platform fee on either withdrawal type
 
   const loadPayout = async () => {
     const { data: userRes } = await supabase.auth.getUser();
@@ -828,7 +824,6 @@ export default function WalletPage() {
           <p className="text-xs text-white/45 mt-1">
             <span className="text-white/30">Instant payout available · </span>
             <span className="text-emerald-400/80 font-medium">{formatMoney(instantAvailable)}</span>
-            <span className="text-white/25 text-[10px]"> after fees</span>
           </p>
         )}
       </div>
@@ -883,8 +878,8 @@ export default function WalletPage() {
         {/* Mode description */}
         <p className="text-xs text-white/40 -mt-2">
           {withdrawMode === "instant"
-            ? "⚡ Arrives in minutes · 5% fee · requires instant-eligible card"
-            : "🏦 Arrives in 1–3 business days · 3.5% + $0.30 fee"}
+            ? "⚡ Arrives in minutes · no platform fee · requires instant-eligible card"
+            : "🏦 Arrives in 1–3 business days · no fees"}
         </p>
 
         {/* Payout Method Selector */}
@@ -986,18 +981,6 @@ export default function WalletPage() {
           <div className="flex items-center justify-between">
             <span className="text-sm text-white/60">Amount</span>
             <span className="text-sm font-semibold text-white/90">{formatMoney(amount || 0)}</span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-white/60">
-              Fee{tierLabel ? <span className="ml-1 text-xs text-white/55">({tierLabel})</span> : null}
-            </span>
-            <span className="text-sm font-semibold text-white/90">-{formatMoney(fee)}</span>
-          </div>
-
-          <div className="border-t border-white/[0.12] pt-3 flex items-center justify-between">
-            <span className="text-sm text-white/80 font-semibold">You receive</span>
-            <span className="text-xl font-semibold text-emerald-400">{formatMoney(net)}</span>
           </div>
         </div>
 

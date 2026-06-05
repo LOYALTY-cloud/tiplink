@@ -98,22 +98,21 @@ export async function GET(req: Request) {
       }
     }
 
-    // Available balance = DB wallet (primary) OR Stripe available if no wallet row yet
-    const availableBalance = dbBalance > 0 ? dbBalance : stripeAvailable;
+    // Available balance = Stripe total (mirror of Stripe connected account)
+    // available = settled funds (withdrawable via standard)
+    // pending   = in-transit (available via instant advance, or standard in 2-3 days)
+    const stripeTotal = stripeAvailable + stripePending;
+    const availableBalance = stripeTotal > 0 ? stripeTotal : dbBalance;
 
-    // Available Soon = only Stripe pending (funds in transit, not yet settled)
+    // Available Soon = only Stripe pending (not yet settled)
     const availableSoon = stripePending;
 
-    // Max the user can withdraw for instant:
-    //   payout sent to Stripe = withdrawal × (1 - 0.05) [our fee]
-    //   payout must be ≤ stripeInstantNet [Stripe's ceiling]
-    //   → max withdrawal = stripeInstantNet / 0.95
-    // Also capped by the DB balance.
-    const instantWithdrawalMax = stripeInstantNet > 0
-      ? Math.min(availableBalance, stripeInstantNet / (1 - 0.05))
-      : availableBalance;
-    // What actually arrives in the bank = instantWithdrawalMax × 0.95
-    const instantAvailable = Math.round(instantWithdrawalMax * (1 - 0.05) * 100) / 100;
+    // instant_available = Stripe's net_available exactly — this is what the
+    // bank receives for an instant payout.  No additional platform fee is
+    // applied; Stripe deducts its own fee from the connected account balance.
+    const instantAvailable = stripeInstantNet > 0
+      ? stripeInstantNet
+      : stripeAvailable; // fallback when no instant-eligible card linked
 
     return NextResponse.json({
       total_balance: availableBalance,

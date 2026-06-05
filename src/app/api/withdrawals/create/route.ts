@@ -512,8 +512,8 @@ export async function POST(req: Request) {
       await supabaseAdmin.from("withdrawals").insert({
         user_id: userId,
         amount: amt,
-        fee: getWithdrawalFee(amt, "instant"),
-        net: getNetWithdrawalAmount(amt, "instant"),
+        fee: 0,
+        net: amt,
         status: "under_review",
         risk_score: trust.score,
         risk_level: trust.risk,
@@ -583,9 +583,11 @@ export async function POST(req: Request) {
       payoutPolicyReason = `${payoutPolicyReason} • Category: ${creatorCategory.name} (${categoryRisk})`;
     }
 
-    // Compute fee + net based on payout type
-    const withdrawalFee = getWithdrawalFee(amt, payoutType);
-    const netAmount = getNetWithdrawalAmount(amt, payoutType);
+    // Compute fee + net — platform charges no withdrawal fee.
+    // Stripe's instant payout fee is deducted from the connected account
+    // balance automatically; it is not a separate platform charge.
+    const withdrawalFee = 0;
+    const netAmount = amt;
 
     // Create withdrawal row first
     const { data: w, error: wErr } = await supabaseAdmin
@@ -658,10 +660,9 @@ export async function POST(req: Request) {
 
       const netCents = toCents(netAmount);
 
-      // For instant payouts: verify the net payout (after our fee) is within
-      // Stripe's net_available ceiling.  This is the amount Stripe will actually
-      // transfer to the bank, and Stripe charges its own fee on top — so the
-      // correct gate is netCents ≤ stripeInstantNetCents.
+      // For instant payouts: verify the requested amount is within Stripe's
+      // net_available ceiling.  The user receives exactly what they request;
+      // Stripe deducts its own fee from the connected account balance on top.
       if (payoutType === "instant" && netCents > stripeInstantNetCents) {
         // Reverse the already-recorded ledger debit and mark the withdrawal failed
         try {
@@ -754,52 +755,12 @@ export async function POST(req: Request) {
         .eq("id", w.id);
 
       // Transfer the platform fee from the connected account back to 1neLink.
-      // This must happen after the payout succeeds so the fee is never sent to the user's bank.
-      // If the transfer fails it is non-fatal (payout already cleared) but we alert immediately
-      // so finance can reclaim manually.
-      if (withdrawalFee > 0 && process.env.STRIPE_PLATFORM_ACCOUNT_ID) {
-        try {
-          await stripe.transfers.create(
-            {
-              amount: toCents(withdrawalFee),
-              currency: "usd",
-              destination: process.env.STRIPE_PLATFORM_ACCOUNT_ID,
-              description: `Platform fee for withdrawal ${w.id}`,
-              metadata: { withdrawal_id: w.id, user_id: userId, fee_usd: withdrawalFee.toFixed(2) },
-            },
-            { stripeAccount }
-          );
-        } catch (feeErr) {
-          const feeErrMsg = feeErr instanceof Error ? feeErr.message : String(feeErr ?? "Fee transfer failed");
-          console.error("Fee transfer failed:", feeErrMsg);
-          sendAdminAlert({
-            subject: "Platform fee transfer failed",
-            body: `Failed to transfer $${withdrawalFee.toFixed(2)} platform fee for withdrawal ${w.id} (user ${userId}). Payout was already sent. MANUAL FEE RECOVERY REQUIRED.`,
-            severity: "critical",
-            meta: { withdrawal_id: w.id, user_id: userId, fee_usd: withdrawalFee.toFixed(2), error: feeErrMsg },
-          });
-        }
-      }
+      // Platform fee is $0 — no transfer needed.
     }
 
     // Track daily withdrawal total (inside lock to prevent race condition)
     try {
       await supabaseAdmin.rpc("increment_daily_withdrawn", { uid: userId, amt });
-    } catch (_) {}
-
-    // Increment lifetime fees-paid counter on wallets row.
-    // Safe to read-then-update here because wallet lock is still held.
-    try {
-      const { data: wRow } = await supabaseAdmin
-        .from("wallets")
-        .select("withdraw_fee")
-        .eq("user_id", userId)
-        .single();
-      const prevFee = Number(wRow?.withdraw_fee ?? 0);
-      await supabaseAdmin
-        .from("wallets")
-        .update({ withdraw_fee: Math.round((prevFee + withdrawalFee) * 100) / 100 })
-        .eq("user_id", userId);
     } catch (_) {}
 
     // Release the wallet lock now that withdrawal + ledger + daily counter are finalized

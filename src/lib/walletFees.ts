@@ -1,31 +1,23 @@
 export type WithdrawalType = "standard" | "instant";
 
 export function getWithdrawalFee(
-  amount: number,
-  type: WithdrawalType = "instant"
+  _amount: number,
+  _type: WithdrawalType = "instant"
 ): number {
-  if (!Number.isFinite(amount) || amount <= 0) return 0;
-
-  let fee = 0;
-
-  if (type === "instant") {
-    // 5% flat
-    fee = amount * 0.05;
-  } else {
-    // Standard: 3.5% + $0.30
-    fee = amount * 0.035 + 0.3;
-  }
-
-  // round to 2 decimal places
-  return Math.round(fee * 100) / 100;
+  // Platform charges no withdrawal fee.
+  // For instant payouts Stripe's own fee is deducted from the connected
+  // account balance automatically — it is not a separate platform charge.
+  // Standard payouts have no fee at all.
+  return 0;
 }
 
 export function getNetWithdrawalAmount(
   amount: number,
-  type: WithdrawalType = "instant"
+  _type: WithdrawalType = "instant"
 ): number {
-  const fee = getWithdrawalFee(amount, type);
-  return Math.round((amount - fee) * 100) / 100;
+  // No platform fee — user receives exactly what they request.
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  return Math.round(amount * 100) / 100;
 }
 
 export function formatMoney(n: number): string {
