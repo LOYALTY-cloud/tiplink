@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getNetWithdrawalAmount } from "@/lib/walletFees";
 import type { WalletRow } from "@/types/db";
 
 export const runtime = "nodejs";
@@ -32,7 +31,11 @@ export async function GET(req: Request) {
 
     let stripeAvailable = 0;
     let stripePending = 0;
-    let stripeInstantGross = 0; // raw Stripe instant_available (before any fee)
+    // stripeInstantNet: what Stripe will actually pay out for an instant payout.
+    // Stripe charges a fee ON TOP of the payout amount, so net_available is the
+    // ceiling for the payout amount (what lands in the bank).  We must request
+    // a Stripe payout of at most this value, so our fee calc must respect it.
+    let stripeInstantNet = 0;
     let pendingAvailableOn: string | null = null;
 
     if (profile?.stripe_account_id) {
@@ -41,8 +44,10 @@ export async function GET(req: Request) {
         const stripe = getStripe();
         const nowUnix = Math.floor(Date.now() / 1000);
 
+        // Expand net_available so we get the exact payout ceiling after
+        // Stripe's own instant-payout fee (varies by account; ~1.5–5%).
         const bal = await stripe.balance.retrieve(
-          {},
+          { expand: ["instant_available.net_available"] },
           { stripeAccount: profile.stripe_account_id }
         );
 
@@ -54,11 +59,20 @@ export async function GET(req: Request) {
           .filter((p) => p.currency === "usd")
           .reduce((sum, p) => sum + p.amount, 0) / 100;
 
-        // Raw instant_available — what Stripe will allow for instant payouts
-        // (before Stripe's own 1.5% fee). We apply our 5% fee on this ceiling.
-        stripeInstantGross = ((bal as any).instant_available ?? [])
-          .filter((p: any) => p.currency === "usd")
-          .reduce((sum: number, p: any) => sum + p.amount, 0) / 100;
+        // net_available = sum of net_available[].amount across all USD instant entries.
+        // This is the max payout amount (bank-receive) Stripe will approve for instant.
+        // If the account has no instant-eligible external account, net_available is []
+        // and this remains 0.
+        for (const entry of (bal as any).instant_available ?? []) {
+          if (entry.currency !== "usd") continue;
+          const nets: { amount: number }[] = entry.net_available ?? [];
+          if (nets.length > 0) {
+            stripeInstantNet += nets.reduce((s: number, d: { amount: number }) => s + (d.amount ?? 0), 0) / 100;
+          } else {
+            // Expand not supported / no linked card — fall back to gross minus estimated fee
+            stripeInstantNet += (entry.amount ?? 0) / 100;
+          }
+        }
 
         // Fetch soonest available_on date for pending funds
         if (stripePending > 0) {
@@ -90,20 +104,22 @@ export async function GET(req: Request) {
     // Available Soon = only Stripe pending (funds in transit, not yet settled)
     const availableSoon = stripePending;
 
-    // Instant Withdrawal net = our 5% fee applied to the lesser of:
-    //   - the DB wallet balance (what we track), and
-    //   - Stripe's instant_available gross (what Stripe will actually pay out)
-    // This prevents showing a number the server would reject.
-    const instantCeiling = stripeInstantGross > 0
-      ? Math.min(availableBalance, stripeInstantGross)
+    // Max the user can withdraw for instant:
+    //   payout sent to Stripe = withdrawal × (1 - 0.05) [our fee]
+    //   payout must be ≤ stripeInstantNet [Stripe's ceiling]
+    //   → max withdrawal = stripeInstantNet / 0.95
+    // Also capped by the DB balance.
+    const instantWithdrawalMax = stripeInstantNet > 0
+      ? Math.min(availableBalance, stripeInstantNet / (1 - 0.05))
       : availableBalance;
-    const instantAvailable = getNetWithdrawalAmount(instantCeiling, "instant");
+    // What actually arrives in the bank = instantWithdrawalMax × 0.95
+    const instantAvailable = Math.round(instantWithdrawalMax * (1 - 0.05) * 100) / 100;
 
     return NextResponse.json({
       total_balance: availableBalance,
       available_balance: availableBalance,
       stripe_available: stripeAvailable,
-      stripe_instant_gross: stripeInstantGross,
+      stripe_instant_net: stripeInstantNet,
       available_soon: availableSoon,
       instant_available: instantAvailable,
       pending_available_on: pendingAvailableOn,

@@ -57,7 +57,7 @@ export default function WalletPage() {
   } | null>(null);
   const [instantAvailable, setInstantAvailable] = useState<number | null>(null);
   const [stripeAvailable, setStripeAvailable] = useState<number | null>(null);
-  const [stripeInstantGross, setStripeInstantGross] = useState<number | null>(null);
+  const [stripeInstantNet, setStripeInstantNet] = useState<number | null>(null);
   const [withdrawMode, setWithdrawMode] = useState<"instant" | "standard">("instant");
   const { toasts, show: showToast, dismiss } = useToast(4000);
   const router = useRouter();
@@ -124,7 +124,7 @@ export default function WalletPage() {
           setWallet({ balance: bal, withdraw_fee: wfee });
           setInstantAvailable(typeof j.instant_available === "number" ? j.instant_available : null);
           setStripeAvailable(typeof j.stripe_available === "number" ? j.stripe_available : null);
-          setStripeInstantGross(typeof j.stripe_instant_gross === "number" ? j.stripe_instant_gross : null);
+          setStripeInstantNet(typeof j.stripe_instant_net === "number" ? j.stripe_instant_net : null);
           setLoadingWallet(false);
           return;
         }
@@ -149,7 +149,7 @@ export default function WalletPage() {
     setWallet({ balance: bal, withdraw_fee: Number(data.withdraw_fee ?? 0) });
     setInstantAvailable(null); // Stripe data unavailable in fallback
     setStripeAvailable(null);
-    setStripeInstantGross(null);
+    setStripeInstantNet(null);
     setLoadingWallet(false);
   };
 
@@ -166,12 +166,13 @@ export default function WalletPage() {
   const fee = useMemo(() => getWithdrawalFee(amount, withdrawMode), [amount, withdrawMode]);
   const net = useMemo(() => Math.max(0, amount - fee), [amount, fee]);
 
-  // effectiveMax: cap instant at Stripe's actual instant-eligible ceiling
-  // so the form never accepts more than the server will pay out.
+  // effectiveMax for instant: max withdrawal amount the user can enter such that
+  // our net payout (amount × 0.95) stays within Stripe's net_available ceiling.
+  // Formula: amount ≤ stripe_instant_net / 0.95, also capped by DB balance.
   const effectiveMax = withdrawMode === "standard"
     ? (stripeAvailable ?? availableBalance)
-    : stripeInstantGross != null
-      ? Math.min(availableBalance, stripeInstantGross)
+    : stripeInstantNet != null
+      ? Math.min(availableBalance, stripeInstantNet / (1 - 0.05))
       : availableBalance;
   const amountTooLow = amount > 0 && amount < 1;
   const amountTooHigh = amount > effectiveMax;

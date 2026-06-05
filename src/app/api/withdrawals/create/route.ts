@@ -272,26 +272,37 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Insufficient balance" }, { status: 400 });
     }
 
-    // Also check connected Stripe account balance as a secondary guard
-    const bal = await stripe.balance.retrieve({ stripeAccount });
+    // Also check connected Stripe account balance as a secondary guard.
+    // Expand net_available so the instant-payout ceiling is exact.
+    const bal = await stripe.balance.retrieve(
+      { expand: ["instant_available.net_available"] },
+      { stripeAccount }
+    );
     const availableUsdCents =
       (bal.available || [])
         .filter((b) => b.currency === "usd")
         .reduce((sum, b) => sum + (b.amount || 0), 0);
 
-    // instant_available is a Stripe-maintained subset: only funds on instant-eligible payout instruments
-    const instantAvailableCents =
-      ((bal as any).instant_available || [])
-        .filter((b: any) => b.currency === "usd")
-        .reduce((sum: number, b: any) => sum + (b.amount || 0), 0);
+    // net_available = max payout amount (bank-receive) Stripe will approve for instant.
+    // Stripe charges its fee ON TOP of the payout, so we must check netCents ≤ this.
+    let stripeInstantNetCents = 0;
+    for (const entry of (bal as any).instant_available ?? []) {
+      if (entry.currency !== "usd") continue;
+      const nets: { amount: number }[] = entry.net_available ?? [];
+      if (nets.length > 0) {
+        stripeInstantNetCents += nets.reduce((s: number, d: { amount: number }) => s + (d.amount ?? 0), 0);
+      } else {
+        stripeInstantNetCents += entry.amount ?? 0; // fallback to gross
+      }
+    }
 
     const reqCents = toCents(amt);
 
     // For instant payouts Stripe advances pending funds — the relevant ceiling is
-    // instantAvailableCents, not the standard availableUsdCents.  Only fall
-    // through to the pending-funds error for standard payouts (or when the
-    // amount also exceeds the instant ceiling).
-    const isInstantEligibleByStripe = payoutType === "instant" && reqCents <= instantAvailableCents;
+    // stripeInstantNetCents (net_available: max payout Stripe will approve),
+    // not the standard availableUsdCents.  Only block with the pending-funds
+    // error for standard payouts (or when amount exceeds the instant ceiling too).
+    const isInstantEligibleByStripe = payoutType === "instant" && reqCents <= stripeInstantNetCents;
 
     if (reqCents > availableUsdCents && !isInstantEligibleByStripe) {
       // Check if funds exist but are still pending settlement in Stripe
@@ -647,9 +658,11 @@ export async function POST(req: Request) {
 
       const netCents = toCents(netAmount);
 
-      // For instant payouts: verify net is covered by instant-eligible Stripe funds.
-      // Standard payouts can draw from the full available balance — skip this check.
-      if (payoutType === "instant" && netCents > instantAvailableCents) {
+      // For instant payouts: verify the net payout (after our fee) is within
+      // Stripe's net_available ceiling.  This is the amount Stripe will actually
+      // transfer to the bank, and Stripe charges its own fee on top — so the
+      // correct gate is netCents ≤ stripeInstantNetCents.
+      if (payoutType === "instant" && netCents > stripeInstantNetCents) {
         // Reverse the already-recorded ledger debit and mark the withdrawal failed
         try {
           await addLedgerEntry({
