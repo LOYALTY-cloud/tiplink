@@ -18,11 +18,13 @@ export default function LoginPage() {
   const getLoginErrorMessage = (status: number, errorText?: string | null) => {
     if (status === 401) return "Invalid email or password";
     if (status === 429) return "Too many login attempts. Please try again later.";
+    if (status === 404) return "Login service unavailable. Try refreshing the page.";
+    if (status === 0)   return "Network error. Check your connection and try again.";
 
     // If the backend returns an HTML error page, do not render raw markup to users.
     const trimmed = (errorText || "").trim();
     if (!trimmed || /^<!doctype html/i.test(trimmed) || /<html[\s>]/i.test(trimmed)) {
-      return "Login failed. Please try again.";
+      return `Login failed (${status}). Please refresh and try again.`;
     }
 
     return trimmed;

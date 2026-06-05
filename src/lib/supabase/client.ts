@@ -12,8 +12,11 @@ export const supabase = new Proxy({} as SupabaseClient, {
     if (!_supabase) {
       _supabase = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { flowType: "pkce" } }
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        // No flowType override — use Supabase default (implicit/auto).
+        // PKCE mode can cause setSession() to fail on first call after a
+        // server-side signInWithPassword because the client tries to
+        // validate the code verifier that doesn't exist in this flow.
       );
     }
     return Reflect.get(_supabase, prop, receiver);
