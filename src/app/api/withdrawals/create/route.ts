@@ -4,7 +4,7 @@ import { stripe } from "@/lib/stripe/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { addLedgerEntry } from "@/lib/ledger";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
-import { getWithdrawalFee, getNetWithdrawalAmount } from "@/lib/walletFees";
+import { getWithdrawalFee, getNetWithdrawalAmount, PLATFORM_INSTANT_FEE_RATE } from "@/lib/walletFees";
 import { validateWithdrawal } from "@/lib/withdrawalRules";
 import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 import { checkSoftRestrictions } from "@/lib/softRestrictions";
@@ -583,11 +583,15 @@ export async function POST(req: Request) {
       payoutPolicyReason = `${payoutPolicyReason} • Category: ${creatorCategory.name} (${categoryRisk})`;
     }
 
-    // Compute fee + net — platform charges no withdrawal fee.
-    // Stripe's instant payout fee is deducted from the connected account
-    // balance automatically; it is not a separate platform charge.
-    const withdrawalFee = 0;
-    const netAmount = amt;
+    // Compute fee + net.
+    // Platform fee (instant only): 5% of the payout amount, taken from the
+    // connected account balance AFTER the payout — user gets exactly amt.
+    // Standard withdrawals: no platform fee.
+    const platformFee = payoutType === "instant"
+      ? Math.round(amt * PLATFORM_INSTANT_FEE_RATE * 100) / 100
+      : 0;
+    const withdrawalFee = platformFee; // stored on the withdrawal row for accounting
+    const netAmount = amt;             // user receives exactly what they requested
 
     // Create withdrawal row first
     const { data: w, error: wErr } = await supabaseAdmin
@@ -754,8 +758,34 @@ export async function POST(req: Request) {
         })
         .eq("id", w.id);
 
-      // Transfer the platform fee from the connected account back to 1neLink.
-      // Platform fee is $0 — no transfer needed.
+      // Transfer the platform fee from the connected account to the platform account.
+      // This must happen after the payout succeeds.
+      // Instant only: 5% of payout amount stays in the connected balance after the
+      // payout goes out (gross - net = fee), so we transfer it to the platform.
+      // Standard payouts: no platform fee.
+      if (payoutType === "instant" && platformFee > 0 && process.env.STRIPE_PLATFORM_ACCOUNT_ID) {
+        try {
+          await stripe.transfers.create(
+            {
+              amount: toCents(platformFee),
+              currency: "usd",
+              destination: process.env.STRIPE_PLATFORM_ACCOUNT_ID,
+              description: `Platform fee for withdrawal ${w.id}`,
+              metadata: { withdrawal_id: w.id, user_id: userId, fee_usd: platformFee.toFixed(2) },
+            },
+            { stripeAccount }
+          );
+        } catch (feeErr) {
+          const feeErrMsg = feeErr instanceof Error ? feeErr.message : String(feeErr ?? "Fee transfer failed");
+          console.error("Platform fee transfer failed:", feeErrMsg);
+          sendAdminAlert({
+            subject: "Platform fee transfer failed",
+            body: `Failed to transfer $${platformFee.toFixed(2)} platform fee for withdrawal ${w.id} (user ${userId}). Payout was already sent. MANUAL FEE RECOVERY REQUIRED.`,
+            severity: "critical",
+            meta: { withdrawal_id: w.id, user_id: userId, fee_usd: platformFee.toFixed(2), error: feeErrMsg },
+          });
+        }
+      }
     }
 
     // Track daily withdrawal total (inside lock to prevent race condition)
