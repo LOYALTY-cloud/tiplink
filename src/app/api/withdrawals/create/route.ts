@@ -4,7 +4,7 @@ import { stripe } from "@/lib/stripe/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { addLedgerEntry } from "@/lib/ledger";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
-import { getWithdrawalFee, getNetWithdrawalAmount } from "@/lib/walletFees";
+import { getWithdrawalFee, getNetWithdrawalAmount, PLATFORM_INSTANT_FEE_RATE } from "@/lib/walletFees";
 import { validateWithdrawal } from "@/lib/withdrawalRules";
 import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 import { checkSoftRestrictions } from "@/lib/softRestrictions";
@@ -141,7 +141,57 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Withdrawal failed. Please try again." }, { status: 500 });
     }
 
-    const balance = Number((walletRow?.balance ?? 0) || 0);
+    let balance = Number((walletRow?.balance ?? 0) || 0);
+
+    // If the ledger wallet is empty but the user has a Stripe connected account,
+    // fall back to the live Stripe available balance — same as the display API.
+    // This handles cases where tip webhooks were missed and the ledger was never
+    // seeded. We read Stripe here (before the balance check) so the user is not
+    // blocked from withdrawing money that is genuinely in their account.
+    // The Stripe balance is re-verified later in the payout guard anyway.
+    if (balance === 0 && prof?.stripe_account_id) {
+      try {
+        const liveBal = await stripe.balance.retrieve({}, { stripeAccount: prof.stripe_account_id });
+        const liveAvailable = (liveBal.available ?? [])
+          .filter((b) => b.currency === "usd")
+          .reduce((sum, b) => sum + b.amount, 0) / 100;
+        const livePending = (liveBal.pending ?? [])
+          .filter((b) => b.currency === "usd")
+          .reduce((sum, b) => sum + b.amount, 0) / 100;
+        const liveTotal = liveAvailable + livePending;
+        if (liveTotal > 0) {
+          balance = liveTotal;
+          // Seed the ledger so the wallet balance is consistent going forward.
+          // Idempotency: only insert if no prior seeding entry exists.
+          const { data: seedExists } = await supabaseAdmin
+            .from("transactions_ledger")
+            .select("id")
+            .eq("user_id", userId)
+            .eq("type", "deposit")
+            .like("reference_id", "stripe_seed_%")
+            .maybeSingle();
+          if (!seedExists) {
+            const { addLedgerEntry: addEntry } = await import("@/lib/ledger");
+            await addEntry({
+              user_id: userId,
+              type: "deposit",
+              amount: liveTotal,
+              reference_id: `stripe_seed_${prof.stripe_account_id}`,
+              meta: {
+                action: "stripe_seed",
+                reason: "wallet ledger empty — seeded from live Stripe balance before withdrawal",
+                stripe_available: liveAvailable,
+                stripe_pending: livePending,
+                seeded_at: new Date().toISOString(),
+              },
+            });
+          }
+        }
+      } catch (e) {
+        // Non-fatal — proceed with balance=0; the payout guard below will block if Stripe is empty
+        console.warn("[withdrawal] Stripe balance seed fetch failed:", e instanceof Error ? e.message : e);
+      }
+    }
 
     // Re-fetch daily_withdrawn under lock to prevent stale-read bypass of daily limit
     {
@@ -222,22 +272,39 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Insufficient balance" }, { status: 400 });
     }
 
-    // Also check connected Stripe account balance as a secondary guard
-    const bal = await stripe.balance.retrieve({ stripeAccount });
+    // Also check connected Stripe account balance as a secondary guard.
+    // Expand net_available so the instant-payout ceiling is exact.
+    const bal = await stripe.balance.retrieve(
+      { expand: ["instant_available.net_available"] },
+      { stripeAccount }
+    );
     const availableUsdCents =
       (bal.available || [])
         .filter((b) => b.currency === "usd")
         .reduce((sum, b) => sum + (b.amount || 0), 0);
 
-    // instant_available is a Stripe-maintained subset: only funds on instant-eligible payout instruments
-    const instantAvailableCents =
-      ((bal as any).instant_available || [])
-        .filter((b: any) => b.currency === "usd")
-        .reduce((sum: number, b: any) => sum + (b.amount || 0), 0);
+    // net_available = max payout amount (bank-receive) Stripe will approve for instant.
+    // Stripe charges its fee ON TOP of the payout, so we must check netCents ≤ this.
+    let stripeInstantNetCents = 0;
+    for (const entry of (bal as any).instant_available ?? []) {
+      if (entry.currency !== "usd") continue;
+      const nets: { amount: number }[] = entry.net_available ?? [];
+      if (nets.length > 0) {
+        stripeInstantNetCents += nets.reduce((s: number, d: { amount: number }) => s + (d.amount ?? 0), 0);
+      } else {
+        stripeInstantNetCents += entry.amount ?? 0; // fallback to gross
+      }
+    }
 
     const reqCents = toCents(amt);
 
-    if (reqCents > availableUsdCents) {
+    // For instant payouts Stripe advances pending funds — the relevant ceiling is
+    // stripeInstantNetCents (net_available: max payout Stripe will approve),
+    // not the standard availableUsdCents.  Only block with the pending-funds
+    // error for standard payouts (or when amount exceeds the instant ceiling too).
+    const isInstantEligibleByStripe = payoutType === "instant" && reqCents <= stripeInstantNetCents;
+
+    if (reqCents > availableUsdCents && !isInstantEligibleByStripe) {
       // Check if funds exist but are still pending settlement in Stripe
       const pendingUsdCents =
         (bal.pending || [])
@@ -445,8 +512,8 @@ export async function POST(req: Request) {
       await supabaseAdmin.from("withdrawals").insert({
         user_id: userId,
         amount: amt,
-        fee: getWithdrawalFee(amt, "instant"),
-        net: getNetWithdrawalAmount(amt, "instant"),
+        fee: 0,
+        net: amt,
         status: "under_review",
         risk_score: trust.score,
         risk_level: trust.risk,
@@ -516,9 +583,15 @@ export async function POST(req: Request) {
       payoutPolicyReason = `${payoutPolicyReason} • Category: ${creatorCategory.name} (${categoryRisk})`;
     }
 
-    // Compute fee + net based on payout type
-    const withdrawalFee = getWithdrawalFee(amt, payoutType);
-    const netAmount = getNetWithdrawalAmount(amt, payoutType);
+    // Compute fee + net.
+    // Platform fee (instant only): 5% of the payout amount, taken from the
+    // connected account balance AFTER the payout — user gets exactly amt.
+    // Standard withdrawals: no platform fee.
+    const platformFee = payoutType === "instant"
+      ? Math.round(amt * PLATFORM_INSTANT_FEE_RATE * 100) / 100
+      : 0;
+    const withdrawalFee = platformFee; // stored on the withdrawal row for accounting
+    const netAmount = amt;             // user receives exactly what they requested
 
     // Create withdrawal row first
     const { data: w, error: wErr } = await supabaseAdmin
@@ -591,9 +664,10 @@ export async function POST(req: Request) {
 
       const netCents = toCents(netAmount);
 
-      // For instant payouts: verify net is covered by instant-eligible Stripe funds.
-      // Standard payouts can draw from the full available balance — skip this check.
-      if (payoutType === "instant" && netCents > instantAvailableCents) {
+      // For instant payouts: verify the requested amount is within Stripe's
+      // net_available ceiling.  The user receives exactly what they request;
+      // Stripe deducts its own fee from the connected account balance on top.
+      if (payoutType === "instant" && netCents > stripeInstantNetCents) {
         // Reverse the already-recorded ledger debit and mark the withdrawal failed
         try {
           await addLedgerEntry({
@@ -610,8 +684,8 @@ export async function POST(req: Request) {
         try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
         return NextResponse.json(
           {
-            error: `Only $${fromCents(instantAvailableCents).toFixed(2)} of your balance is available for instant withdrawal. The remaining balance is still settling (typically 2–3 business days).`,
-            instant_available_cents: instantAvailableCents,
+            error: `Only $${fromCents(stripeInstantNetCents).toFixed(2)} of your balance is available for instant withdrawal. The remaining balance is still settling (typically 2–3 business days).`,
+            instant_available_cents: stripeInstantNetCents,
             available_cents: availableUsdCents,
           },
           { status: 400 }
@@ -684,30 +758,31 @@ export async function POST(req: Request) {
         })
         .eq("id", w.id);
 
-      // Transfer the platform fee from the connected account back to 1neLink.
-      // This must happen after the payout succeeds so the fee is never sent to the user's bank.
-      // If the transfer fails it is non-fatal (payout already cleared) but we alert immediately
-      // so finance can reclaim manually.
-      if (withdrawalFee > 0 && process.env.STRIPE_PLATFORM_ACCOUNT_ID) {
+      // Transfer the platform fee from the connected account to the platform account.
+      // This must happen after the payout succeeds.
+      // Instant only: 5% of payout amount stays in the connected balance after the
+      // payout goes out (gross - net = fee), so we transfer it to the platform.
+      // Standard payouts: no platform fee.
+      if (payoutType === "instant" && platformFee > 0 && process.env.STRIPE_PLATFORM_ACCOUNT_ID) {
         try {
           await stripe.transfers.create(
             {
-              amount: toCents(withdrawalFee),
+              amount: toCents(platformFee),
               currency: "usd",
               destination: process.env.STRIPE_PLATFORM_ACCOUNT_ID,
               description: `Platform fee for withdrawal ${w.id}`,
-              metadata: { withdrawal_id: w.id, user_id: userId, fee_usd: withdrawalFee.toFixed(2) },
+              metadata: { withdrawal_id: w.id, user_id: userId, fee_usd: platformFee.toFixed(2) },
             },
             { stripeAccount }
           );
         } catch (feeErr) {
           const feeErrMsg = feeErr instanceof Error ? feeErr.message : String(feeErr ?? "Fee transfer failed");
-          console.error("Fee transfer failed:", feeErrMsg);
+          console.error("Platform fee transfer failed:", feeErrMsg);
           sendAdminAlert({
             subject: "Platform fee transfer failed",
-            body: `Failed to transfer $${withdrawalFee.toFixed(2)} platform fee for withdrawal ${w.id} (user ${userId}). Payout was already sent. MANUAL FEE RECOVERY REQUIRED.`,
+            body: `Failed to transfer $${platformFee.toFixed(2)} platform fee for withdrawal ${w.id} (user ${userId}). Payout was already sent. MANUAL FEE RECOVERY REQUIRED.`,
             severity: "critical",
-            meta: { withdrawal_id: w.id, user_id: userId, fee_usd: withdrawalFee.toFixed(2), error: feeErrMsg },
+            meta: { withdrawal_id: w.id, user_id: userId, fee_usd: platformFee.toFixed(2), error: feeErrMsg },
           });
         }
       }
@@ -716,21 +791,6 @@ export async function POST(req: Request) {
     // Track daily withdrawal total (inside lock to prevent race condition)
     try {
       await supabaseAdmin.rpc("increment_daily_withdrawn", { uid: userId, amt });
-    } catch (_) {}
-
-    // Increment lifetime fees-paid counter on wallets row.
-    // Safe to read-then-update here because wallet lock is still held.
-    try {
-      const { data: wRow } = await supabaseAdmin
-        .from("wallets")
-        .select("withdraw_fee")
-        .eq("user_id", userId)
-        .single();
-      const prevFee = Number(wRow?.withdraw_fee ?? 0);
-      await supabaseAdmin
-        .from("wallets")
-        .update({ withdraw_fee: Math.round((prevFee + withdrawalFee) * 100) / 100 })
-        .eq("user_id", userId);
     } catch (_) {}
 
     // Release the wallet lock now that withdrawal + ledger + daily counter are finalized

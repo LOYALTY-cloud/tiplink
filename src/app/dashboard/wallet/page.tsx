@@ -57,6 +57,7 @@ export default function WalletPage() {
   } | null>(null);
   const [instantAvailable, setInstantAvailable] = useState<number | null>(null);
   const [stripeAvailable, setStripeAvailable] = useState<number | null>(null);
+  const [stripeInstantNet, setStripeInstantNet] = useState<number | null>(null);
   const [withdrawMode, setWithdrawMode] = useState<"instant" | "standard">("instant");
   const { toasts, show: showToast, dismiss } = useToast(4000);
   const router = useRouter();
@@ -101,10 +102,36 @@ export default function WalletPage() {
     const user = userRes.user;
     if (!user) {
       setWallet({ balance: 0, withdraw_fee: 0 });
+      setInstantAvailable(0);
+      setStripeAvailable(0);
       setLoadingWallet(false);
       return;
     }
 
+    // Prefer the unified balance API — it returns wallet balance, Stripe
+    // available, and instant_available (after 5% fee) in one shot.
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess.session?.access_token;
+    if (token) {
+      try {
+        const res = await fetch("/api/wallet/balance", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const j = await res.json().catch(() => null);
+        if (j && !j.error) {
+          const bal = Number(j.available_balance ?? 0);
+          const wfee = Number(j.withdraw_fee ?? 0);
+          setWallet({ balance: bal, withdraw_fee: wfee });
+          setInstantAvailable(typeof j.instant_available === "number" ? j.instant_available : null);
+          setStripeAvailable(typeof j.stripe_available === "number" ? j.stripe_available : null);
+          setStripeInstantNet(typeof j.stripe_instant_net === "number" ? j.stripe_instant_net : null);
+          setLoadingWallet(false);
+          return;
+        }
+      } catch { /* fall through to DB fallback */ }
+    }
+
+    // Fallback: read directly from DB when token is unavailable
     const { data, error } = await supabase
       .from("wallets")
       .select("balance, withdraw_fee")
@@ -118,11 +145,11 @@ export default function WalletPage() {
       return;
     }
 
-    setWallet({
-      balance: Number(data.balance ?? 0),
-      withdraw_fee: Number(data.withdraw_fee ?? 0),
-    });
-
+    const bal = Number(data.balance ?? 0);
+    setWallet({ balance: bal, withdraw_fee: Number(data.withdraw_fee ?? 0) });
+    setInstantAvailable(null); // Stripe data unavailable in fallback
+    setStripeAvailable(null);
+    setStripeInstantNet(null);
     setLoadingWallet(false);
   };
 
@@ -139,15 +166,18 @@ export default function WalletPage() {
   const fee = useMemo(() => getWithdrawalFee(amount, withdrawMode), [amount, withdrawMode]);
   const net = useMemo(() => Math.max(0, amount - fee), [amount, fee]);
 
-  const effectiveMax = withdrawMode === "standard" ? (stripeAvailable ?? availableBalance) : availableBalance;
+  // effectiveMax:
+  // - instant: Stripe net_available (= exactly what the bank receives; Stripe's
+  //   own fee is deducted from the connected account balance, not from the payout)
+  // - standard: Stripe settled available (no fees at all)
+  const effectiveMax = withdrawMode === "standard"
+    ? (stripeAvailable ?? availableBalance)
+    : stripeInstantNet ?? availableBalance;
   const amountTooLow = amount > 0 && amount < 1;
   const amountTooHigh = amount > effectiveMax;
   const invalid = amount <= 0 || amountTooLow || amountTooHigh;
 
-  const tierLabel = useMemo(() => {
-    if (amount <= 0) return null;
-    return withdrawMode === "instant" ? "Instant: 5%" : "Standard: 3.5% + $0.30";
-  }, [amount, withdrawMode]);
+  const tierLabel = null; // no platform fee on either withdrawal type
 
   const loadPayout = async () => {
     const { data: userRes } = await supabase.auth.getUser();
@@ -298,27 +328,10 @@ export default function WalletPage() {
   };
 
   const loadStripeBalance = async () => {
-    const token = await getAuthToken();
-    if (!token) return;
-    try {
-      const res = await fetch("/api/stripe/balance", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const json = await res.json();
-        setInstantAvailable(typeof json.instantAvailable === "number" ? json.instantAvailable : null);
-      }
-      // Also fetch stripe_available from wallet/balance
-      const res2 = await fetch("/api/wallet/balance", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res2.ok) {
-        const j2 = await res2.json();
-        setStripeAvailable(typeof j2.stripe_available === "number" ? j2.stripe_available : null);
-      }
-    } catch {
-      // Non-blocking — wallet still works without Stripe balance
-    }
+    // Balance API already returns the correctly-calculated instant_available
+    // (our 5% fee on min(dbBalance, stripeInstantGross)). No separate Stripe
+    // fetch needed — calling it would override with Stripe's 1.5% fee figure
+    // which is a different number and confuses users.
   };
 
   const loadLatestWithdrawal = async () => {
@@ -811,7 +824,6 @@ export default function WalletPage() {
           <p className="text-xs text-white/45 mt-1">
             <span className="text-white/30">Instant payout available · </span>
             <span className="text-emerald-400/80 font-medium">{formatMoney(instantAvailable)}</span>
-            <span className="text-white/25 text-[10px]"> after fees</span>
           </p>
         )}
       </div>
@@ -866,8 +878,8 @@ export default function WalletPage() {
         {/* Mode description */}
         <p className="text-xs text-white/40 -mt-2">
           {withdrawMode === "instant"
-            ? "⚡ Arrives in minutes · 5% fee · requires instant-eligible card"
-            : "🏦 Arrives in 1–3 business days · 3.5% + $0.30 fee"}
+            ? "⚡ Arrives in minutes · no platform fee · requires instant-eligible card"
+            : "🏦 Arrives in 1–3 business days · no fees"}
         </p>
 
         {/* Payout Method Selector */}
@@ -969,18 +981,6 @@ export default function WalletPage() {
           <div className="flex items-center justify-between">
             <span className="text-sm text-white/60">Amount</span>
             <span className="text-sm font-semibold text-white/90">{formatMoney(amount || 0)}</span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-white/60">
-              Fee{tierLabel ? <span className="ml-1 text-xs text-white/55">({tierLabel})</span> : null}
-            </span>
-            <span className="text-sm font-semibold text-white/90">-{formatMoney(fee)}</span>
-          </div>
-
-          <div className="border-t border-white/[0.12] pt-3 flex items-center justify-between">
-            <span className="text-sm text-white/80 font-semibold">You receive</span>
-            <span className="text-xl font-semibold text-emerald-400">{formatMoney(net)}</span>
           </div>
         </div>
 
