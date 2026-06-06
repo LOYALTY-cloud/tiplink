@@ -456,9 +456,6 @@ function ThemeCard({
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
             <div className="bg-[#18181b] border border-red-500/20 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-xl">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-red-500/15 flex items-center justify-center shrink-0">
-                  <span className="text-red-400 text-base">🚫</span>
-                </div>
                 <h2 className="text-base font-semibold text-white">Theme Restricted</h2>
               </div>
               <p className="text-sm text-white/60">This theme has been rejected and cannot be activated for sale. If you believe this was a mistake, please contact support.</p>
