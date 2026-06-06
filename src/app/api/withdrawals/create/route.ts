@@ -684,8 +684,8 @@ export async function POST(req: Request) {
         try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
         return NextResponse.json(
           {
-            error: `Only $${fromCents(instantAvailableCents).toFixed(2)} of your balance is available for instant withdrawal. The remaining balance is still settling (typically 2–3 business days).`,
-            instant_available_cents: instantAvailableCents,
+            error: `Only $${fromCents(stripeInstantNetCents).toFixed(2)} of your balance is available for instant withdrawal. The remaining balance is still settling (typically 2–3 business days).`,
+            instant_available_cents: stripeInstantNetCents,
             available_cents: availableUsdCents,
           },
           { status: 400 }

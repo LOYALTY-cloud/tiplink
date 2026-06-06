@@ -78,7 +78,7 @@ export async function GET(req: Request) {
         if (stripePending > 0) {
           try {
             const txns = await stripe.balanceTransactions.list(
-              { available_on: { gt: nowUnix }, limit: 100 },
+              { available_on: { gt: nowUnix }, limit: 100 } as any,
               { stripeAccount: profile.stripe_account_id }
             );
             let soonest: number | null = null;
