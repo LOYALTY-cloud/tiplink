@@ -10,6 +10,7 @@ import {
 import { detectLogosWithAI } from "@/lib/marketplace/logoDetection";
 import { computeAverageHash, isNearDuplicate } from "@/lib/marketplace/perceptualHash";
 import { rateLimit } from "@/lib/rateLimit";
+import { createAdminNotification } from "@/lib/adminNotifications";
 
 // Mass-upload threshold: more than 5 themes in the last hour
 const MASS_UPLOAD_THRESHOLD = 5;
@@ -300,6 +301,27 @@ export async function POST(req: Request) {
         },
       })
       .then(() => {/* fire and forget */});
+  }
+
+  // Notify admins/moderators when theme enters pending_review from upload
+  if (theme.status === "pending_review") {
+    const { data: uploaderProfile } = await supabaseAdmin
+      .from("profiles")
+      .select("display_name, handle")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    const creatorName = uploaderProfile?.display_name || uploaderProfile?.handle || "A creator";
+    void createAdminNotification({
+      type: "marketplace_alert",
+      title: "New theme submitted for review",
+      message: `${creatorName} uploaded "${name}" for marketplace review. Pending a moderation decision.`,
+      link: "/admin/marketplace",
+      requiresAction: true,
+      priority: "medium",
+      visibility: "role",
+      roleTarget: ["owner", "co_owner", "super_admin", "admin", "moderator"],
+      metadata: { theme_id: theme.id, user_id: user.id, creator: creatorName, risk_score: riskScore },
+    });
   }
 
   return NextResponse.json({ id: theme.id, status: theme.status });

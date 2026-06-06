@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireCreator } from "@/lib/creatorGuard";
+import { createAdminNotification } from "@/lib/adminNotifications";
 
 export const runtime = "nodejs";
 
@@ -57,6 +58,33 @@ export async function POST(req: Request) {
   if (updateErr) {
     console.error("themes/market-active update:", updateErr);
     return NextResponse.json({ error: "Failed to update theme status" }, { status: 500 });
+  }
+
+  // Notify all admins/moderators when theme enters the review queue
+  if (active) {
+    const { data: theme } = await supabaseAdmin
+      .from("themes")
+      .select("name")
+      .eq("id", themeId)
+      .maybeSingle();
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("display_name, handle")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const creatorName = profile?.display_name || profile?.handle || "A creator";
+    const themeName = theme?.name || "a theme";
+    void createAdminNotification({
+      type: "marketplace_alert",
+      title: "New theme submitted for review",
+      message: `${creatorName} submitted "${themeName}" for marketplace review. Pending a moderation decision.`,
+      link: "/admin/marketplace",
+      requiresAction: true,
+      priority: "medium",
+      visibility: "role",
+      roleTarget: ["owner", "co_owner", "super_admin", "admin", "moderator"],
+      metadata: { theme_id: themeId, user_id: userId, creator: creatorName },
+    });
   }
 
   return NextResponse.json({ success: true, active });
