@@ -26,6 +26,8 @@ type AdminEntry = {
   last_action: { action: string; created_at: string; target_user: string | null } | null;
   risk_score: number;
   risk_level: string;
+  themes_approved: number;
+  themes_rejected: number;
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -61,6 +63,7 @@ export default function AdminStaffPage() {
   const [admins, setAdmins] = useState<AdminEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [themesAutoRemovedTotal, setThemesAutoRemovedTotal] = useState(0);
   const [actionTarget, setActionTarget] = useState<AdminEntry | null>(null);
   const [actionType, setActionType] = useState("");
   const [actionReason, setActionReason] = useState("");
@@ -114,6 +117,7 @@ export default function AdminStaffPage() {
       if (!res.ok) throw new Error("Failed to load");
       const data = await res.json();
       setAdmins(data.admins ?? []);
+      setThemesAutoRemovedTotal(data.themes_auto_removed_total ?? 0);
     } catch {
       setError("Failed to load staff");
     } finally {
@@ -207,6 +211,21 @@ export default function AdminStaffPage() {
         </div>
       )}
 
+      {/* Owner-only: auto-removed themes banner */}
+      {isOwner && themesAutoRemovedTotal > 0 && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-orange-500/10 border border-orange-500/25 text-orange-300 text-sm">
+          <span className="text-lg leading-none mt-0.5">⚠️</span>
+          <div>
+            <p className="font-semibold text-orange-200">
+              {themesAutoRemovedTotal} theme{themesAutoRemovedTotal !== 1 ? "s" : ""} auto-removed from queue
+            </p>
+            <p className="text-orange-300/80 mt-0.5">
+              These themes were removed after 48 hours with no moderation decision. Check moderator approve/reject counts below to identify inactivity.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {admins.map((admin) => (
           <div key={admin.id} className={`${ui.card} p-5 space-y-3`}>
@@ -254,6 +273,17 @@ export default function AdminStaffPage() {
                 Actions: {admin.action_count}
               </span>
             </div>
+
+            {/* Moderation stats (visible to owner/super_admin) */}
+            {(isOwner || session?.role === "super_admin") && (admin.themes_approved > 0 || admin.themes_rejected > 0) && (
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-emerald-400/80">✓ {admin.themes_approved} approved</span>
+                <span className="text-red-400/80">✕ {admin.themes_rejected} rejected</span>
+              </div>
+            )}
+            {(isOwner || session?.role === "super_admin") && admin.themes_approved === 0 && admin.themes_rejected === 0 && admin.role !== "owner" && (
+              <div className="text-xs text-white/30 italic">No moderation decisions yet</div>
+            )}
 
             {/* Last Action */}
             {admin.last_action && (

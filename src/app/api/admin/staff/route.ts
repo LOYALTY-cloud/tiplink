@@ -50,58 +50,85 @@ export async function GET(req: Request) {
     }
 
     // Enrich each admin with action counts, profile data, last action, risk score
-    const enriched = await Promise.all(
-      (admins ?? []).map(async (admin) => {
-        const { count } = await supabaseAdmin
-          .from("admin_actions")
-          .select("id", { count: "exact", head: true })
-          .eq("admin_id", admin.user_id);
+    // Also fetch system-level auto-removed count (owner-visible moderator accountability)
+    const [enriched, autoRemovedResult] = await Promise.all([
+      Promise.all(
+        (admins ?? []).map(async (admin) => {
+          const [
+            { count },
+            { data: profile },
+            { data: lastAction },
+            { count: approvedCount },
+            { count: rejectedCount },
+          ] = await Promise.all([
+            supabaseAdmin
+              .from("admin_actions")
+              .select("id", { count: "exact", head: true })
+              .eq("admin_id", admin.user_id),
+            supabaseAdmin
+              .from("profiles")
+              .select("admin_id, availability, last_active_at")
+              .eq("user_id", admin.user_id)
+              .maybeSingle(),
+            supabaseAdmin
+              .from("admin_actions")
+              .select("action, created_at, target_user")
+              .eq("admin_id", admin.user_id)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle(),
+            supabaseAdmin
+              .from("admin_actions")
+              .select("id", { count: "exact", head: true })
+              .eq("admin_id", admin.user_id)
+              .eq("action", "marketplace_theme_approve"),
+            supabaseAdmin
+              .from("admin_actions")
+              .select("id", { count: "exact", head: true })
+              .eq("admin_id", admin.user_id)
+              .eq("action", "marketplace_theme_reject"),
+          ]);
 
-        // Get the profile for admin_id display and availability
-        const { data: profile } = await supabaseAdmin
-          .from("profiles")
-          .select("admin_id, availability, last_active_at")
-          .eq("user_id", admin.user_id)
-          .maybeSingle();
+          // Calculate + persist risk score (only for non-owner)
+          let risk: { score: number; level: string } = { score: 0, level: "low" };
+          if (admin.role !== "owner") {
+            const riskData = await evaluateAndPersistAdminRisk(admin.user_id);
+            risk = { score: riskData.score, level: riskData.level };
+          }
 
-        // Get last action
-        const { data: lastAction } = await supabaseAdmin
-          .from("admin_actions")
-          .select("action, created_at, target_user")
-          .eq("admin_id", admin.user_id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          // Resolve last_login_at: fall back to Supabase Auth last_sign_in_at
+          let lastLogin = admin.last_login_at;
+          if (!lastLogin) {
+            const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(admin.user_id);
+            lastLogin = authUser?.user?.last_sign_in_at ?? profile?.last_active_at ?? null;
+          }
 
-        // Calculate + persist risk score (only for non-owner)
-        let risk: { score: number; level: string } = { score: 0, level: "low" };
-        if (admin.role !== "owner") {
-          const riskData = await evaluateAndPersistAdminRisk(admin.user_id);
-          risk = { score: riskData.score, level: riskData.level };
-        }
+          return {
+            ...admin,
+            last_login_at: lastLogin,
+            action_count: count ?? 0,
+            admin_id_display: profile?.admin_id ?? null,
+            availability: profile?.availability ?? "offline",
+            last_active_at: profile?.last_active_at ?? null,
+            last_action: lastAction ?? null,
+            risk_score: risk.score,
+            risk_level: risk.level,
+            themes_approved: approvedCount ?? 0,
+            themes_rejected: rejectedCount ?? 0,
+          };
+        })
+      ),
+      // Total themes auto-removed system-wide due to no moderation decision
+      supabaseAdmin
+        .from("admin_actions")
+        .select("id", { count: "exact", head: true })
+        .eq("action", "marketplace_theme_auto_removed"),
+    ]);
 
-        // Resolve last_login_at: fall back to Supabase Auth last_sign_in_at
-        let lastLogin = admin.last_login_at;
-        if (!lastLogin) {
-          const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(admin.user_id);
-          lastLogin = authUser?.user?.last_sign_in_at ?? profile?.last_active_at ?? null;
-        }
-
-        return {
-          ...admin,
-          last_login_at: lastLogin,
-          action_count: count ?? 0,
-          admin_id_display: profile?.admin_id ?? null,
-          availability: profile?.availability ?? "offline",
-          last_active_at: profile?.last_active_at ?? null,
-          last_action: lastAction ?? null,
-          risk_score: risk.score,
-          risk_level: risk.level,
-        };
-      }),
-    );
-
-    return NextResponse.json({ admins: enriched });
+    return NextResponse.json({
+      admins: enriched,
+      themes_auto_removed_total: autoRemovedResult.count ?? 0,
+    });
   } catch {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
