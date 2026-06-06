@@ -1,29 +1,30 @@
 export type WithdrawalType = "standard" | "instant";
 
-// Platform fee rate for instant withdrawals.
-// This is deducted from the connected account balance AFTER the payout —
-// the user receives exactly what they requested; the platform transfers
-// this amount from the remaining connected balance to itself.
+// Stripe's actual instant payout fee for connected accounts:
+//   3.5% of withdrawal amount, minimum $1.00, maximum $75.00
+// Fee is deducted FROM the withdrawal amount:
+//   user requests $100 → bank gets $96.50, platform gets $3.50
 // Standard withdrawals have no platform fee.
-export const PLATFORM_INSTANT_FEE_RATE = 0.05;
+export const PLATFORM_INSTANT_FEE_RATE = 0.035;
+export const PLATFORM_INSTANT_FEE_MIN  = 1.00;
+export const PLATFORM_INSTANT_FEE_MAX  = 75.00;
 
 export function getWithdrawalFee(
-  _amount: number,
-  _type: WithdrawalType = "instant"
+  amount: number,
+  type: WithdrawalType = "instant"
 ): number {
-  // Fee is not deducted from the user's payout amount — it comes from the
-  // connected account balance after payout.  From the user's perspective
-  // there is no deduction; they receive exactly what they request.
-  return 0;
+  if (type !== "instant") return 0;
+  const raw = Math.round(amount * PLATFORM_INSTANT_FEE_RATE * 100) / 100;
+  return Math.min(Math.max(raw, PLATFORM_INSTANT_FEE_MIN), PLATFORM_INSTANT_FEE_MAX);
 }
 
 export function getNetWithdrawalAmount(
   amount: number,
-  _type: WithdrawalType = "instant"
+  type: WithdrawalType = "instant"
 ): number {
-  // No platform fee — user receives exactly what they request.
   if (!Number.isFinite(amount) || amount <= 0) return 0;
-  return Math.round(amount * 100) / 100;
+  const fee = getWithdrawalFee(amount, type);
+  return Math.round((amount - fee) * 100) / 100;
 }
 
 export function formatMoney(n: number): string {

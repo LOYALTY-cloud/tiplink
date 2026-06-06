@@ -4,7 +4,7 @@ import { stripe } from "@/lib/stripe/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { addLedgerEntry } from "@/lib/ledger";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
-import { getWithdrawalFee, getNetWithdrawalAmount, PLATFORM_INSTANT_FEE_RATE } from "@/lib/walletFees";
+import { getWithdrawalFee, getNetWithdrawalAmount } from "@/lib/walletFees";
 import { validateWithdrawal } from "@/lib/withdrawalRules";
 import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 import { checkSoftRestrictions } from "@/lib/softRestrictions";
@@ -584,14 +584,16 @@ export async function POST(req: Request) {
     }
 
     // Compute fee + net.
-    // Platform fee (instant only): 5% of the payout amount, taken from the
-    // connected account balance AFTER the payout — user gets exactly amt.
+    // Platform fee (instant only): 5% deducted FROM the withdrawal amount.
+    // User requests $100 → $5 fee → $95 sent to bank. Balance reduced by $100.
     // Standard withdrawals: no platform fee.
+    // Stripe instant payout fee: 3.5%, min $1.00, max $75.00
+    // Deducted from payout — bank receives net, fee transferred to platform.
     const platformFee = payoutType === "instant"
-      ? Math.round(amt * PLATFORM_INSTANT_FEE_RATE * 100) / 100
+      ? getWithdrawalFee(amt, "instant")
       : 0;
-    const withdrawalFee = platformFee; // stored on the withdrawal row for accounting
-    const netAmount = amt;             // user receives exactly what they requested
+    const withdrawalFee = platformFee;
+    const netAmount = Math.round((amt - platformFee) * 100) / 100; // what bank receives
 
     // Create withdrawal row first
     const { data: w, error: wErr } = await supabaseAdmin
@@ -758,31 +760,28 @@ export async function POST(req: Request) {
         })
         .eq("id", w.id);
 
-      // Transfer the platform fee from the connected account to the platform account.
-      // This must happen after the payout succeeds.
-      // Instant only: 5% of payout amount stays in the connected balance after the
-      // payout goes out (gross - net = fee), so we transfer it to the platform.
-      // Standard payouts: no platform fee.
+      // Transfer the platform fee (5%) from the connected account to the platform account.
+      // The payout sent netAmount (amt - fee) to the bank, so `fee` remains
+      // in the connected account balance. Transfer it to the platform now.
       if (payoutType === "instant" && platformFee > 0 && process.env.STRIPE_PLATFORM_ACCOUNT_ID) {
         try {
           await stripe.transfers.create(
             {
-              amount: toCents(platformFee),
+              amount: Math.round(platformFee * 100),
               currency: "usd",
               destination: process.env.STRIPE_PLATFORM_ACCOUNT_ID,
-              description: `Platform fee for withdrawal ${w.id}`,
               metadata: { withdrawal_id: w.id, user_id: userId, fee_usd: platformFee.toFixed(2) },
             },
             { stripeAccount }
           );
         } catch (feeErr) {
-          const feeErrMsg = feeErr instanceof Error ? feeErr.message : String(feeErr ?? "Fee transfer failed");
+          const feeErrMsg = feeErr instanceof Error ? feeErr.message : String(feeErr);
           console.error("Platform fee transfer failed:", feeErrMsg);
-          sendAdminAlert({
-            subject: "Platform fee transfer failed",
-            body: `Failed to transfer $${platformFee.toFixed(2)} platform fee for withdrawal ${w.id} (user ${userId}). Payout was already sent. MANUAL FEE RECOVERY REQUIRED.`,
+          // Non-fatal — payout already sent. Alert admins for manual recovery.
+          void sendAdminAlert({
+            subject: "Platform fee transfer failed — MANUAL RECOVERY REQUIRED",
+            body: `Failed to transfer $${platformFee.toFixed(2)} platform fee for withdrawal ${w.id} (user ${userId}). Payout was already sent. MANUAL FEE RECOVERY REQUIRED. Error: ${feeErrMsg}`,
             severity: "critical",
-            meta: { withdrawal_id: w.id, user_id: userId, fee_usd: platformFee.toFixed(2), error: feeErrMsg },
           });
         }
       }

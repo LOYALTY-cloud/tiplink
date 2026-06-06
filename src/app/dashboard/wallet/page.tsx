@@ -177,7 +177,7 @@ export default function WalletPage() {
   const amountTooHigh = amount > effectiveMax;
   const invalid = amount <= 0 || amountTooLow || amountTooHigh;
 
-  const tierLabel = null; // no platform fee on either withdrawal type
+  const tierLabel = null; // fee shown in summary breakdown below
 
   const loadPayout = async () => {
     const { data: userRes } = await supabase.auth.getUser();
@@ -878,7 +878,7 @@ export default function WalletPage() {
         {/* Mode description */}
         <p className="text-xs text-white/40 -mt-2">
           {withdrawMode === "instant"
-            ? "⚡ Arrives in minutes · no platform fee · requires instant-eligible card"
+            ? "⚡ Arrives in minutes"
             : "🏦 Arrives in 1–3 business days · no fees"}
         </p>
 
@@ -979,9 +979,24 @@ export default function WalletPage() {
         {/* Summary */}
         <div className="p-4 rounded-xl bg-white/5 border border-white/[0.12] space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-white/60">Amount</span>
+            <span className="text-sm text-white/60">Withdrawal amount</span>
             <span className="text-sm font-semibold text-white/90">{formatMoney(amount || 0)}</span>
           </div>
+          {withdrawMode === "instant" && amount > 0 && (() => {
+            const raw = Math.round(amount * 0.035 * 100) / 100;
+            const fee = Math.min(Math.max(raw, 1.00), 75.00);
+            const net = Math.round((amount - fee) * 100) / 100;
+            return (<>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-white/50">Instant fee (3.5%, min $1 / max $75)</span>
+                <span className="text-sm text-red-400">−{formatMoney(fee)}</span>
+              </div>
+              <div className="border-t border-white/10 pt-2 flex items-center justify-between">
+                <span className="text-sm font-semibold text-white/80">You receive</span>
+                <span className="text-sm font-bold text-emerald-400">{formatMoney(net)}</span>
+              </div>
+            </>);
+          })()}
         </div>
 
         {/* Withdrawal error */}
