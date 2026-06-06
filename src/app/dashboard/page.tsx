@@ -538,13 +538,13 @@ export default function DashboardPage() {
                       className={`w-full text-left px-4 py-2.5 hover:bg-white/5 transition flex items-center gap-2 ${withdrawCardMode === "instant" ? "text-emerald-400 font-medium" : "text-white/70"}`}
                       onClick={() => { setWithdrawCardMode("instant"); localStorage.setItem("dashboard_withdraw_card_mode", "instant"); setShowWithdrawCardMenu(false); }}
                     >
-                      <span>⚡</span> Instant <span className="ml-auto text-[11px] text-white/40">5% fee</span>
+                      <span>⚡</span> Instant
                     </button>
                     <button
                       className={`w-full text-left px-4 py-2.5 hover:bg-white/5 transition flex items-center gap-2 ${withdrawCardMode === "standard" ? "text-emerald-400 font-medium" : "text-white/70"}`}
                       onClick={() => { setWithdrawCardMode("standard"); localStorage.setItem("dashboard_withdraw_card_mode", "standard"); setShowWithdrawCardMenu(false); }}
                     >
-                      <span>🏦</span> Standard <span className="ml-auto text-[11px] text-white/40">3.5% + $0.30</span>
+                      <span>🏦</span> Standard
                     </button>
                   </div>
                 </>

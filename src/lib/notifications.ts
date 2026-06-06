@@ -14,6 +14,8 @@ type NotificationType =
   | "theme_sold"
   | "theme_unlocked"
   | "theme_rejected"
+  | "appeal_approved"
+  | "appeal_rejected"
   | "creator_approved"
   | "security"
   | "support";
@@ -26,6 +28,7 @@ function deriveCategory(type: NotificationType): NotificationCategory {
   if (type === "verification_needed") return "security";
   if (type === "theme_sold" || type === "theme_unlocked") return "sales";
   if (type === "creator_approved") return "system";
+  if (type === "appeal_approved" || type === "appeal_rejected") return "system";
   if (type === "security") return "security";
   if (type === "support") return "support";
   return "system";
@@ -134,6 +137,8 @@ export async function createNotification({
       (type === "security" && prefs.notify_security !== false) ||
       isThemeSalesType || // theme purchase notifications always sent
       type === "theme_rejected" || // rejection notifications always sent
+      type === "appeal_approved" ||
+      type === "appeal_rejected" ||
       type === "support"; // support notifications are always sent
 
     if (!allowed) return;

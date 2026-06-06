@@ -422,7 +422,13 @@ function ThemeCard({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [togglingMarket, setTogglingMarket] = useState(false);
   const [showNoStoreModal, setShowNoStoreModal] = useState(false);
+  const [showRestrictedModal, setShowRestrictedModal] = useState(false);
+  const [appealView, setAppealView] = useState<"info" | "form" | "success" | "already_pending">("info");
+  const [appealReason, setAppealReason] = useState("");
+  const [appealSubmitting, setAppealSubmitting] = useState(false);
+  const [appealError, setAppealError] = useState<string | null>(null);
   const isMarketActive = theme.is_market_active !== false;
+  const isRejected = theme.status === "removed" || theme.status === "rejected";
   return (
     <div className="bg-[#111] border border-white/[0.08] rounded-2xl p-3 flex flex-col gap-3 hover:scale-[1.02] transition-transform duration-150">
       <ThemeSwatch config={theme.config} />
@@ -437,8 +443,11 @@ function ThemeCard({
           {theme.is_active && (
             <span className="text-[10px] font-medium text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">Active</span>
           )}
-          {!isMarketActive && (
+          {!isMarketActive && !isRejected && (
             <span className="text-[10px] font-medium text-red-300 bg-red-500/10 px-2 py-0.5 rounded-full">Market Off</span>
+          )}
+          {isRejected && (
+            <span className="text-[10px] font-medium text-red-400 bg-red-500/15 border border-red-500/25 px-2 py-0.5 rounded-full">Theme Rejected</span>
           )}
           <span className="text-[10px] font-medium text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">
             {theme.price ? `$${theme.price.toFixed(2)}` : "Free"}
@@ -447,6 +456,110 @@ function ThemeCard({
         </div>
       </div>
       <div className="flex flex-col gap-2">
+        {showRestrictedModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className="bg-[#18181b] border border-red-500/20 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-xl">
+
+              {/* Info view — default */}
+              {appealView === "info" && (<>
+                <h2 className="text-base font-semibold text-white">Theme Restricted</h2>
+                <p className="text-sm text-white/60">This theme has been rejected and cannot be activated for sale.</p>
+                {theme.moderation_reason && (
+                  <p className="text-xs text-red-300/70 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2 leading-snug">{theme.moderation_reason}</p>
+                )}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setShowRestrictedModal(false); setAppealView("info"); }}
+                    className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white/70 text-sm font-medium transition"
+                  >Dismiss</button>
+                  <button
+                    onClick={() => setAppealView("form")}
+                    className="flex-1 py-2.5 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 text-sm font-semibold transition"
+                  >Appeal Decision</button>
+                </div>
+              </>)}
+
+              {/* Appeal form */}
+              {appealView === "form" && (<>
+                <div>
+                  <h2 className="text-base font-semibold text-white">Appeal Theme Rejection</h2>
+                  <p className="text-xs text-white/45 mt-1">Explain why you believe this rejection was a mistake. Our moderation team will review within 3–5 business days.</p>
+                </div>
+                <textarea
+                  value={appealReason}
+                  onChange={e => { setAppealReason(e.target.value); setAppealError(null); }}
+                  placeholder="Describe your appeal (min. 10 characters)…"
+                  rows={4}
+                  maxLength={2000}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/25 resize-none outline-none focus:border-blue-400/40 transition"
+                />
+                {appealError && <p className="text-xs text-red-400">{appealError}</p>}
+                <p className="text-[11px] text-white/30 -mt-2 text-right">{appealReason.length}/2000</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setAppealView("info"); setAppealError(null); }}
+                    className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white/70 text-sm font-medium transition"
+                    disabled={appealSubmitting}
+                  >Back</button>
+                  <button
+                    disabled={appealSubmitting || appealReason.trim().length < 10}
+                    onClick={async () => {
+                      setAppealSubmitting(true);
+                      setAppealError(null);
+                      try {
+                        const { supabase } = await import("@/lib/supabase/client");
+                        const { data: sess } = await supabase.auth.getSession();
+                        const token = sess.session?.access_token;
+                        if (!token) { setAppealError("Session expired. Please refresh."); return; }
+                        const res = await fetch("/api/marketplace/appeal", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ themeId: theme.id, reason: appealReason.trim() }),
+                        });
+                        const json = await res.json();
+                        if (res.status === 409) { setAppealView("already_pending"); return; }
+                        if (!res.ok) { setAppealError(json.error || "Failed to submit. Please try again."); return; }
+                        setAppealView("success");
+                      } catch {
+                        setAppealError("Network error. Please try again.");
+                      } finally {
+                        setAppealSubmitting(false);
+                      }
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-400 text-white text-sm font-semibold transition disabled:opacity-50"
+                  >{appealSubmitting ? "Submitting…" : "Submit Appeal"}</button>
+                </div>
+              </>)}
+
+              {/* Success */}
+              {appealView === "success" && (<>
+                <div className="text-center py-2">
+                  <p className="text-2xl mb-2">✅</p>
+                  <h2 className="text-base font-semibold text-white">Appeal Submitted</h2>
+                  <p className="text-sm text-white/55 mt-1">Our team will review your appeal within 3–5 business days. You&apos;ll be notified of the outcome.</p>
+                </div>
+                <button
+                  onClick={() => { setShowRestrictedModal(false); setAppealView("info"); setAppealReason(""); }}
+                  className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white/70 text-sm font-medium transition"
+                >Done</button>
+              </>)}
+
+              {/* Already pending */}
+              {appealView === "already_pending" && (<>
+                <div className="text-center py-2">
+                  <p className="text-2xl mb-2">⏳</p>
+                  <h2 className="text-base font-semibold text-white">Appeal Already Pending</h2>
+                  <p className="text-sm text-white/55 mt-1">You already have a pending appeal for this theme. Our team will review it within 3–5 business days.</p>
+                </div>
+                <button
+                  onClick={() => { setShowRestrictedModal(false); setAppealView("info"); }}
+                  className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white/70 text-sm font-medium transition"
+                >Dismiss</button>
+              </>)}
+
+            </div>
+          </div>
+        )}
         {showNoStoreModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
             <div className="bg-[#18181b] border border-white/10 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-xl">
@@ -482,6 +595,10 @@ function ThemeCard({
         )}
         <button
           onClick={async () => {
+            if (isRejected) {
+              setShowRestrictedModal(true);
+              return;
+            }
             if (!isMarketActive && !hasStore) {
               setShowNoStoreModal(true);
               return;
@@ -493,17 +610,19 @@ function ThemeCard({
               setTogglingMarket(false);
             }
           }}
-          disabled={togglingMarket || (isBanned && !isMarketActive)}
+          disabled={togglingMarket || (isBanned && !isMarketActive && !isRejected)}
           title={isBanned && !isMarketActive ? "Suspended — cannot activate themes for sale" : undefined}
           className={`w-full py-2 rounded-xl text-xs font-medium transition disabled:opacity-50 ${
-            isBanned && !isMarketActive
+            isBanned && !isMarketActive && !isRejected
               ? "bg-white/5 text-white/25 cursor-not-allowed"
-              : isMarketActive
-                ? "bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300"
-                : "bg-white/10 hover:bg-white/20 text-white/70"
+              : isRejected
+                ? "bg-red-500/10 text-red-400/70 hover:bg-red-500/15"
+                : isMarketActive
+                  ? "bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300"
+                  : "bg-white/10 hover:bg-white/20 text-white/70"
           }`}
         >
-          {togglingMarket ? "Updating…" : isMarketActive ? "Deactivate" : "Activate for Sale"}
+          {togglingMarket ? "Updating…" : isRejected ? "Theme Restricted" : isMarketActive ? "Deactivate" : "Activate for Sale"}
         </button>
         {!theme.is_active ? (
           <button

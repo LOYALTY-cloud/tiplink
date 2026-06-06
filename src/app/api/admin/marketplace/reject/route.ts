@@ -77,6 +77,11 @@ export async function POST(req: Request) {
       reviewed_by: session.userId,
     });
 
+    // Resolve display values before use
+    const creatorEmail = profile?.email ?? null;
+    const creatorName = profile?.display_name ?? "Creator";
+    const themeName = theme.name ?? "your theme";
+
     // In-app notification (non-blocking, skip email — dedicated email sent below)
     void createNotification({
       userId: theme.user_id,
@@ -87,11 +92,6 @@ export async function POST(req: Request) {
       entityId: themeId,
       skipEmail: true,
     });
-
-    // Send rejection email to creator
-    const creatorEmail = profile?.email ?? null;
-    const creatorName = profile?.display_name ?? "Creator";
-    const themeName = theme.name ?? "your theme";
 
     if (creatorEmail) {
       const html = `
@@ -119,7 +119,7 @@ export async function POST(req: Request) {
           </p>
 
           <p style="color:#d1d5db;line-height:1.6;margin:0 0 24px;">
-            If you believe this decision was made in error, you can appeal by submitting a support ticket with the subject <strong style="color:#f9fafb;">"Theme Rejection Appeal – ${themeName}"</strong>.
+            If you believe this decision was made in error, you can appeal directly from your Theme Builder dashboard. Click the theme card, then select <strong style="color:#f9fafb;">Appeal Decision</strong>.
           </p>
 
           <div style="text-align:center;margin:28px 0;">

@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
+import { sendEmailAsync } from "@/lib/emailService";
+import { emailFooter } from "@/lib/email/footer";
+import { createAdminNotification } from "@/lib/adminNotifications";
+import { createNotification } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -126,6 +130,137 @@ export async function PATCH(req: Request) {
       .from("creator_marketplace_profiles")
       .update(banUpdate)
       .eq("user_id", appeal.user_id);
+  }
+
+  // Fetch creator profile + theme name for notifications (non-blocking on main flow)
+  const [{ data: profile }, { data: theme }] = await Promise.all([
+    supabaseAdmin.from("profiles").select("email, display_name").eq("user_id", appeal.user_id).maybeSingle(),
+    supabaseAdmin.from("themes").select("name").eq("id", appeal.theme_id).maybeSingle(),
+  ]);
+
+  const creatorEmail = profile?.email ?? null;
+  const creatorName  = profile?.display_name ?? "Creator";
+  const themeName    = theme?.name ?? "your theme";
+  const noteText     = adminNote?.trim() || null;
+
+  if (action === "approve") {
+    // In-app notification to creator
+    void createNotification({
+      userId:   appeal.user_id,
+      type:     "appeal_approved",
+      title:    `Appeal approved — "${themeName}" is under review`,
+      body:     `Great news! Your appeal was successful. "${themeName}" has been reinstated and will go through moderation. We'll notify you once the review is complete.${noteText ? ` Admin note: ${noteText}` : ""}`,
+      category: "system",
+      entityId: appeal.theme_id,
+      skipEmail: true,
+    });
+
+    // Creator email — appeal approved
+    if (creatorEmail) {
+      const html = `
+        <div style="font-family:sans-serif;background:#0a0a0a;color:#f3f4f6;padding:40px 24px;max-width:600px;margin:0 auto;border-radius:16px;">
+          <div style="text-align:center;margin-bottom:32px;">
+            <div style="font-size:20px;font-weight:700;color:#22c55e;">1neLink Theme Store</div>
+          </div>
+          <h2 style="font-size:22px;font-weight:700;color:#f9fafb;margin:0 0 8px;">Appeal Approved 🎉</h2>
+          <p style="color:#9ca3af;margin:0 0 24px;">Hi ${creatorName},</p>
+          <p style="color:#d1d5db;line-height:1.6;margin:0 0 20px;">
+            Good news — your appeal for <strong style="color:#f9fafb;">"${themeName}"</strong> has been approved.
+            The theme has been reinstated and is now back in our moderation queue. We'll send you another notification once the review is complete.
+          </p>
+          ${noteText ? `
+          <div style="background:#1f1f1f;border:1px solid #22c55e44;border-radius:12px;padding:16px 20px;margin:0 0 24px;">
+            <p style="color:#86efac;font-size:13px;font-weight:600;margin:0 0 6px;text-transform:uppercase;letter-spacing:0.05em;">Note from Moderation</p>
+            <p style="color:#d1d5db;margin:0;line-height:1.6;">${noteText}</p>
+          </div>` : ""}
+          <div style="text-align:center;margin:28px 0;">
+            <a href="https://1nelink.app/dashboard/themebuilder"
+               style="display:inline-block;background:#22c55e;color:#000;font-weight:700;padding:12px 28px;border-radius:10px;text-decoration:none;font-size:15px;">
+              Go to Theme Builder
+            </a>
+          </div>
+          ${emailFooter()}
+        </div>
+      `;
+      void sendEmailAsync({
+        type: "NOTIFICATION",
+        to: creatorEmail,
+        subject: `Your appeal was approved — "${themeName}" is under review`,
+        html,
+      });
+    }
+
+    // Admin notification: appeal resolved
+    void createAdminNotification({
+      type: "marketplace_alert",
+      title: "Theme Appeal Approved",
+      message: `${creatorName}'s appeal for "${themeName}" was approved by ${session.email ?? session.userId}. Theme restored to pending_review.`,
+      link: "/admin/marketplace/appeals",
+      requiresAction: false,
+      priority: "low",
+      metadata: { theme_id: appeal.theme_id, appeal_id: appealId, action: "approve" },
+    });
+  } else {
+    // In-app notification to creator
+    void createNotification({
+      userId:   appeal.user_id,
+      type:     "appeal_rejected",
+      title:    `Appeal not approved — "${themeName}"`,
+      body:     `We've reviewed your appeal for "${themeName}" and are unable to reverse the original decision. Please ensure your theme meets our marketplace guidelines before making any revisions.${noteText ? ` Admin note: ${noteText}` : ""}`,
+      category: "system",
+      entityId: appeal.theme_id,
+      skipEmail: true,
+    });
+
+    // Creator email — appeal rejected
+    if (creatorEmail) {
+      const html = `
+        <div style="font-family:sans-serif;background:#0a0a0a;color:#f3f4f6;padding:40px 24px;max-width:600px;margin:0 auto;border-radius:16px;">
+          <div style="text-align:center;margin-bottom:32px;">
+            <div style="font-size:20px;font-weight:700;color:#22c55e;">1neLink Theme Store</div>
+          </div>
+          <h2 style="font-size:22px;font-weight:700;color:#f9fafb;margin:0 0 8px;">Appeal Update</h2>
+          <p style="color:#9ca3af;margin:0 0 24px;">Hi ${creatorName},</p>
+          <p style="color:#d1d5db;line-height:1.6;margin:0 0 20px;">
+            We've reviewed your appeal for <strong style="color:#f9fafb;">"${themeName}"</strong> and are unable to reverse the original moderation decision at this time.
+          </p>
+          ${noteText ? `
+          <div style="background:#1f1f1f;border:1px solid #ef444444;border-radius:12px;padding:16px 20px;margin:0 0 24px;">
+            <p style="color:#f87171;font-size:13px;font-weight:600;margin:0 0 6px;text-transform:uppercase;letter-spacing:0.05em;">Note from Moderation</p>
+            <p style="color:#d1d5db;margin:0;line-height:1.6;">${noteText}</p>
+          </div>` : ""}
+          <p style="color:#d1d5db;line-height:1.6;margin:0 0 24px;">
+            If you'd like to create a new theme that complies with our
+            <a href="https://1nelink.app/dashboard/support/help" style="color:#22c55e;text-decoration:none;">Theme Marketplace Guidelines</a>,
+            you're welcome to submit a new design for review.
+          </p>
+          <div style="text-align:center;margin:28px 0;">
+            <a href="https://1nelink.app/dashboard/themebuilder"
+               style="display:inline-block;background:#22c55e;color:#000;font-weight:700;padding:12px 28px;border-radius:10px;text-decoration:none;font-size:15px;">
+              Go to Theme Builder
+            </a>
+          </div>
+          ${emailFooter()}
+        </div>
+      `;
+      void sendEmailAsync({
+        type: "NOTIFICATION",
+        to: creatorEmail,
+        subject: `Update on your appeal for "${themeName}"`,
+        html,
+      });
+    }
+
+    // Admin notification: appeal resolved
+    void createAdminNotification({
+      type: "marketplace_alert",
+      title: "Theme Appeal Rejected",
+      message: `${creatorName}'s appeal for "${themeName}" was rejected by ${session.email ?? session.userId}.`,
+      link: "/admin/marketplace/appeals",
+      requiresAction: false,
+      priority: "low",
+      metadata: { theme_id: appeal.theme_id, appeal_id: appealId, action: "reject" },
+    });
   }
 
   return NextResponse.json({ success: true });

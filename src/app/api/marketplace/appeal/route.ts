@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { createSupabaseRouteClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createAdminNotification } from "@/lib/adminNotifications";
 
 export const runtime = "nodejs";
 
@@ -9,9 +10,17 @@ export const runtime = "nodejs";
  * Creator submits an appeal for a flagged/removed theme.
  */
 export async function POST(req: Request) {
-  const supabase = await createSupabaseRouteClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const authHeader = req.headers.get("authorization") ?? "";
+  const token = authHeader.replace("Bearer ", "").trim();
+  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const supabaseAuth = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${token}` } } }
+  );
+  const { data: { user }, error: authErr } = await supabaseAuth.auth.getUser();
+  if (authErr || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   let body: { themeId?: string; reason?: string };
   try {
@@ -67,6 +76,26 @@ export async function POST(req: Request) {
   if (insertErr) {
     return NextResponse.json({ error: "Failed to submit appeal." }, { status: 500 });
   }
+
+  // Fetch creator handle for the notification message
+  const { data: profile } = await supabaseAdmin
+    .from("profiles")
+    .select("handle, display_name")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const creatorName = profile?.display_name || profile?.handle || user.email || user.id;
+
+  // Notify admins/moderators
+  await createAdminNotification({
+    type: "marketplace_alert",
+    title: "New Theme Appeal",
+    message: `${creatorName} appealed the rejection of theme ${themeId}. Reason: ${reason.slice(0, 120)}${reason.length > 120 ? "…" : ""}`,
+    link: "/admin/marketplace/appeals",
+    requiresAction: true,
+    priority: "medium",
+    metadata: { theme_id: themeId, user_id: user.id, creator: creatorName },
+  });
 
   return NextResponse.json({ success: true });
 }
