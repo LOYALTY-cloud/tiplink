@@ -38,6 +38,14 @@ type PerformanceData = {
   critical_week: number;
 };
 
+type ModerationData = {
+  themes_approved_today: number;
+  themes_rejected_today: number;
+  themes_approved_total: number;
+  themes_rejected_total: number;
+  themes_auto_removed_total: number;
+};
+
 type RiskData = {
   score: number;
   level: string;
@@ -118,6 +126,7 @@ export default function AdminStaffDetailPage() {
   const [admin, setAdmin] = useState<AdminDetail | null>(null);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [performance, setPerformance] = useState<PerformanceData | null>(null);
+  const [moderation, setModeration] = useState<ModerationData | null>(null);
   const [risk, setRisk] = useState<RiskData | null>(null);
   const [lastAction, setLastAction] = useState<{ action: string; created_at: string; target_user: string | null } | null>(null);
   const [actions, setActions] = useState<ActionEntry[]>([]);
@@ -192,6 +201,7 @@ export default function AdminStaffDetailPage() {
       setAdmin(data.admin);
       setStats(data.stats);
       setPerformance(data.performance ?? null);
+      setModeration(data.moderation ?? null);
       setRisk(data.risk ?? null);
       setLastAction(data.last_action ?? null);
       setActions(data.actions ?? []);
@@ -481,6 +491,49 @@ export default function AdminStaffDetailPage() {
               <p className={`text-[10px] ${ui.muted2}`}>Critical / Week</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Moderation Stats — owner/super_admin only, non-owner admins */}
+      {moderation && (isOwner || isSuperAdmin) && admin.role !== "owner" && (
+        <div className={`${ui.card} p-5 space-y-3`}>
+          <h2 className="text-sm font-semibold text-purple-400 uppercase tracking-wider">🎨 Marketplace Moderation</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-white/5 rounded-xl p-3 text-center">
+              <p className={`text-xl font-bold ${moderation.themes_approved_today === 0 ? "text-white/30" : "text-emerald-400"}`}>
+                {moderation.themes_approved_today}
+              </p>
+              <p className={`text-[10px] ${ui.muted2}`}>Approved Today</p>
+            </div>
+            <div className="bg-white/5 rounded-xl p-3 text-center">
+              <p className={`text-xl font-bold ${moderation.themes_rejected_today === 0 ? "text-white/30" : "text-red-400"}`}>
+                {moderation.themes_rejected_today}
+              </p>
+              <p className={`text-[10px] ${ui.muted2}`}>Rejected Today</p>
+            </div>
+            <div className="bg-white/5 rounded-xl p-3 text-center">
+              <p className="text-xl font-bold text-emerald-400">{moderation.themes_approved_total}</p>
+              <p className={`text-[10px] ${ui.muted2}`}>Approved All-Time</p>
+            </div>
+            <div className="bg-white/5 rounded-xl p-3 text-center">
+              <p className="text-xl font-bold text-red-400">{moderation.themes_rejected_total}</p>
+              <p className={`text-[10px] ${ui.muted2}`}>Rejected All-Time</p>
+            </div>
+          </div>
+          {moderation.themes_auto_removed_total > 0 && (
+            <div className="flex items-start gap-2 mt-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-300 text-xs">
+              <span>⚠️</span>
+              <span>
+                <strong>{moderation.themes_auto_removed_total}</strong> theme{moderation.themes_auto_removed_total !== 1 ? "s" : ""} have been auto-removed platform-wide due to no moderation decision within 48 hours.
+                {moderation.themes_approved_today === 0 && moderation.themes_rejected_today === 0 && (
+                  <span className="block mt-1 text-orange-300/70">This moderator made no decisions today.</span>
+                )}
+              </span>
+            </div>
+          )}
+          {moderation.themes_approved_total === 0 && moderation.themes_rejected_total === 0 && (
+            <p className={`text-xs ${ui.muted2} italic`}>No marketplace moderation actions on record.</p>
+          )}
         </div>
       )}
 

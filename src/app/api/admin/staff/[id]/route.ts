@@ -129,6 +129,29 @@ export async function GET(
       ? await calculateAdminRisk(admin.user_id)
       : { score: 0, level: "low", factors: [] };
 
+    // ── Moderation Stats ──
+    const todayIso = today.toISOString();
+
+    const [
+      { count: themesApprovedToday },
+      { count: themesRejectedToday },
+      { count: themesApprovedTotal },
+      { count: themesRejectedTotal },
+      { count: themesAutoRemovedTotal },
+    ] = await Promise.all([
+      supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
+        .eq("admin_id", admin.user_id).eq("action", "marketplace_theme_approve").gte("created_at", todayIso),
+      supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
+        .eq("admin_id", admin.user_id).eq("action", "marketplace_theme_reject").gte("created_at", todayIso),
+      supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
+        .eq("admin_id", admin.user_id).eq("action", "marketplace_theme_approve"),
+      supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
+        .eq("admin_id", admin.user_id).eq("action", "marketplace_theme_reject"),
+      // Auto-removed are system actions (admin_id = null), counted globally for context
+      supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
+        .is("admin_id", null).eq("action", "marketplace_theme_auto_removed"),
+    ]);
+
     // Last action
     const { data: lastAction } = await supabaseAdmin
       .from("admin_actions")
@@ -167,6 +190,13 @@ export async function GET(
         avg_actions_day: Math.round((actionsWeek ?? 0) / 7),
         tickets_resolved: ticketsResolved,
         critical_week: criticalWeek ?? 0,
+      },
+      moderation: {
+        themes_approved_today: themesApprovedToday ?? 0,
+        themes_rejected_today: themesRejectedToday ?? 0,
+        themes_approved_total: themesApprovedTotal ?? 0,
+        themes_rejected_total: themesRejectedTotal ?? 0,
+        themes_auto_removed_total: themesAutoRemovedTotal ?? 0,
       },
       risk,
       last_action: lastAction ?? null,
