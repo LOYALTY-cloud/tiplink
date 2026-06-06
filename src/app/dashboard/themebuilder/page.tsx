@@ -422,7 +422,9 @@ function ThemeCard({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [togglingMarket, setTogglingMarket] = useState(false);
   const [showNoStoreModal, setShowNoStoreModal] = useState(false);
+  const [showRestrictedModal, setShowRestrictedModal] = useState(false);
   const isMarketActive = theme.is_market_active !== false;
+  const isRejected = theme.status === "removed" || theme.status === "rejected";
   return (
     <div className="bg-[#111] border border-white/[0.08] rounded-2xl p-3 flex flex-col gap-3 hover:scale-[1.02] transition-transform duration-150">
       <ThemeSwatch config={theme.config} />
@@ -437,8 +439,11 @@ function ThemeCard({
           {theme.is_active && (
             <span className="text-[10px] font-medium text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">Active</span>
           )}
-          {!isMarketActive && (
+          {!isMarketActive && !isRejected && (
             <span className="text-[10px] font-medium text-red-300 bg-red-500/10 px-2 py-0.5 rounded-full">Market Off</span>
+          )}
+          {isRejected && (
+            <span className="text-[10px] font-medium text-red-400 bg-red-500/15 border border-red-500/25 px-2 py-0.5 rounded-full">Theme Rejected</span>
           )}
           <span className="text-[10px] font-medium text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">
             {theme.price ? `$${theme.price.toFixed(2)}` : "Free"}
@@ -447,6 +452,28 @@ function ThemeCard({
         </div>
       </div>
       <div className="flex flex-col gap-2">
+        {showRestrictedModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className="bg-[#18181b] border border-red-500/20 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-red-500/15 flex items-center justify-center shrink-0">
+                  <span className="text-red-400 text-base">🚫</span>
+                </div>
+                <h2 className="text-base font-semibold text-white">Theme Restricted</h2>
+              </div>
+              <p className="text-sm text-white/60">This theme has been rejected and cannot be activated for sale. If you believe this was a mistake, please contact support.</p>
+              {theme.moderation_reason && (
+                <p className="text-xs text-red-300/70 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2 leading-snug">{theme.moderation_reason}</p>
+              )}
+              <button
+                onClick={() => setShowRestrictedModal(false)}
+                className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white/70 text-sm font-medium transition"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
         {showNoStoreModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
             <div className="bg-[#18181b] border border-white/10 rounded-2xl p-6 max-w-sm w-full flex flex-col gap-4 shadow-xl">
@@ -482,6 +509,10 @@ function ThemeCard({
         )}
         <button
           onClick={async () => {
+            if (isRejected) {
+              setShowRestrictedModal(true);
+              return;
+            }
             if (!isMarketActive && !hasStore) {
               setShowNoStoreModal(true);
               return;
@@ -493,17 +524,19 @@ function ThemeCard({
               setTogglingMarket(false);
             }
           }}
-          disabled={togglingMarket || (isBanned && !isMarketActive)}
+          disabled={togglingMarket || (isBanned && !isMarketActive && !isRejected)}
           title={isBanned && !isMarketActive ? "Suspended — cannot activate themes for sale" : undefined}
           className={`w-full py-2 rounded-xl text-xs font-medium transition disabled:opacity-50 ${
-            isBanned && !isMarketActive
+            isBanned && !isMarketActive && !isRejected
               ? "bg-white/5 text-white/25 cursor-not-allowed"
-              : isMarketActive
-                ? "bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300"
-                : "bg-white/10 hover:bg-white/20 text-white/70"
+              : isRejected
+                ? "bg-red-500/10 text-red-400/70 hover:bg-red-500/15"
+                : isMarketActive
+                  ? "bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300"
+                  : "bg-white/10 hover:bg-white/20 text-white/70"
           }`}
         >
-          {togglingMarket ? "Updating…" : isMarketActive ? "Deactivate" : "Activate for Sale"}
+          {togglingMarket ? "Updating…" : isRejected ? "Theme Restricted" : isMarketActive ? "Deactivate" : "Activate for Sale"}
         </button>
         {!theme.is_active ? (
           <button
