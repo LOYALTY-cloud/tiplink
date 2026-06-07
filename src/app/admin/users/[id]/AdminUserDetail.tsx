@@ -60,9 +60,11 @@ type Wallet = { balance: number };
 type StripeBalance = {
   available: number;
   instant_net: number;
+  instant_available: number;
   pending: number;
   pending_available_on: string | null;
   stripe_account_id: string | null;
+  display_balance: number;
 };
 
 type Transaction = {
@@ -828,17 +830,19 @@ export default function AdminUserDetailPage() {
             <div className={`${ui.card} p-5 space-y-3`}>
               <p className="text-[10px] text-white/40 uppercase tracking-wider">Wallet Breakdown (what creator sees)</p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {/* Mirrors wallet page: stripeTotal > 0 ? stripeTotal : dbBalance */}
                 <div className="bg-white/5 rounded-xl p-3">
-                  <p className="text-[10px] text-white/40 mb-1">Available Balance</p>
-                  <p className={`text-lg font-bold ${stripeBalance.available > 0 ? "text-green-400" : "text-white/40"}`}>
-                    ${stripeBalance.available.toFixed(2)}
+                  <p className="text-[10px] text-white/40 mb-1">Creator Balance</p>
+                  <p className={`text-lg font-bold ${stripeBalance.display_balance > 0 ? "text-green-400" : "text-white/40"}`}>
+                    ${stripeBalance.display_balance.toFixed(2)}
                   </p>
-                  <p className="text-[10px] text-white/30 mt-0.5">Standard withdraw</p>
+                  <p className="text-[10px] text-white/30 mt-0.5">{stripeBalance.available > 0 ? "Stripe settled" : "Platform ledger"}</p>
                 </div>
+                {/* Mirrors wallet page: stripeInstantNet > 0 ? stripeInstantNet : stripeAvailable */}
                 <div className="bg-white/5 rounded-xl p-3">
                   <p className="text-[10px] text-white/40 mb-1">Instant Withdrawal</p>
-                  <p className={`text-lg font-bold ${stripeBalance.instant_net > 0 ? "text-blue-400" : "text-white/40"}`}>
-                    ${stripeBalance.instant_net.toFixed(2)}
+                  <p className={`text-lg font-bold ${stripeBalance.instant_available > 0 ? "text-blue-400" : "text-white/40"}`}>
+                    ${stripeBalance.instant_available.toFixed(2)}
                   </p>
                   <p className="text-[10px] text-white/30 mt-0.5">After Stripe instant fee</p>
                 </div>
@@ -863,8 +867,8 @@ export default function AdminUserDetailPage() {
                   <p className="text-[10px] text-white/30 mt-0.5">Internal record</p>
                 </div>
               </div>
-              {stripeBalance.available === 0 && stripeBalance.instant_net === 0 && stripeBalance.pending === 0 && (
-                <p className="text-xs text-white/30 italic">No Stripe balance — account may have no funds or payouts disabled.</p>
+              {stripeBalance.available === 0 && stripeBalance.pending === 0 && (
+                <p className="text-xs text-white/30 italic">No live Stripe balance — creator balance is sourced from platform ledger.</p>
               )}
             </div>
           )}

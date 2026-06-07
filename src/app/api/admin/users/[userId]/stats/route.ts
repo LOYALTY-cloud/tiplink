@@ -91,6 +91,13 @@ export async function GET(
       } catch { /* non-fatal — Stripe may be unavailable */ }
     }
 
+    // Mirror the exact same fallback logic as /api/wallet/balance so admin
+    // sees what the creator actually sees on their wallet page.
+    const dbBalance = Number(walletRes.data?.balance ?? 0);
+    const stripeTotal = stripeAvailable + stripePending;
+    const displayBalance = stripeTotal > 0 ? stripeTotal : dbBalance;
+    const instantAvailable = stripeInstantNet > 0 ? stripeInstantNet : stripeAvailable;
+
     return NextResponse.json({
       wallet: walletRes.data ?? { balance: 0 },
       tips: tipsRes.data ?? [],
@@ -98,9 +105,11 @@ export async function GET(
       stripeBalance: {
         available: stripeAvailable,
         instant_net: stripeInstantNet,
+        instant_available: instantAvailable,
         pending: stripePending,
         pending_available_on: pendingAvailableOn,
         stripe_account_id: stripeAccountId,
+        display_balance: displayBalance,
       },
     });
   } catch {

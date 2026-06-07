@@ -17,6 +17,18 @@ export async function GET(
     try { requireRole(session.role, "staff"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
     const { id } = await params;
+    const url = new URL(req.url);
+
+    // Optional date-range filter for moderation stats (owner history view)
+    // ?from=2026-06-01&to=2026-06-07  — defaults to today only
+    const fromParam = url.searchParams.get("from");
+    const toParam   = url.searchParams.get("to");
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const rangeFrom = fromParam ? new Date(fromParam + "T00:00:00Z") : today;
+    const rangeTo   = toParam   ? new Date(toParam   + "T23:59:59Z") : new Date(today.getTime() + 86399999);
+    // Clamp: never allow future end dates beyond now
+    if (rangeTo > new Date()) rangeTo.setTime(Date.now());
 
     // Get admin row
     const { data: admin, error } = await supabaseAdmin
@@ -130,19 +142,32 @@ export async function GET(
       : { score: 0, level: "low", factors: [] };
 
     // ── Moderation Stats ──
-    const todayIso = today.toISOString();
+    const todayIso    = today.toISOString();
+    const rangeFromIso = rangeFrom.toISOString();
+    const rangeToIso   = rangeTo.toISOString();
 
     const [
       { count: themesApprovedToday },
       { count: themesRejectedToday },
+      { count: themesApprovedRange },
+      { count: themesRejectedRange },
       { count: themesApprovedTotal },
       { count: themesRejectedTotal },
       { count: themesAutoRemovedTotal },
     ] = await Promise.all([
+      // "Today" always = current calendar day regardless of range filter
       supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
         .eq("admin_id", admin.user_id).eq("action", "marketplace_theme_approve").gte("created_at", todayIso),
       supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
         .eq("admin_id", admin.user_id).eq("action", "marketplace_theme_reject").gte("created_at", todayIso),
+      // Range window (defaults to today, owner can filter any date range)
+      supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
+        .eq("admin_id", admin.user_id).eq("action", "marketplace_theme_approve")
+        .gte("created_at", rangeFromIso).lte("created_at", rangeToIso),
+      supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
+        .eq("admin_id", admin.user_id).eq("action", "marketplace_theme_reject")
+        .gte("created_at", rangeFromIso).lte("created_at", rangeToIso),
+      // All-time totals
       supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
         .eq("admin_id", admin.user_id).eq("action", "marketplace_theme_approve"),
       supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
@@ -151,6 +176,28 @@ export async function GET(
       supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
         .is("admin_id", null).eq("action", "marketplace_theme_auto_removed"),
     ]);
+
+    // 7-day daily breakdown — always the last 7 calendar days for trend view
+    const sevenDayBreakdown: { date: string; approved: number; rejected: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const dayStart = new Date(today);
+      dayStart.setDate(today.getDate() - i);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setHours(23, 59, 59, 999);
+      const [{ count: approvedDay }, { count: rejectedDay }] = await Promise.all([
+        supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
+          .eq("admin_id", admin.user_id).eq("action", "marketplace_theme_approve")
+          .gte("created_at", dayStart.toISOString()).lte("created_at", dayEnd.toISOString()),
+        supabaseAdmin.from("admin_actions").select("id", { count: "exact", head: true })
+          .eq("admin_id", admin.user_id).eq("action", "marketplace_theme_reject")
+          .gte("created_at", dayStart.toISOString()).lte("created_at", dayEnd.toISOString()),
+      ]);
+      sevenDayBreakdown.push({
+        date: dayStart.toISOString().slice(0, 10),
+        approved: approvedDay ?? 0,
+        rejected: rejectedDay ?? 0,
+      });
+    }
 
     // Last action
     const { data: lastAction } = await supabaseAdmin
@@ -194,9 +241,14 @@ export async function GET(
       moderation: {
         themes_approved_today: themesApprovedToday ?? 0,
         themes_rejected_today: themesRejectedToday ?? 0,
+        themes_approved_range: themesApprovedRange ?? 0,
+        themes_rejected_range: themesRejectedRange ?? 0,
         themes_approved_total: themesApprovedTotal ?? 0,
         themes_rejected_total: themesRejectedTotal ?? 0,
         themes_auto_removed_total: themesAutoRemovedTotal ?? 0,
+        range_from: rangeFrom.toISOString().slice(0, 10),
+        range_to: rangeTo.toISOString().slice(0, 10),
+        seven_day_breakdown: sevenDayBreakdown,
       },
       risk,
       last_action: lastAction ?? null,
