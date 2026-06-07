@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { THEME_KEYS, type ThemeKey, FREE_THEMES } from "@/lib/themes";
+import { deductFromConnectedAccount } from "@/lib/stripe/deductFromConnectedAccount";
 
 const THEME_PRICE_DOLLARS = 1.99;
 const BUNDLE_PRICE_DOLLARS = 4.99;
@@ -52,6 +53,27 @@ export async function POST(req: Request) {
         { error: data.error, balance: data.balance, required: data.required },
         { status }
       );
+    }
+
+    // ── Deduct from Stripe connected account → platform ────────────────────
+    // DB ledger already debited by the RPC above. Now move the money on Stripe.
+    const { data: buyerProfile } = await supabaseAdmin
+      .from("profiles")
+      .select("stripe_account_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (buyerProfile?.stripe_account_id) {
+      try {
+        await deductFromConnectedAccount(
+          buyerProfile.stripe_account_id,
+          price,
+          `Platform theme purchase: ${theme}`,
+        );
+      } catch (stripeErr) {
+        console.error("purchase-with-balance: Stripe deduction failed:", stripeErr);
+        // Non-fatal — DB already debited, log for reconciliation
+      }
     }
 
     return NextResponse.json({ success: true, theme });

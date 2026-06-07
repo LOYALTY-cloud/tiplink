@@ -4,6 +4,7 @@ import { requireCreator } from "@/lib/creatorGuard";
 import { stripe } from "@/lib/stripe/server";
 import { addLedgerEntry } from "@/lib/ledger";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
+import { deductFromConnectedAccount } from "@/lib/stripe/deductFromConnectedAccount";
 
 export const runtime = "nodejs";
 const STORE_PRICE_DOLLARS = 9.99;
@@ -62,6 +63,27 @@ export async function POST(req: Request) {
         );
       }
 
+      // Deduct from Stripe connected account (transfer reversal) before DB ledger
+      const { data: profileForStripe } = await supabaseAdmin
+        .from("profiles")
+        .select("stripe_account_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      let stripeReversalIds: string[] = [];
+      if (profileForStripe?.stripe_account_id) {
+        try {
+          const result = await deductFromConnectedAccount(
+            profileForStripe.stripe_account_id,
+            STORE_PRICE_DOLLARS,
+            "Creator Store recovery charge",
+          );
+          stripeReversalIds = result.reversalIds;
+        } catch (stripeErr) {
+          console.error("store/switch-to-balance: Stripe deduction failed:", stripeErr);
+        }
+      }
+
       await addLedgerEntry({
         user_id: userId,
         type: "fee",
@@ -71,6 +93,7 @@ export async function POST(req: Request) {
           payment_method: "wallet_balance",
           amount_usd: STORE_PRICE_DOLLARS,
           description: "Creator Store recovery charge",
+          stripe_reversal_ids: stripeReversalIds,
         },
         status: "completed",
       });
