@@ -774,7 +774,7 @@ export default function AdminStaffDetailPage() {
                 onClick={() => { setRemoveModal(true); setRemoveReason(""); setRemoveConfirmText(""); }}
                 className={`${ui.btnGhost} ${ui.btnSmall} text-xs text-red-500 border-red-500/30 hover:border-red-500/60 ml-auto`}
               >
-                🔥 Remove Admin Access
+                Remove Admin Access
               </button>
             )}
           </div>
@@ -984,7 +984,7 @@ export default function AdminStaffDetailPage() {
       {removeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className={`${ui.card} p-6 max-w-md w-full mx-4 space-y-4 border border-red-500/30`}>
-            <h2 className={`${ui.h2} text-red-400`}>🔥 Remove Admin Access</h2>
+            <h2 className={`${ui.h2} text-red-400`}>Remove Admin Access</h2>
             <p className={`text-sm ${ui.muted}`}>
               This will <strong className="text-red-300">permanently revoke admin access</strong> for{" "}
               <strong>{admin?.full_name}</strong>. Their account will be demoted to a regular user.
