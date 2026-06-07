@@ -53,6 +53,7 @@ export async function POST(req: Request) {
         is_public: false,
         is_market_active: false,
         moderation_reason: reason,
+        queue_entered_at: null,
       })
       .eq("id", themeId);
 

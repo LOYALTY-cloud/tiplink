@@ -73,6 +73,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/stale-queue-themes",
+      "schedule": "0 */6 * * *"
+    },
+    {
       "path": "/api/cron/wallet-stripe-reconcile",
       "schedule": "30 3 * * *"
     }

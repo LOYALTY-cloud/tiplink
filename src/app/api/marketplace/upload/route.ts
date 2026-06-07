@@ -275,6 +275,7 @@ export async function POST(req: Request) {
       image_hash: imageHash,
       preview_images: previewUrls,
       theme_file_url: themeFileUrl,
+      queue_entered_at: status === "pending_review" ? new Date().toISOString() : null,
     })
     .select("id, status")
     .single();

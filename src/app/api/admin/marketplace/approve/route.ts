@@ -16,7 +16,7 @@ export async function POST(req: Request) {
 
     const { data: updatedTheme, error } = await supabaseAdmin
       .from("themes")
-      .update({ status: "approved", is_public: true, moderation_reason: null })
+      .update({ status: "approved", is_public: true, moderation_reason: null, queue_entered_at: null })
       .eq("id", themeId)
       .select("user_id")
       .single();
