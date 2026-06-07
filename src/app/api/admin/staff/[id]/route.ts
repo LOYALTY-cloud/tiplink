@@ -57,8 +57,6 @@ export async function GET(
       .limit(50);
 
     // Get action counts for today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     const { count: actionsToday } = await supabaseAdmin
       .from("admin_actions")
       .select("id", { count: "exact", head: true })
