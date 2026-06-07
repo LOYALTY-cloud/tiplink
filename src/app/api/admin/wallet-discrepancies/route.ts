@@ -56,7 +56,7 @@ export async function PATCH(req: Request) {
     .update({
       resolved: true,
       resolved_at: new Date().toISOString(),
-      resolved_by: session.adminId,
+      resolved_by: session.userId,
       resolution_note: resolution_note ?? "Resolved by admin",
     })
     .eq("user_id", user_id);

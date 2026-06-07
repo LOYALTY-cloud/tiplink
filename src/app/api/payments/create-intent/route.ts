@@ -322,6 +322,10 @@ export async function POST(req: Request) {
           notifyAdmins({
             title: "User Auto-Restricted (AI+Rules)",
             body: `User ${supporter_user_id} restricted. Score: ${hybridFraud.totalScore} [Rules:${hybridFraud.ruleScore} Behavior:${hybridFraud.behaviorScore} AI:${hybridFraud.aiScore}]`,
+            type: "fraud_alert",
+            priority: "critical",
+            link: `/admin/users/${supporter_user_id}`,
+            requiresAction: true,
           }).catch(() => {});
           createNotification({
             userId: supporter_user_id,
@@ -341,6 +345,10 @@ export async function POST(req: Request) {
       notifyAdmins({
         title: "Transaction Flagged for Review",
         body: `Score: ${hybridFraud.totalScore} [R:${hybridFraud.ruleScore} B:${hybridFraud.behaviorScore} AI:${hybridFraud.aiScore}]. User: ${supporter_user_id ?? supporter_ip}. Amount: $${tip_amount}`,
+        type: "fraud_alert",
+        priority: "high",
+        link: supporter_user_id ? `/admin/users/${supporter_user_id}` : "/admin/fraud",
+        requiresAction: true,
       }).catch(() => {});
     }
 

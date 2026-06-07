@@ -218,7 +218,7 @@ export async function POST(req: Request) {
         .from("theme_sales")
         .update({ transfer_status: "failed" })
         .eq("stripe_session_id", pi.id)
-        .catch(() => {});
+        .then(() => {}, () => {});
       try {
         const { sendAdminAlert } = await import("@/lib/adminAlerts");
         sendAdminAlert({

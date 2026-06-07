@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
+import { ADMIN_ROLES } from "@/lib/auth/permissions";
 
 export const runtime = "nodejs";
 
-const VALID_ROLES = ["support_admin", "finance_admin", "super_admin"];
+const VALID_ROLES = ADMIN_ROLES as readonly string[];
 
 /**
  * POST — Upsert a pay rate (per-admin override or role default).

@@ -119,7 +119,7 @@ export async function GET(req: Request) {
             .update({ resolved: true, resolved_at: new Date().toISOString() })
             .eq("user_id", profile.user_id as string)
             .eq("resolved", false)
-            .catch(() => {});
+            .then(() => {}, () => {});
 
           autoCorrections++;
           console.log(`[wallet-stripe-reconcile] Auto-corrected @${profile.handle}: zeroed DB balance $${ourBalance.toFixed(2)} (Stripe=$0)`);

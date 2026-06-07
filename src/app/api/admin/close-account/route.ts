@@ -109,6 +109,9 @@ export async function POST(req: Request) {
     notifyAdmins({
       title: "Account Closed",
       body: `Admin ${adminId} closed account ${user_id}. Reason: ${reason}`,
+      type: "security_alert",
+      priority: "high",
+      link: `/admin/users/${user_id}`,
     }).catch(() => {});
 
     return NextResponse.json({ ok: true, closed: user_id });

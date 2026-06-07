@@ -93,6 +93,9 @@ export async function POST(req: Request) {
       notifyAdmins({
         title: `Account ${status.charAt(0).toUpperCase() + status.slice(1)}`,
         body: `Admin @${nameFor(adminId)} set @${nameFor(user_id)} to ${status}. Reason: ${reason || "none"}`,
+        type: "security_alert",
+        priority: status === "suspended" || status === "closed" ? "high" : "medium",
+        link: `/admin/users/${user_id}`,
       }).catch(() => {});
     }
 

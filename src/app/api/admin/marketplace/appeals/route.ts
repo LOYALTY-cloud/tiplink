@@ -194,7 +194,7 @@ export async function PATCH(req: Request) {
     void createAdminNotification({
       type: "marketplace_alert",
       title: "Theme Appeal Approved",
-      message: `${creatorName}'s appeal for "${themeName}" was approved by ${session.email ?? session.userId}. Theme restored to pending_review.`,
+      message: `${creatorName}'s appeal for "${themeName}" was approved by admin ${session.userId}. Theme restored to pending_review.`,
       link: "/admin/marketplace/appeals",
       requiresAction: false,
       priority: "low",
@@ -255,7 +255,7 @@ export async function PATCH(req: Request) {
     void createAdminNotification({
       type: "marketplace_alert",
       title: "Theme Appeal Rejected",
-      message: `${creatorName}'s appeal for "${themeName}" was rejected by ${session.email ?? session.userId}.`,
+      message: `${creatorName}'s appeal for "${themeName}" was rejected by admin ${session.userId}.`,
       link: "/admin/marketplace/appeals",
       requiresAction: false,
       priority: "low",
