@@ -140,6 +140,7 @@ export default function AdminStaffDetailPage() {
   const [tickets, setTickets] = useState<TicketEntry[]>([]);
   const [assignments, setAssignments] = useState<AssignmentEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [modLoading, setModLoading] = useState(false);
   const [error, setError] = useState("");
 
   // Remove Admin (fire) modal state
@@ -199,27 +200,39 @@ export default function AdminStaffDetailPage() {
     return () => { supabaseAdmin.removeChannel(channel); };
   }, [admin?.user_id]);
 
-  async function loadAdmin(from?: string, to?: string) {
-    setLoading(true);
+  async function loadAdmin(from?: string, to?: string, moderationOnly = false) {
+    if (moderationOnly) {
+      setModLoading(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const qFrom = from ?? modFrom;
       const qTo   = to   ?? modTo;
       const res = await fetch(`/api/admin/staff/${id}?from=${qFrom}&to=${qTo}`, { headers: getAdminHeaders() });
       if (!res.ok) throw new Error("Failed to load");
       const data = await res.json();
-      setAdmin(data.admin);
-      setStats(data.stats);
-      setPerformance(data.performance ?? null);
-      setModeration(data.moderation ?? null);
-      setRisk(data.risk ?? null);
-      setLastAction(data.last_action ?? null);
-      setActions(data.actions ?? []);
-      setTickets(data.tickets ?? []);
-      setAssignments(data.assignments ?? []);
+      if (moderationOnly) {
+        setModeration(data.moderation ?? null);
+      } else {
+        setAdmin(data.admin);
+        setStats(data.stats);
+        setPerformance(data.performance ?? null);
+        setModeration(data.moderation ?? null);
+        setRisk(data.risk ?? null);
+        setLastAction(data.last_action ?? null);
+        setActions(data.actions ?? []);
+        setTickets(data.tickets ?? []);
+        setAssignments(data.assignments ?? []);
+      }
     } catch {
       setError("Failed to load admin profile");
     } finally {
-      setLoading(false);
+      if (moderationOnly) {
+        setModLoading(false);
+      } else {
+        setLoading(false);
+      }
     }
   }
 
@@ -507,7 +520,10 @@ export default function AdminStaffDetailPage() {
       {moderation && (isOwner || isSuperAdmin) && admin.role !== "owner" && (
         <div className={`${ui.card} p-5 space-y-4`}>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <h2 className="text-sm font-semibold text-purple-400 uppercase tracking-wider">🎨 Marketplace Moderation</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-purple-400 uppercase tracking-wider">🎨 Marketplace Moderation</h2>
+              {modLoading && <span className="text-[10px] text-purple-400/60 animate-pulse">Updating…</span>}
+            </div>
             {/* Date range picker */}
             <div className="flex items-center gap-2 flex-wrap">
               <span className={`text-xs ${ui.muted2}`}>View range:</span>
@@ -528,7 +544,7 @@ export default function AdminStaffDetailPage() {
                 className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500/50"
               />
               <button
-                onClick={() => loadAdmin(modFrom, modTo)}
+                onClick={() => loadAdmin(modFrom, modTo, true)}
                 className="bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/30 text-purple-200 text-xs px-3 py-1 rounded-lg transition"
               >
                 Apply
@@ -537,7 +553,7 @@ export default function AdminStaffDetailPage() {
                 onClick={() => {
                   const today = new Date().toISOString().slice(0, 10);
                   setModFrom(today); setModTo(today);
-                  loadAdmin(today, today);
+                  loadAdmin(today, today, true);
                 }}
                 className={`${ui.btnGhost} text-xs px-2 py-1`}
               >
@@ -548,7 +564,7 @@ export default function AdminStaffDetailPage() {
                   const to = new Date().toISOString().slice(0, 10);
                   const from = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
                   setModFrom(from); setModTo(to);
-                  loadAdmin(from, to);
+                  loadAdmin(from, to, true);
                 }}
                 className={`${ui.btnGhost} text-xs px-2 py-1`}
               >
