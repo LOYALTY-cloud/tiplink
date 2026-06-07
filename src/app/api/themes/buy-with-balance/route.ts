@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolveThemePrice } from "@/lib/themePricing";
 import { addLedgerEntry } from "@/lib/ledger";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
+import { deductFromConnectedAccount } from "@/lib/stripe/deductFromConnectedAccount";
 
 export const runtime = "nodejs";
 
@@ -158,6 +159,32 @@ export async function POST(req: Request) {
       });
     }
 
+    // ── Deduct from Stripe connected account (buyer) ───────────────────────
+    // Reverse transfers from platform→buyer so the money actually moves on
+    // Stripe, not just in the DB ledger. Non-fatal if buyer has no Stripe acct.
+    let stripeReversalIds: string[] = [];
+    {
+      const { data: buyerProfile } = await supabaseAdmin
+        .from("profiles")
+        .select("stripe_account_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (buyerProfile?.stripe_account_id) {
+        try {
+          const result = await deductFromConnectedAccount(
+            buyerProfile.stripe_account_id,
+            price,
+            `Theme purchase: ${theme.name ?? theme_id}`,
+          );
+          stripeReversalIds = result.reversalIds;
+        } catch (stripeErr) {
+          console.error("buy-with-balance: Stripe deduction failed:", stripeErr);
+          // Non-fatal — ledger deduction still proceeds
+        }
+      }
+    }
+
     // ── Deduct from wallet via ledger ──────────────────────────────────────
     await addLedgerEntry({
       user_id: userId,
@@ -173,6 +200,7 @@ export async function POST(req: Request) {
         platform_fee: platformFee,
         creator_earnings: creatorEarns,
         payment_method: "wallet_balance",
+        stripe_reversal_ids: stripeReversalIds,
       },
       status: "completed",
     });

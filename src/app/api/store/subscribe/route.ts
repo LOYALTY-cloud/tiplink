@@ -4,6 +4,7 @@ import { requireCreator } from "@/lib/creatorGuard";
 import { stripe } from "@/lib/stripe/server";
 import { addLedgerEntry } from "@/lib/ledger";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
+import { deductFromConnectedAccount } from "@/lib/stripe/deductFromConnectedAccount";
 
 export const runtime = "nodejs";
 
@@ -99,6 +100,29 @@ export async function POST(req: Request) {
       const balance = Number(wallet?.balance ?? 0);
 
       if (Number.isFinite(balance) && balance >= STORE_PRICE_DOLLARS) {
+        // Deduct from Stripe connected account first so the money actually
+        // moves on Stripe (transfer reversal), then record in the DB ledger.
+        const { data: profileForStripe } = await supabaseAdmin
+          .from("profiles")
+          .select("stripe_account_id")
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        let stripeReversalIds: string[] = [];
+        if (profileForStripe?.stripe_account_id) {
+          try {
+            const result = await deductFromConnectedAccount(
+              profileForStripe.stripe_account_id,
+              STORE_PRICE_DOLLARS,
+              "Creator Store activation fee",
+            );
+            stripeReversalIds = result.reversalIds;
+          } catch (stripeErr) {
+            console.error("store/subscribe: Stripe deduction failed:", stripeErr);
+            // Fall through — still deduct from DB ledger so activation works.
+          }
+        }
+
         await addLedgerEntry({
           user_id: userId,
           type: "fee",
@@ -108,6 +132,7 @@ export async function POST(req: Request) {
             payment_method: "wallet_balance",
             amount_usd: STORE_PRICE_DOLLARS,
             description: "Creator Store activation fee",
+            stripe_reversal_ids: stripeReversalIds,
           },
           status: "completed",
         });
