@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
+import { getAdminFromSession } from "@/lib/auth/getAdminFromSession";
 
 export const runtime = "nodejs";
 
@@ -11,7 +11,12 @@ export const runtime = "nodejs";
  */
 export async function POST(req: Request) {
   try {
-    const admin = await getAdminFromRequest(req);
+    // Presence must be authenticated via a valid JWT only — legacy X-Admin-Id
+    // header is intentionally excluded here to prevent stale/expired sessions
+    // from keeping an admin's last_active_at artificially fresh.
+    const authHeader = req.headers.get("authorization") ?? "";
+    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const admin = await getAdminFromSession(jwt);
     if (!admin) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

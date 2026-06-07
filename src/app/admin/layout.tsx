@@ -271,6 +271,8 @@ export default function AdminLayout({
     if (!raw) return;
     const session = JSON.parse(raw);
     if (!session?.admin_id) return;
+    // Don't heartbeat with an expired session — let the auth check redirect to login
+    if (!session.expires_at || Date.now() > session.expires_at) return;
 
     // Initial ping on mount (only if tab is visible)
     if (document.visibilityState === "visible") {
