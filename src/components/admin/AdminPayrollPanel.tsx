@@ -18,7 +18,16 @@ const RANGE_LABELS: Record<string, string> = {
   last_week: "Last Week",
 };
 
-const EDITABLE_ROLES = ["support_admin", "finance_admin", "super_admin"];
+const EDITABLE_ROLES = [
+  "co_owner",
+  "super_admin",
+  "security",
+  "finance_admin",
+  "support_admin",
+  "compliance",
+  "moderator",
+  "analyst",
+];
 
 function fmtHrs(hours: number): string {
   if (hours <= 0) return "0m";
