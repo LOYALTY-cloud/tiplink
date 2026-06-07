@@ -516,7 +516,10 @@ export async function notifyAdmins({
       )
     );
 
-    // 2. Single admin_notifications entry so it surfaces on /admin/notifications
+    // 2. Single admin_notifications entry so it surfaces on /admin/notifications.
+    // Do NOT pass roleTarget — let createAdminNotification use TYPE_DEFAULT_ROLES
+    // so each type reaches the correct roles (fraud_alert → security/compliance,
+    // marketplace_alert → moderators, etc.)
     const { createAdminNotification } = await import("@/lib/adminNotifications");
     await createAdminNotification({
       type,
@@ -526,7 +529,6 @@ export async function notifyAdmins({
       requiresAction,
       link: link ?? null,
       visibility: "role",
-      roleTarget: ["owner", "co_owner", "super_admin"],
     });
   } catch (err) {
     console.error("notifyAdmins error:", err);
