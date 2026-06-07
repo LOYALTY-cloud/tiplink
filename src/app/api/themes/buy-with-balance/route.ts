@@ -230,42 +230,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Failed to unlock theme. Please contact support." }, { status: 500 });
     }
 
-    // ── Revenue record ─────────────────────────────────────────────────────
-    // AWAITED — if this fails, creator won't get paid. Alert admin.
-    // Insert (not upsert) since stripe_session_id is null for balance purchases.
-    // The wallet lock prevents concurrent double-purchases for the same theme.
-    const { error: salesErr } = await supabaseAdmin
-      .from("theme_sales")
-      .insert({
-        theme_id,
-        buyer_id: userId,
-        seller_id: payoutSellerId,
-        stripe_session_id: null,
-        amount: price,
-        platform_fee: platformFee,
-        creator_earnings: creatorEarns,
-        stripe_transfer_id: stripeTransferId,
-      });
-
-    if (salesErr) {
-      console.error("buy-with-balance: theme_sales insert FAILED — creator earnings not recorded", {
-        theme_id, buyerId: userId, sellerId: payoutSellerId, error: salesErr.message,
-      });
-      try {
-        const { sendAdminAlert } = await import("@/lib/adminAlerts");
-        sendAdminAlert({
-          subject: "buy-with-balance: theme_sales insert failed",
-          body: `Creator ${payoutSellerId} may be missing earnings for theme ${theme_id} (buyer ${userId}).`,
-          severity: "critical",
-          meta: { theme_id, buyerId: userId, sellerId: payoutSellerId, error: salesErr.message },
-        });
-      } catch (_) {}
-    }
-
-    // ── Transfer earnings to creator's Stripe connected account ──────────
-    // The platform now holds the reversed funds from the buyer. Send creatorEarns
-    // to the seller via a Stripe transfer so their Stripe balance reflects the sale.
-    // Falls back gracefully if seller has no connected account.
+    // ── Revenue record + Stripe transfer ──────────────────────────────────
+    // Transfer earnings to creator's Stripe connected account first, then record.
     let stripeTransferId: string | null = null;
     if (creatorEarns > 0) {
       try {
@@ -295,6 +261,37 @@ export async function POST(req: Request) {
         console.error("buy-with-balance: Stripe transfer to seller failed:", transferErr);
         // Non-fatal — seller still gets DB ledger credit and can withdraw later
       }
+    }
+
+    // AWAITED — if this fails, creator won't get paid. Alert admin.
+    // Insert (not upsert) since stripe_session_id is null for balance purchases.
+    // The wallet lock prevents concurrent double-purchases for the same theme.
+    const { error: salesErr } = await supabaseAdmin
+      .from("theme_sales")
+      .insert({
+        theme_id,
+        buyer_id: userId,
+        seller_id: payoutSellerId,
+        stripe_session_id: null,
+        amount: price,
+        platform_fee: platformFee,
+        creator_earnings: creatorEarns,
+        stripe_transfer_id: stripeTransferId,
+      });
+
+    if (salesErr) {
+      console.error("buy-with-balance: theme_sales insert FAILED — creator earnings not recorded", {
+        theme_id, buyerId: userId, sellerId: payoutSellerId, error: salesErr.message,
+      });
+      try {
+        const { sendAdminAlert } = await import("@/lib/adminAlerts");
+        sendAdminAlert({
+          subject: "buy-with-balance: theme_sales insert failed",
+          body: `Creator ${payoutSellerId} may be missing earnings for theme ${theme_id} (buyer ${userId}).`,
+          severity: "critical",
+          meta: { theme_id, buyerId: userId, sellerId: payoutSellerId, error: salesErr.message },
+        });
+      } catch (_) {}
     }
 
     // ── Credit creator's internal wallet ledger ────────────────────────────
