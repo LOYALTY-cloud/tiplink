@@ -244,6 +244,7 @@ export async function POST(req: Request) {
         amount: price,
         platform_fee: platformFee,
         creator_earnings: creatorEarns,
+        stripe_transfer_id: stripeTransferId,
       });
 
     if (salesErr) {
@@ -261,10 +262,42 @@ export async function POST(req: Request) {
       } catch (_) {}
     }
 
+    // ── Transfer earnings to creator's Stripe connected account ──────────
+    // The platform now holds the reversed funds from the buyer. Send creatorEarns
+    // to the seller via a Stripe transfer so their Stripe balance reflects the sale.
+    // Falls back gracefully if seller has no connected account.
+    let stripeTransferId: string | null = null;
+    if (creatorEarns > 0) {
+      try {
+        const { data: sellerProfile } = await supabaseAdmin
+          .from("profiles")
+          .select("stripe_account_id, stripe_charges_enabled")
+          .eq("user_id", payoutSellerId)
+          .maybeSingle();
+
+        if (sellerProfile?.stripe_account_id && sellerProfile.stripe_charges_enabled) {
+          const { stripe: stripeClient } = await import("@/lib/stripe/server");
+          const transfer = await stripeClient.transfers.create({
+            amount: Math.round(creatorEarns * 100),
+            currency: "usd",
+            destination: sellerProfile.stripe_account_id,
+            description: `Theme sale: ${theme.name ?? theme_id}`,
+            metadata: {
+              type: "theme_sale_balance_purchase",
+              theme_id,
+              buyer_id: userId,
+              seller_id: payoutSellerId,
+            },
+          });
+          stripeTransferId = transfer.id;
+        }
+      } catch (transferErr) {
+        console.error("buy-with-balance: Stripe transfer to seller failed:", transferErr);
+        // Non-fatal — seller still gets DB ledger credit and can withdraw later
+      }
+    }
+
     // ── Credit creator's internal wallet ledger ────────────────────────────
-    // No Stripe charge on wallet purchases, so no Stripe transfer is possible.
-    // The creator's 98.5% earnings are credited here as their accounting record;
-    // they can withdraw via the normal withdrawal flow.
     if (creatorEarns > 0) {
       try {
         await addLedgerEntry({
@@ -280,6 +313,7 @@ export async function POST(req: Request) {
             gross: price,
             platform_fee: platformFee,
             payment_method: "wallet_balance",
+            stripe_transfer_id: stripeTransferId,
           },
           status: "completed",
         });
