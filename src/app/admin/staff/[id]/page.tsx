@@ -41,9 +41,14 @@ type PerformanceData = {
 type ModerationData = {
   themes_approved_today: number;
   themes_rejected_today: number;
+  themes_approved_range: number;
+  themes_rejected_range: number;
   themes_approved_total: number;
   themes_rejected_total: number;
   themes_auto_removed_total: number;
+  range_from: string;
+  range_to: string;
+  seven_day_breakdown: { date: string; approved: number; rejected: number }[];
 };
 
 type RiskData = {
@@ -127,6 +132,8 @@ export default function AdminStaffDetailPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [performance, setPerformance] = useState<PerformanceData | null>(null);
   const [moderation, setModeration] = useState<ModerationData | null>(null);
+  const [modFrom, setModFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [modTo,   setModTo]   = useState(() => new Date().toISOString().slice(0, 10));
   const [risk, setRisk] = useState<RiskData | null>(null);
   const [lastAction, setLastAction] = useState<{ action: string; created_at: string; target_user: string | null } | null>(null);
   const [actions, setActions] = useState<ActionEntry[]>([]);
@@ -192,10 +199,12 @@ export default function AdminStaffDetailPage() {
     return () => { supabaseAdmin.removeChannel(channel); };
   }, [admin?.user_id]);
 
-  async function loadAdmin() {
+  async function loadAdmin(from?: string, to?: string) {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/staff/${id}`, { headers: getAdminHeaders() });
+      const qFrom = from ?? modFrom;
+      const qTo   = to   ?? modTo;
+      const res = await fetch(`/api/admin/staff/${id}?from=${qFrom}&to=${qTo}`, { headers: getAdminHeaders() });
       if (!res.ok) throw new Error("Failed to load");
       const data = await res.json();
       setAdmin(data.admin);
@@ -496,8 +505,59 @@ export default function AdminStaffDetailPage() {
 
       {/* Moderation Stats — owner/super_admin only, non-owner admins */}
       {moderation && (isOwner || isSuperAdmin) && admin.role !== "owner" && (
-        <div className={`${ui.card} p-5 space-y-3`}>
-          <h2 className="text-sm font-semibold text-purple-400 uppercase tracking-wider">🎨 Marketplace Moderation</h2>
+        <div className={`${ui.card} p-5 space-y-4`}>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <h2 className="text-sm font-semibold text-purple-400 uppercase tracking-wider">🎨 Marketplace Moderation</h2>
+            {/* Date range picker */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-xs ${ui.muted2}`}>View range:</span>
+              <input
+                type="date"
+                value={modFrom}
+                max={modTo}
+                onChange={(e) => setModFrom(e.target.value)}
+                className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500/50"
+              />
+              <span className={`text-xs ${ui.muted2}`}>→</span>
+              <input
+                type="date"
+                value={modTo}
+                min={modFrom}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setModTo(e.target.value)}
+                className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-purple-500/50"
+              />
+              <button
+                onClick={() => loadAdmin(modFrom, modTo)}
+                className="bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/30 text-purple-200 text-xs px-3 py-1 rounded-lg transition"
+              >
+                Apply
+              </button>
+              <button
+                onClick={() => {
+                  const today = new Date().toISOString().slice(0, 10);
+                  setModFrom(today); setModTo(today);
+                  loadAdmin(today, today);
+                }}
+                className={`${ui.btnGhost} text-xs px-2 py-1`}
+              >
+                Today
+              </button>
+              <button
+                onClick={() => {
+                  const to = new Date().toISOString().slice(0, 10);
+                  const from = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+                  setModFrom(from); setModTo(to);
+                  loadAdmin(from, to);
+                }}
+                className={`${ui.btnGhost} text-xs px-2 py-1`}
+              >
+                7 days
+              </button>
+            </div>
+          </div>
+
+          {/* Summary tiles */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="bg-white/5 rounded-xl p-3 text-center">
               <p className={`text-xl font-bold ${moderation.themes_approved_today === 0 ? "text-white/30" : "text-emerald-400"}`}>
@@ -520,13 +580,67 @@ export default function AdminStaffDetailPage() {
               <p className={`text-[10px] ${ui.muted2}`}>Rejected All-Time</p>
             </div>
           </div>
+
+          {/* Selected range summary */}
+          {(moderation.range_from !== moderation.range_to || moderation.range_from !== new Date().toISOString().slice(0, 10)) && (
+            <div className="flex items-center gap-3 text-xs bg-purple-500/10 border border-purple-500/20 rounded-xl px-4 py-2">
+              <span className="text-purple-300 font-medium">
+                {moderation.range_from} → {moderation.range_to}
+              </span>
+              <span className="text-emerald-400">✓ {moderation.themes_approved_range} approved</span>
+              <span className="text-red-400">✕ {moderation.themes_rejected_range} rejected</span>
+              <span className={`ml-auto font-medium ${(moderation.themes_approved_range + moderation.themes_rejected_range) === 0 ? "text-orange-400" : "text-white/50"}`}>
+                {(moderation.themes_approved_range + moderation.themes_rejected_range) === 0 ? "⚠ No decisions in range" : `${moderation.themes_approved_range + moderation.themes_rejected_range} total decisions`}
+              </span>
+            </div>
+          )}
+
+          {/* 7-day daily breakdown table */}
+          {moderation.seven_day_breakdown && moderation.seven_day_breakdown.length > 0 && (
+            <div>
+              <p className={`text-xs ${ui.muted2} mb-2 uppercase tracking-wider`}>Last 7 Days</p>
+              <div className="space-y-1">
+                {moderation.seven_day_breakdown.map((day) => {
+                  const total = day.approved + day.rejected;
+                  const isToday = day.date === new Date().toISOString().slice(0, 10);
+                  return (
+                    <div
+                      key={day.date}
+                      className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs ${isToday ? "bg-white/10 border border-white/10" : "bg-white/5"}`}
+                    >
+                      <span className={`w-20 shrink-0 font-mono ${isToday ? "text-white font-semibold" : "text-white/50"}`}>
+                        {isToday ? "Today" : new Date(day.date + "T12:00:00").toLocaleDateString([], { month: "short", day: "numeric" })}
+                      </span>
+                      {total === 0 ? (
+                        <span className="text-white/20 italic">No decisions</span>
+                      ) : (
+                        <>
+                          <span className="text-emerald-400">✓ {day.approved}</span>
+                          <span className="text-red-400">✕ {day.rejected}</span>
+                          {/* Mini bar */}
+                          <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-emerald-500"
+                              style={{ width: `${Math.round((day.approved / total) * 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-white/40 shrink-0">{total} total</span>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {moderation.themes_auto_removed_total > 0 && (
-            <div className="flex items-start gap-2 mt-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-300 text-xs">
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-300 text-xs">
               <span>⚠️</span>
               <span>
-                <strong>{moderation.themes_auto_removed_total}</strong> theme{moderation.themes_auto_removed_total !== 1 ? "s" : ""} have been auto-removed platform-wide due to no moderation decision within 48 hours.
+                <strong>{moderation.themes_auto_removed_total}</strong> theme{moderation.themes_auto_removed_total !== 1 ? "s" : ""} auto-removed platform-wide (no decision within 48h).
                 {moderation.themes_approved_today === 0 && moderation.themes_rejected_today === 0 && (
-                  <span className="block mt-1 text-orange-300/70">This moderator made no decisions today.</span>
+                  <span className="block mt-0.5 text-orange-300/70">This moderator made no decisions today.</span>
                 )}
               </span>
             </div>
