@@ -499,6 +499,9 @@ export default function AdminLayout({
         ...(userRole && ["owner", "super_admin"].includes(userRole)
           ? [{ label: "Payroll", href: "/admin/payroll", icon: "💰" }]
           : []),
+        ...(userRole && ["owner", "co_owner"].includes(userRole)
+          ? [{ label: "Stripe Activity", href: "/admin/stripe", icon: "⚡" }]
+          : []),
       ],
     },
     {
@@ -618,6 +621,9 @@ export default function AdminLayout({
         { label: "Approvals", href: "/admin/approvals", icon: "✅" },
         ...(userRole && payrollRoles.includes(userRole)
           ? [{ label: "Payroll", href: "/admin/payroll", icon: "💰" }]
+          : []),
+        ...(userRole && ["owner", "co_owner"].includes(userRole)
+          ? [{ label: "Stripe Activity", href: "/admin/stripe", icon: "⚡" }]
           : []),
       ],
     },
