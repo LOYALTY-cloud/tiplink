@@ -96,6 +96,9 @@ export async function POST(req: Request) {
     notifyAdmins({
       title: "Bulk Restriction Triggered",
       body: `Admin ${adminId} bulk-restricted ${ids.length} accounts.`,
+      type: "security_alert",
+      priority: "high",
+      link: "/admin/users",
     }).catch(() => {});
 
     return NextResponse.json({ ok: true, restricted: ids.length });

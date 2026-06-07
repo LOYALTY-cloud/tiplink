@@ -478,14 +478,23 @@ function buildThemeUnlockedBlock(body: string): string {
 
 /**
  * Notify all admins with restrict+ permission (owner, super_admin).
- * Sends a security notification to each.
+ * Sends a security notification to each user bell AND creates a single
+ * admin_notifications entry so it appears on /admin/notifications.
  */
 export async function notifyAdmins({
   title,
   body,
+  type = "security_alert",
+  priority = "high",
+  link,
+  requiresAction = false,
 }: {
   title: string;
   body: string;
+  type?: string;
+  priority?: "low" | "medium" | "high" | "critical";
+  link?: string;
+  requiresAction?: boolean;
 }) {
   try {
     const { data: admins } = await supabaseAdmin
@@ -495,6 +504,7 @@ export async function notifyAdmins({
 
     if (!admins?.length) return;
 
+    // 1. User-bell notifications (existing behaviour)
     await Promise.allSettled(
       admins.map((a) =>
         createNotification({
@@ -505,6 +515,19 @@ export async function notifyAdmins({
         })
       )
     );
+
+    // 2. Single admin_notifications entry so it surfaces on /admin/notifications
+    const { createAdminNotification } = await import("@/lib/adminNotifications");
+    await createAdminNotification({
+      type,
+      title,
+      message: body,
+      priority,
+      requiresAction,
+      link: link ?? null,
+      visibility: "role",
+      roleTarget: ["owner", "co_owner", "super_admin"],
+    });
   } catch (err) {
     console.error("notifyAdmins error:", err);
   }
