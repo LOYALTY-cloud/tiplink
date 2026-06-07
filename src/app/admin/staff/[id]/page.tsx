@@ -521,7 +521,7 @@ export default function AdminStaffDetailPage() {
         <div className={`${ui.card} p-5 space-y-4`}>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-purple-400 uppercase tracking-wider">🎨 Marketplace Moderation</h2>
+              <h2 className="text-sm font-semibold text-purple-400 uppercase tracking-wider">Marketplace Moderation</h2>
               {modLoading && <span className="text-[10px] text-purple-400/60 animate-pulse">Updating…</span>}
             </div>
             {/* Date range picker */}
