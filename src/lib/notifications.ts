@@ -18,7 +18,8 @@ type NotificationType =
   | "appeal_rejected"
   | "creator_approved"
   | "security"
-  | "support";
+  | "support"
+  | "system";
 
 type NotificationCategory = "payouts" | "sales" | "tips" | "security" | "support" | "system";
 

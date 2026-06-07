@@ -76,7 +76,7 @@ export async function POST(req: Request) {
   try {
     const session = await getAdminFromRequest(req);
     if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    try { requireRole(session.role, "moderator"); } catch {
+    try { requireRole(session.role, ["owner", "co_owner", "super_admin", "moderator", "compliance", "support_admin"]); } catch {
       return NextResponse.json({ error: "Requires moderator role" }, { status: 403 });
     }
 

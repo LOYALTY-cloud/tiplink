@@ -181,7 +181,7 @@ export default function AdminDmcaPage() {
           reason:         strikeReason.trim(),
           notes:          strikeNotes.trim() || undefined,
           expires_at:     strikeExpires || null,
-          related_dmca_id: selected.id,
+          related_dmca_id: selected?.id,
         }),
       });
       const json = await res.json();

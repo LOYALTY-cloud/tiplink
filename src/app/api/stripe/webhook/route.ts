@@ -517,7 +517,7 @@ export async function handleStripeEvent(
               .from("theme_sales")
               .update({ transfer_status: "failed" })
               .eq("stripe_session_id", pi.id)
-              .catch(() => {});
+              .then(() => {}, () => {});
             sendAdminAlert({
               subject: "webhook fallback: custom theme transfer failed",
               body: `Failed to transfer $${creatorEarns.toFixed(2)} to creator ${payoutSellerId} for theme ${themeId} (buyer ${buyerId}, PI ${pi.id}). MANUAL TRANSFER REQUIRED.`,
