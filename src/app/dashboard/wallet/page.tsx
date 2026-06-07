@@ -983,11 +983,12 @@ export default function WalletPage() {
             <span className="text-sm font-semibold text-white/90">{formatMoney(amount || 0)}</span>
           </div>
           {withdrawMode === "instant" && amount > 0 && (() => {
-            const fee = Math.round(amount * 0.05 * 100) / 100;
+            const raw = Math.round(amount * 0.035 * 100) / 100;
+            const fee = Math.min(Math.max(raw, 1.00), 75.00);
             const net = Math.round((amount - fee) * 100) / 100;
             return (<>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-white/50">Platform fee (5%)</span>
+                <span className="text-sm text-white/50">Instant fee (3.5%, min $1 / max $75)</span>
                 <span className="text-sm text-red-400">−{formatMoney(fee)}</span>
               </div>
               <div className="border-t border-white/10 pt-2 flex items-center justify-between">

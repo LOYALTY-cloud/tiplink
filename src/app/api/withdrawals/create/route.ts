@@ -4,7 +4,7 @@ import { stripe } from "@/lib/stripe/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { addLedgerEntry } from "@/lib/ledger";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
-import { getWithdrawalFee, getNetWithdrawalAmount, PLATFORM_INSTANT_FEE_RATE } from "@/lib/walletFees";
+import { getWithdrawalFee, getNetWithdrawalAmount } from "@/lib/walletFees";
 import { validateWithdrawal } from "@/lib/withdrawalRules";
 import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 import { checkSoftRestrictions } from "@/lib/softRestrictions";
@@ -587,8 +587,10 @@ export async function POST(req: Request) {
     // Platform fee (instant only): 5% deducted FROM the withdrawal amount.
     // User requests $100 → $5 fee → $95 sent to bank. Balance reduced by $100.
     // Standard withdrawals: no platform fee.
+    // Stripe instant payout fee: 3.5%, min $1.00, max $75.00
+    // Deducted from payout — bank receives net, fee transferred to platform.
     const platformFee = payoutType === "instant"
-      ? Math.round(amt * PLATFORM_INSTANT_FEE_RATE * 100) / 100
+      ? getWithdrawalFee(amt, "instant")
       : 0;
     const withdrawalFee = platformFee;
     const netAmount = Math.round((amt - platformFee) * 100) / 100; // what bank receives
