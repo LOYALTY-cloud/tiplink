@@ -63,7 +63,7 @@ export async function GET(req: Request) {
     if (pendingCents > 0) {
       try {
         const pendingTxns = await stripe.balanceTransactions.list(
-          { available_on: { gt: nowUnix }, limit: 100 },
+          { limit: 100 },
           { stripeAccount: profile.stripe_account_id }
         );
         for (const txn of pendingTxns.data) {
