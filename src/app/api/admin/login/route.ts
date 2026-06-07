@@ -4,10 +4,9 @@ import { rateLimit, getClientIp } from "@/lib/rateLimit";
 import { trackLogin } from "@/lib/loginTracker";
 import { signAdminToken } from "@/lib/auth/adminJwt";
 import { emitSecurityEvent } from "@/lib/security-event";
+import { ADMIN_ROLES } from "@/lib/auth/permissions";
 
 export const runtime = "nodejs";
-
-const ADMIN_ROLES = ["owner", "super_admin", "finance_admin", "support_admin"];
 
 export async function POST(req: Request) {
   try {
@@ -78,13 +77,13 @@ export async function POST(req: Request) {
       if (adminRow.status === "suspended") {
         return NextResponse.json({ error: "Your admin account is suspended. Contact the owner." }, { status: 403 });
       }
-      // Update last_login_at on the admins table
-      await supabaseAdmin
-        .from("admins")
-        .update({ last_login_at: new Date().toISOString() })
-        .eq("user_id", profile.user_id)
-        .then(() => {}, () => {});
     }
+
+    // Update last_login_at (upsert handles admins created without a row)
+    await supabaseAdmin
+      .from("admins")
+      .upsert({ user_id: profile.user_id, last_login_at: new Date().toISOString() }, { onConflict: "user_id" })
+      .then(() => {}, () => {});
 
     // Mark invite as accepted on first login
     if (profile.invite_status === "pending") {
