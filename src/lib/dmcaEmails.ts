@@ -197,6 +197,13 @@ export function sendDmcaResolvedEmail(opts: {
   reportId: string;
   infringingUrl: string;
   moderatorNotes?: string | null;
+  // Original submission details for legal record
+  claimantName?: string | null;
+  company?: string | null;
+  description?: string | null;
+  copyrightProof?: string | null;
+  signature?: string | null;
+  submittedAt?: string | null;
 }): void {
   const notesBlock = opts.moderatorNotes
     ? `<div style="margin:16px 0;padding:14px 16px;background:#0f172a;border-left:3px solid #22c55e;border-radius:0 8px 8px 0;">
@@ -204,6 +211,17 @@ export function sendDmcaResolvedEmail(opts: {
         <p style="margin:0;color:#d1d5db;font-size:13px;line-height:1.6;">${esc(opts.moderatorNotes)}</p>
       </div>`
     : "";
+
+  const submissionBlock = `
+    <div style="margin:24px 0 0;padding:18px 20px;background:#0f172a;border:1px solid rgba(255,255,255,0.08);border-radius:10px;">
+      <p style="margin:0 0 14px;color:#6b7280;font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;">Your Original Submission</p>
+      ${opts.claimantName ? `<p style="margin:0 0 8px;font-size:13px;"><span style="color:#6b7280;">Claimant:</span> <span style="color:#d1d5db;">${esc(opts.claimantName)}${opts.company ? ` (${esc(opts.company)})` : ""}</span></p>` : ""}
+      ${opts.submittedAt ? `<p style="margin:0 0 8px;font-size:13px;"><span style="color:#6b7280;">Submitted:</span> <span style="color:#d1d5db;">${esc(new Date(opts.submittedAt).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" }))}</span></p>` : ""}
+      <p style="margin:0 0 8px;font-size:13px;"><span style="color:#6b7280;">Reported URL:</span> <span style="color:#d1d5db;word-break:break-all;">${esc(opts.infringingUrl)}</span></p>
+      ${opts.description ? `<p style="margin:10px 0 4px;color:#6b7280;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;">Description of Infringement</p><p style="margin:0 0 8px;color:#d1d5db;font-size:13px;line-height:1.6;white-space:pre-wrap;">${esc(opts.description)}</p>` : ""}
+      ${opts.copyrightProof ? `<p style="margin:10px 0 4px;color:#6b7280;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;">Copyright Ownership Proof</p><p style="margin:0 0 8px;color:#d1d5db;font-size:13px;line-height:1.6;white-space:pre-wrap;">${esc(opts.copyrightProof)}</p>` : ""}
+      ${opts.signature ? `<p style="margin:10px 0 4px;color:#6b7280;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;">Electronic Signature</p><p style="margin:0;color:#d1d5db;font-size:13px;font-style:italic;">${esc(opts.signature)}</p>` : ""}
+    </div>`;
 
   const html = wrap({
     accentColor: "#22c55e",
@@ -216,16 +234,13 @@ export function sendDmcaResolvedEmail(opts: {
         We have completed our review of your DMCA complaint and have taken
         appropriate action against the reported content.
       </p>
-      <p style="margin:0 0 12px;">
-        <strong style="color:#e5e7eb;">Reported URL:</strong><br>
-        <span style="word-break:break-all;">${esc(opts.infringingUrl)}</span>
-      </p>
       ${notesBlock}
       <p style="margin:0;">
         If the infringing content reappears or you have further concerns,
         please submit a new complaint or contact us at
         <a href="mailto:legal@1nelink.com" style="color:#4ade80;">legal@1nelink.com</a>.
       </p>
+      ${submissionBlock}
     `,
     refId: opts.reportId,
     ctaLabel: "Submit Another Complaint",
@@ -249,6 +264,13 @@ export function sendDmcaRejectedEmail(opts: {
   reportId: string;
   infringingUrl: string;
   moderatorNotes?: string | null;
+  // Original submission details for legal record
+  claimantName?: string | null;
+  company?: string | null;
+  description?: string | null;
+  copyrightProof?: string | null;
+  signature?: string | null;
+  submittedAt?: string | null;
 }): void {
   const notesBlock = opts.moderatorNotes
     ? `<div style="margin:16px 0;padding:14px 16px;background:#0f172a;border-left:3px solid #ef4444;border-radius:0 8px 8px 0;">
@@ -256,6 +278,17 @@ export function sendDmcaRejectedEmail(opts: {
         <p style="margin:0;color:#d1d5db;font-size:13px;line-height:1.6;">${esc(opts.moderatorNotes)}</p>
       </div>`
     : "";
+
+  const submissionBlock = `
+    <div style="margin:24px 0 0;padding:18px 20px;background:#0f172a;border:1px solid rgba(255,255,255,0.08);border-radius:10px;">
+      <p style="margin:0 0 14px;color:#6b7280;font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;">Your Original Submission</p>
+      ${opts.claimantName ? `<p style="margin:0 0 8px;font-size:13px;"><span style="color:#6b7280;">Claimant:</span> <span style="color:#d1d5db;">${esc(opts.claimantName)}${opts.company ? ` (${esc(opts.company)})` : ""}</span></p>` : ""}
+      ${opts.submittedAt ? `<p style="margin:0 0 8px;font-size:13px;"><span style="color:#6b7280;">Submitted:</span> <span style="color:#d1d5db;">${esc(new Date(opts.submittedAt).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" }))}</span></p>` : ""}
+      <p style="margin:0 0 8px;font-size:13px;"><span style="color:#6b7280;">Reported URL:</span> <span style="color:#d1d5db;word-break:break-all;">${esc(opts.infringingUrl)}</span></p>
+      ${opts.description ? `<p style="margin:10px 0 4px;color:#6b7280;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;">Description of Infringement</p><p style="margin:0 0 8px;color:#d1d5db;font-size:13px;line-height:1.6;white-space:pre-wrap;">${esc(opts.description)}</p>` : ""}
+      ${opts.copyrightProof ? `<p style="margin:10px 0 4px;color:#6b7280;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;">Copyright Ownership Proof</p><p style="margin:0 0 8px;color:#d1d5db;font-size:13px;line-height:1.6;white-space:pre-wrap;">${esc(opts.copyrightProof)}</p>` : ""}
+      ${opts.signature ? `<p style="margin:10px 0 4px;color:#6b7280;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;">Electronic Signature</p><p style="margin:0;color:#d1d5db;font-size:13px;font-style:italic;">${esc(opts.signature)}</p>` : ""}
+    </div>`;
 
   const html = wrap({
     accentColor: "#ef4444",
@@ -268,10 +301,6 @@ export function sendDmcaRejectedEmail(opts: {
         After reviewing your DMCA complaint, our team was unable to verify
         the infringement or take the requested action at this time.
       </p>
-      <p style="margin:0 0 12px;">
-        <strong style="color:#e5e7eb;">Reported URL:</strong><br>
-        <span style="word-break:break-all;">${esc(opts.infringingUrl)}</span>
-      </p>
       ${notesBlock}
       <p style="margin:0 0 12px;">
         If you believe this decision was made in error or you have additional
@@ -282,6 +311,7 @@ export function sendDmcaRejectedEmail(opts: {
         For legal matters, please contact us at
         <a href="mailto:legal@1nelink.com" style="color:#f87171;">legal@1nelink.com</a>.
       </p>
+      ${submissionBlock}
     `,
     refId: opts.reportId,
     ctaLabel: "Submit New Complaint",

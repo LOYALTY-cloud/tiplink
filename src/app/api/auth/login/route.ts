@@ -70,8 +70,18 @@ export async function POST(req: Request) {
         failureReason: "invalid_credentials",
       }).catch(() => {});
 
-      // Generic error — never reveal whether email exists
       emitSecurityEvent({ type: "LOGIN_FAILURE", ip, route: "/api/auth/login" });
+
+      // Supabase returns "Email not confirmed" for unverified accounts.
+      // Surface a clear message so users know to check their inbox.
+      if (error?.message?.toLowerCase().includes("email not confirmed")) {
+        return NextResponse.json(
+          { error: "Please verify your email first. Check your inbox for the confirmation link." },
+          { status: 401 }
+        );
+      }
+
+      // Generic error — never reveal whether email exists
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
