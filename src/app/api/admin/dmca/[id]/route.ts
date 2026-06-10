@@ -86,11 +86,11 @@ export async function PATCH(
 
     // Fetch report before updating so we have complainant details for emails
     // and old values for the audit log
-    let reportForEmail: { email: string; first_name: string; infringing_content_url: string; status: string; priority: string; moderator_notes: string | null } | null = null;
+    let reportForEmail: { email: string; first_name: string; infringing_content_url: string; status: string; priority: string; moderator_notes: string | null; full_name: string | null; company: string | null; description: string | null; copyright_proof: string | null; electronic_signature: string | null; created_at: string | null } | null = null;
     if (update.status && ["reviewing", "resolved", "rejected"].includes(update.status as string)) {
       const { data: existing } = await supabaseAdmin
         .from("dmca_reports")
-        .select("email, first_name, infringing_content_url, status, priority, moderator_notes")
+        .select("email, first_name, infringing_content_url, status, priority, moderator_notes, full_name, company, description, copyright_proof, electronic_signature, created_at")
         .eq("id", id)
         .maybeSingle();
       reportForEmail = existing;
@@ -100,7 +100,7 @@ export async function PATCH(
         .select("status, priority, moderator_notes")
         .eq("id", id)
         .maybeSingle();
-      if (existing) reportForEmail = { ...existing, email: "", first_name: "", infringing_content_url: "" };
+      if (existing) reportForEmail = { ...existing, email: "", first_name: "", infringing_content_url: "", full_name: null, company: null, description: null, copyright_proof: null, electronic_signature: null, created_at: null };
     }
 
     const { error } = await supabaseAdmin
@@ -132,16 +132,24 @@ export async function PATCH(
 
     // Send status-change email to complainant (fire-and-forget)
     if (reportForEmail && update.status) {
-      const emailOpts = {
+      const baseOpts = {
         to: reportForEmail.email,
         firstName: reportForEmail.first_name,
         reportId: id,
         infringingUrl: reportForEmail.infringing_content_url,
-        moderatorNotes: typeof update.moderator_notes === "string" ? update.moderator_notes : undefined,
+        moderatorNotes: typeof update.moderator_notes === "string" ? update.moderator_notes : (reportForEmail.moderator_notes ?? undefined),
       };
-      if (update.status === "reviewing")  sendDmcaReviewingEmail(emailOpts);
-      if (update.status === "resolved")   sendDmcaResolvedEmail(emailOpts);
-      if (update.status === "rejected")   sendDmcaRejectedEmail(emailOpts);
+      const submissionOpts = {
+        claimantName: reportForEmail.full_name,
+        company: reportForEmail.company,
+        description: reportForEmail.description,
+        copyrightProof: reportForEmail.copyright_proof,
+        signature: reportForEmail.electronic_signature,
+        submittedAt: reportForEmail.created_at,
+      };
+      if (update.status === "reviewing")  sendDmcaReviewingEmail(baseOpts);
+      if (update.status === "resolved")   sendDmcaResolvedEmail({ ...baseOpts, ...submissionOpts });
+      if (update.status === "rejected")   sendDmcaRejectedEmail({ ...baseOpts, ...submissionOpts });
     }
 
     return NextResponse.json({ ok: true });
