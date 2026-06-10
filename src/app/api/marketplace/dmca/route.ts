@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { sendDmcaSubmittedEmail } from "@/lib/dmcaEmails";
 
 export const runtime = "nodejs";
 
@@ -40,7 +41,7 @@ export async function POST(req: Request) {
     }
   }
 
-  const { error } = await supabaseAdmin.from("dmca_claims").insert({
+  const { data: insertedClaim, error } = await supabaseAdmin.from("dmca_claims").insert({
     theme_id: themeId,
     claimant_name: claimantName.trim().slice(0, 120),
     email: email.trim().slice(0, 200),
@@ -48,11 +49,20 @@ export async function POST(req: Request) {
     copyright_proof: copyrightProof?.trim().slice(0, 1000) || null,
     description: description.trim().slice(0, 2000),
     signature: signature.trim().slice(0, 120),
-  });
+  }).select("id").single();
 
   if (error) {
     return NextResponse.json({ error: "Failed to submit DMCA claim." }, { status: 500 });
   }
+
+  // Send submission confirmation email (fire-and-forget)
+  const firstName = claimantName.trim().split(/\s+/)[0];
+  sendDmcaSubmittedEmail({
+    to: email.trim(),
+    firstName,
+    reportId: insertedClaim.id,
+    infringingUrl: themeUrl?.trim() || "Not specified",
+  });
 
   // If we could identify the theme, auto-flag it as pending review
   if (themeId) {
