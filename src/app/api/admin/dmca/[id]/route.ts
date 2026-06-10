@@ -86,11 +86,11 @@ export async function PATCH(
 
     // Fetch report before updating so we have complainant details for emails
     // and old values for the audit log
-    let reportForEmail: { email: string; first_name: string; infringing_content_url: string; status: string; priority: string; moderator_notes: string | null; full_name: string | null; company: string | null; description: string | null; copyright_proof: string | null; electronic_signature: string | null; created_at: string | null } | null = null;
+    let reportForEmail: { email: string; first_name: string; last_name: string; infringing_content_url: string; status: string; priority: string; moderator_notes: string | null; organization: string | null; infringement_details: string | null; copyrighted_work: string | null; electronic_signature: string | null; created_at: string | null } | null = null;
     if (update.status && ["reviewing", "resolved", "rejected"].includes(update.status as string)) {
       const { data: existing } = await supabaseAdmin
         .from("dmca_reports")
-        .select("email, first_name, infringing_content_url, status, priority, moderator_notes, full_name, company, description, copyright_proof, electronic_signature, created_at")
+        .select("email, first_name, last_name, infringing_content_url, status, priority, moderator_notes, organization, infringement_details, copyrighted_work, electronic_signature, created_at")
         .eq("id", id)
         .maybeSingle();
       reportForEmail = existing;
@@ -100,7 +100,7 @@ export async function PATCH(
         .select("status, priority, moderator_notes")
         .eq("id", id)
         .maybeSingle();
-      if (existing) reportForEmail = { ...existing, email: "", first_name: "", infringing_content_url: "", full_name: null, company: null, description: null, copyright_proof: null, electronic_signature: null, created_at: null };
+      if (existing) reportForEmail = { ...existing, email: "", first_name: "", last_name: "", infringing_content_url: "", organization: null, infringement_details: null, copyrighted_work: null, electronic_signature: null, created_at: null };
     }
 
     const { error } = await supabaseAdmin
@@ -140,10 +140,10 @@ export async function PATCH(
         moderatorNotes: typeof update.moderator_notes === "string" ? update.moderator_notes : (reportForEmail.moderator_notes ?? undefined),
       };
       const submissionOpts = {
-        claimantName: reportForEmail.full_name,
-        company: reportForEmail.company,
-        description: reportForEmail.description,
-        copyrightProof: reportForEmail.copyright_proof,
+        claimantName: [reportForEmail.first_name, reportForEmail.last_name].filter(Boolean).join(" "),
+        company: reportForEmail.organization,
+        description: reportForEmail.infringement_details,
+        copyrightProof: reportForEmail.copyrighted_work,
         signature: reportForEmail.electronic_signature,
         submittedAt: reportForEmail.created_at,
       };
