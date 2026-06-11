@@ -27,7 +27,8 @@ function Inner({ onDone }: { onDone: () => void }) {
 
     setLoading(true);
 
-    // Create a token from the card element — this gives us tok_xxx which Stripe allows on connected accounts
+    // Create a token from the card element — gives us tok_xxx
+    // Must be a debit card; Stripe rejects credit cards as payout external accounts
     const { token, error } = await stripe.createToken(cardElement);
 
     if (error) {
@@ -39,6 +40,13 @@ function Inner({ onDone }: { onDone: () => void }) {
     if (!token?.id) {
       setLoading(false);
       setMsg("No token returned from card.");
+      return;
+    }
+
+    // Reject credit cards before hitting the server — Stripe won't accept them as payout accounts
+    if (token.card?.funding && token.card.funding !== "debit") {
+      setLoading(false);
+      setMsg("Only debit cards are accepted for payouts. Please enter a Visa or Mastercard debit card.");
       return;
     }
 

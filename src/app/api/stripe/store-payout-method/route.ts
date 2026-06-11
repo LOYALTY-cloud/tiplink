@@ -76,12 +76,16 @@ export async function POST(req: Request) {
         external_account: token,
       }
     );
-  } catch (err) {
+  } catch (err: any) {
     console.error("stripe/store-payout-method: createExternalAccount failed", err);
-    return NextResponse.json(
-      { error: "Could not link card to payout account. Please try again." },
-      { status: 400 }
-    );
+    // Surface the actual Stripe error message so users get actionable feedback
+    // (e.g. "This card does not support payouts", "Must be a debit card", etc.)
+    const stripeMessage: string | undefined = err?.raw?.message ?? err?.message;
+    const userMessage =
+      stripeMessage && stripeMessage.length < 300
+        ? stripeMessage
+        : "Could not link card to payout account. Please ensure you are using a debit card and try again.";
+    return NextResponse.json({ error: userMessage }, { status: 400 });
   }
 
   const cardId = externalAccount.id; // card_xxx
