@@ -98,16 +98,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Signup failed" }, { status: 400 });
     }
 
-    // Update the profile with display_name, handle, and 2-week lock
+    // Upsert the profile with display_name, handle, and 2-week lock.
+    // Using upsert (not update) guards against the race condition where the
+    // auth.users trigger hasn't fired yet and the profile row doesn't exist
+    // yet — a plain update would silently match 0 rows and leave handle = UUID.
     const twoWeeksFromNow = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-    await supabaseAdmin
+    const { error: profileErr } = await supabaseAdmin
       .from("profiles")
-      .update({
-        display_name: trimmedName,
-        handle: cleanHandle,
-        handle_locked_until: twoWeeksFromNow,
-      })
-      .eq("user_id", authData.user.id);
+      .upsert(
+        {
+          user_id: authData.user.id,
+          email: normalizedEmail,
+          display_name: trimmedName,
+          handle: cleanHandle,
+          handle_locked_until: twoWeeksFromNow,
+        },
+        { onConflict: "user_id" }
+      );
+
+    if (profileErr) {
+      console.error("[signup] profile upsert failed:", profileErr.message);
+      // Profile row is critical — clean up the auth user and surface the error
+      await supabaseAdmin.auth.admin.deleteUser(authData.user.id).catch(() => {});
+      return NextResponse.json({ error: "Signup failed. Please try again." }, { status: 500 });
+    }
 
     // Send confirmation email via custom token (reliable — doesn't depend on generateLink)
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://1nelink.com";
