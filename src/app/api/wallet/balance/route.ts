@@ -98,11 +98,10 @@ export async function GET(req: Request) {
       }
     }
 
-    // Available balance = Stripe total (mirror of Stripe connected account)
-    // available = settled funds (withdrawable via standard)
-    // pending   = in-transit (available via instant advance, or standard in 2-3 days)
-    const stripeTotal = stripeAvailable + stripePending;
-    const availableBalance = stripeTotal > 0 ? stripeTotal : dbBalance;
+    // Available balance = only SETTLED Stripe funds (ready for standard payout now)
+    // available = settled funds (withdrawable via standard payout immediately)
+    // pending   = in-transit (not yet settled, available in 2-3 business days)
+    const availableBalance = stripeAvailable > 0 ? stripeAvailable : dbBalance;
 
     // Available Soon = only Stripe pending (not yet settled)
     const availableSoon = stripePending;
@@ -115,11 +114,11 @@ export async function GET(req: Request) {
       : stripeAvailable; // fallback when no instant-eligible card linked
 
     return NextResponse.json({
-      total_balance: availableBalance,
+      total_balance: stripeAvailable + stripePending,
       available_balance: availableBalance,
+      available_soon: availableSoon,
       stripe_available: stripeAvailable,
       stripe_instant_net: stripeInstantNet,
-      available_soon: availableSoon,
       instant_available: instantAvailable,
       pending_available_on: pendingAvailableOn,
       currency: wallet?.currency ?? "usd",
