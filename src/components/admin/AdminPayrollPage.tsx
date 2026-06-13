@@ -10,6 +10,7 @@ type LiveAdmin = {
   role: string;
   hours: number;
   rate: number;
+  daily_breakdown?: Array<{ date: string; hours: number; minutes: number }>;
 };
 
 type PayrollItem = {
@@ -349,24 +350,42 @@ export default function AdminPayrollPage() {
             <div className="h-4 w-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
           </div>
         ) : (
-          <div className="space-y-2 max-h-[240px] overflow-y-auto">
+          <div className="space-y-3 max-h-[480px] overflow-y-auto pr-0.5">
             {liveAdmins.length === 0 && (
               <p className="text-xs text-white/30 text-center py-3">No session data for this period</p>
             )}
             {liveAdmins.map((a) => (
-              <div
-                key={a.admin_id}
-                onClick={() => openAdminProfile(a.admin_id)}
-                className="flex items-center justify-between bg-white/5 border border-white/10 rounded-lg px-3 py-2 hover:bg-white/10 hover:scale-[1.01] transition cursor-pointer"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm text-white truncate">{a.name}</p>
-                  <p className="text-[10px] text-white/30 capitalize">{a.role.replace(/_/g, " ")}</p>
+              <div key={a.admin_id} className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+                {/* Admin summary row */}
+                <div
+                  onClick={() => openAdminProfile(a.admin_id)}
+                  className="flex items-center justify-between px-3 py-2 hover:bg-white/10 transition cursor-pointer"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-white truncate">{a.name}</p>
+                    <p className="text-[10px] text-white/30 capitalize">{a.role.replace(/_/g, " ")}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs text-white/60">{fmtHrs(a.hours)} × ${a.rate.toFixed(2)}</p>
+                    <p className="text-sm font-semibold text-emerald-400">${(a.hours * a.rate).toFixed(2)}</p>
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="text-xs text-white/60">{fmtHrs(a.hours)} × ${a.rate.toFixed(2)}</p>
-                  <p className="text-sm font-semibold text-emerald-400">${(a.hours * a.rate).toFixed(2)}</p>
-                </div>
+                {/* Per-day breakdown — always visible if data exists */}
+                {(a.daily_breakdown?.length ?? 0) > 0 && (
+                  <div className="border-t border-white/[0.07]">
+                    {a.daily_breakdown!.map((d) => (
+                      <div key={d.date} className="flex items-center justify-between px-3 py-1.5 text-xs border-b border-white/[0.04] last:border-b-0">
+                        <span className="text-white/40">
+                          {new Date(d.date + "T12:00:00Z").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                        </span>
+                        <span className="text-white/70 font-medium">
+                          {d.minutes}m
+                          <span className="text-white/30 font-normal ml-1">({d.hours}h)</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
