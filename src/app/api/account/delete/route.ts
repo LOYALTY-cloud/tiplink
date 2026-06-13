@@ -53,6 +53,7 @@ export async function POST(req: Request) {
       .returns<ProfileRow | null>();
 
     if (profErr) {
+      console.error(`[account/delete] profile fetch failed for ${user.id}:`, profErr.message);
       return NextResponse.json({ error: "Failed to delete account. Please try again." }, { status: 500 });
     }
 
@@ -67,6 +68,7 @@ export async function POST(req: Request) {
       .returns<WalletRow | null>();
 
     if (walletErr) {
+      console.error(`[account/delete] wallet fetch failed for ${user.id}:`, walletErr.message);
       return NextResponse.json({ error: "Failed to delete account. Please try again." }, { status: 500 });
     }
 
@@ -94,6 +96,7 @@ export async function POST(req: Request) {
       .limit(1);
 
     if (wErr) {
+      console.error(`[account/delete] withdrawals check failed for ${user.id}:`, wErr.message);
       return NextResponse.json({ error: "Failed to delete account. Please try again." }, { status: 500 });
     }
 
@@ -134,11 +137,12 @@ export async function POST(req: Request) {
       supabaseAdmin.from("user_settings").delete().eq("user_id", user.id),
       supabaseAdmin.from("goals").delete().eq("user_id", user.id),
       supabaseAdmin.from("theme_purchases").delete().eq("user_id", user.id),
-      // transactions_ledger.user_id references profiles(id); trigger allows service_role deletes
+      // transactions_ledger.user_id stores auth UUID (profiles.user_id)
       supabaseAdmin.from("transactions_ledger").delete().eq("user_id", user.id),
       supabaseAdmin.from("payout_methods").delete().eq("user_id", user.id),
       supabaseAdmin.from("withdrawals").delete().eq("user_id", user.id),
       supabaseAdmin.from("tip_intents").delete().eq("creator_user_id", user.id),
+      supabaseAdmin.from("tip_intents").delete().eq("supporter_user_id", user.id),
       supabaseAdmin.from("wallets").delete().eq("user_id", user.id),
       // FK to auth.users without ON DELETE CASCADE
       supabaseAdmin.from("user_baselines").delete().eq("user_id", user.id),
@@ -147,11 +151,19 @@ export async function POST(req: Request) {
       supabaseAdmin.from("admin_access_logs").delete().eq("user_id", user.id),
       supabaseAdmin.from("vanity_handles").delete().eq("owner_id", user.id),
       supabaseAdmin.from("theme_sales").delete().eq("seller_id", user.id),
-      // FK to profiles(id) without ON DELETE CASCADE
-      supabaseAdmin.from("issuing_logs").delete().eq("user_id", user.id),
-      supabaseAdmin.from("card_declines").delete().eq("user_id", user.id),
+      supabaseAdmin.from("themes").delete().eq("user_id", user.id),
+      supabaseAdmin.from("creator_stores").delete().eq("user_id", user.id),
+      supabaseAdmin.from("support_tickets").delete().eq("user_id", user.id),
+      supabaseAdmin.from("reports").delete().eq("reporter_id", user.id),
+      // issuing_logs and card_declines have user_id referencing profiles(id)
+      // — must delete by profileId (the profile UUID primary key), NOT auth UUID
       ...(profileId
-        ? [supabaseAdmin.from("social_links").delete().eq("profile_id", profileId)]
+        ? [
+            supabaseAdmin.from("issuing_logs").delete().eq("user_id", profileId),
+            supabaseAdmin.from("card_declines").delete().eq("user_id", profileId),
+            supabaseAdmin.from("stripe_onboard_admin_logs").delete().eq("user_id", profileId),
+            supabaseAdmin.from("social_links").delete().eq("profile_id", profileId),
+          ]
         : []),
     ]);
 
@@ -189,6 +201,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
+    console.error("[account/delete] unexpected error:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Failed to delete account. Please try again." }, { status: 500 });
   }
 }

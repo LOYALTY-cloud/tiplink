@@ -10,6 +10,7 @@ type LiveAdmin = {
   role: string;
   hours: number;
   rate: number;
+  daily_breakdown?: Array<{ date: string; hours: number; minutes: number }>;
 };
 
 type PayrollItem = {
@@ -154,13 +155,19 @@ export default function AdminPayrollPage() {
       const res = await fetch(`/api/admin/payroll?range=${liveRange}`, {
         headers: getAdminHeaders(),
       });
+      const json = await res.json();
       if (res.ok) {
-        const json = await res.json();
         setLiveAdmins(json.admins ?? []);
         setLiveUpdated(new Date());
         liveFirstLoad.current = false;
+      } else {
+        console.error("payroll API error:", json);
+        setError(json.error ?? `Failed to load payroll data (${res.status})`);
       }
-    } catch {}
+    } catch (err) {
+      console.error("payroll fetch failed:", err);
+      setError("Failed to load payroll data. Check your connection.");
+    }
     if (!silent) setLiveLoading(false);
   }, [liveRange]);
 
@@ -271,14 +278,28 @@ export default function AdminPayrollPage() {
     setAdminProfileLoading(false);
   }
 
+  const activeAdmins = liveAdmins.filter(
+    (a) => (a.daily_breakdown?.length ?? 0) > 0
+  ).length;
+
+  const totalHours = liveAdmins.reduce(
+    (sum, a) => sum + a.hours,
+    0
+  );
+
+  const avgHourlyRate =
+    totalHours > 0
+      ? liveTotal / totalHours
+      : 0;
+
   return (
     <div className="space-y-6">
       {/* Header + Generate buttons */}
       <div className="flex items-center justify-between fade-up">
         <div>
-          <h1 className={ui.h1}>Payroll</h1>
+          <h1 className={ui.h1}>Payroll Management</h1>
           <p className="text-xs text-white/40 mt-1">
-            Manage payouts, review history, and track admin earnings
+            Finance dashboard · real-time labor cost tracking and earnings monitoring
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -295,6 +316,57 @@ export default function AdminPayrollPage() {
         </div>
       </div>
 
+      {/* Workforce Activity KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 fade-up">
+        <div className={`${ui.card} p-5`}>
+          <p className="text-[11px] uppercase tracking-wider text-white/40">
+            Active Payroll
+          </p>
+          <p className="text-3xl font-bold text-emerald-400 mt-2">
+            {liveLoading ? <span className="text-emerald-400/20 animate-pulse">$—</span> : `$${liveTotal.toFixed(2)}`}
+          </p>
+          <p className="text-xs text-white/30 mt-1">
+            Current tracked earnings
+          </p>
+        </div>
+
+        <div className={`${ui.card} p-5`}>
+          <p className="text-[11px] uppercase tracking-wider text-white/40">
+            Active Work Hours
+          </p>
+          <p className="text-3xl font-bold text-white mt-2">
+            {liveLoading ? <span className="text-white/20 animate-pulse">—</span> : totalHours.toFixed(1)}
+          </p>
+          <p className="text-xs text-white/30 mt-1">
+            Tracked activity time
+          </p>
+        </div>
+
+        <div className={`${ui.card} p-5`}>
+          <p className="text-[11px] uppercase tracking-wider text-white/40">
+            Staff Working
+          </p>
+          <p className="text-3xl font-bold text-blue-400 mt-2">
+            {liveLoading ? <span className="text-blue-400/20 animate-pulse">—</span> : activeAdmins}
+          </p>
+          <p className="text-xs text-white/30 mt-1">
+            Active this period
+          </p>
+        </div>
+
+        <div className={`${ui.card} p-5`}>
+          <p className="text-[11px] uppercase tracking-wider text-white/40">
+            Avg Hourly Cost
+          </p>
+          <p className="text-3xl font-bold text-purple-400 mt-2">
+            {liveLoading ? <span className="text-purple-400/20 animate-pulse">$—</span> : `$${avgHourlyRate.toFixed(2)}`}
+          </p>
+          <p className="text-xs text-white/30 mt-1">
+            Average pay rate
+          </p>
+        </div>
+      </div>
+
       {/* Error banner */}
       {error && (
         <div className="flex items-center justify-between bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 fade-up">
@@ -303,22 +375,18 @@ export default function AdminPayrollPage() {
         </div>
       )}
 
-      {/* Live Hours Preview */}
+      {/* Payroll Overview */}
       <div className={`${ui.card} p-5 space-y-4 fade-up`}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Live Hours</p>
-            <span className="flex items-center gap-1">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-              </span>
-              <span className="text-[10px] text-emerald-400/70 uppercase tracking-wider">Live</span>
-            </span>
-            {liveUpdatedLabel && (
-              <span className="text-[10px] text-white/25">· {liveUpdatedLabel}</span>
-            )}
+          <div>
+            <h2 className="text-xl font-semibold text-white">
+              Workforce Activity
+            </h2>
+            <p className="text-sm text-white/40">
+              Active tracked work time used for payroll calculations
+            </p>
           </div>
+
           <div className="flex items-center gap-2">
             <select
               value={liveRange}
@@ -334,12 +402,11 @@ export default function AdminPayrollPage() {
             >
               ↻
             </button>
+            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs text-emerald-400 uppercase tracking-wider">
+              Live
+            </span>
           </div>
-        </div>
-
-        <div className="flex items-baseline justify-between">
-          <p className="text-xs text-white/40">{liveRange === "today" ? "Today" : "This Week"} Total</p>
-          <p className="text-xl font-bold text-emerald-400">${liveTotal.toFixed(2)}</p>
         </div>
 
         <div className="border-t border-white/10" />
@@ -349,24 +416,100 @@ export default function AdminPayrollPage() {
             <div className="h-4 w-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
           </div>
         ) : (
-          <div className="space-y-2 max-h-[240px] overflow-y-auto">
+          <div className="space-y-3 max-h-[480px] overflow-y-auto pr-0.5">
             {liveAdmins.length === 0 && (
               <p className="text-xs text-white/30 text-center py-3">No session data for this period</p>
             )}
-            {liveAdmins.map((a) => (
+            {/* Admins with activity first — premium cards */}
+            {liveAdmins.filter((a) => (a.daily_breakdown?.length ?? 0) > 0).map((a) => (
               <div
                 key={a.admin_id}
                 onClick={() => openAdminProfile(a.admin_id)}
-                className="flex items-center justify-between bg-white/5 border border-white/10 rounded-lg px-3 py-2 hover:bg-white/10 hover:scale-[1.01] transition cursor-pointer"
+                className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.02] p-4 hover:border-emerald-500/30 hover:bg-white/[0.06] transition cursor-pointer"
               >
-                <div className="min-w-0">
-                  <p className="text-sm text-white truncate">{a.name}</p>
-                  <p className="text-[10px] text-white/30 capitalize">{a.role.replace(/_/g, " ")}</p>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-white font-semibold">
+                      {a.name}
+                    </h3>
+
+                    <div className="mt-2 inline-flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                      <span className="text-xs text-emerald-400">
+                        Active
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-2xl font-bold text-emerald-400">
+                      ${(a.hours * a.rate).toFixed(2)}
+                    </p>
+                    <p className="text-xs text-white/30">
+                      Estimated Pay
+                    </p>
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="text-xs text-white/60">{fmtHrs(a.hours)} × ${a.rate.toFixed(2)}</p>
-                  <p className="text-sm font-semibold text-emerald-400">${(a.hours * a.rate).toFixed(2)}</p>
+
+                <div className="grid grid-cols-3 gap-3 mt-5">
+                  <div>
+                    <p className="text-[10px] uppercase text-white/30">
+                      Hours
+                    </p>
+                    <p className="text-white font-medium">
+                      {a.hours.toFixed(2)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] uppercase text-white/30">
+                      Rate
+                    </p>
+                    <p className="text-white font-medium">
+                      ${a.rate.toFixed(2)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] uppercase text-white/30">
+                      Days Worked
+                    </p>
+                    <p className="text-white font-medium">
+                      {a.daily_breakdown?.length ?? 0}
+                    </p>
+                  </div>
                 </div>
+
+                {/* Per-day breakdown */}
+                {(a.daily_breakdown?.length ?? 0) > 0 && (
+                  <div className="mt-3 space-y-1">
+                    {a.daily_breakdown!.map((d) => (
+                      <div key={d.date} className="flex items-center justify-between text-xs bg-white/[0.03] rounded-lg px-3 py-1.5">
+                        <span className="text-white/40">
+                          {new Date(d.date + "T12:00:00Z").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                        </span>
+                        <span className="text-white/70 font-medium">
+                          {d.minutes}m
+                          <span className="text-white/30 font-normal ml-1">({d.hours}h)</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {/* Admins with no activity — dimmed */}
+            {liveAdmins.filter((a) => (a.daily_breakdown?.length ?? 0) === 0).map((a) => (
+              <div
+                key={a.admin_id}
+                onClick={() => openAdminProfile(a.admin_id)}
+                className="flex items-center justify-between bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3 opacity-40 cursor-pointer hover:opacity-60 transition"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-white/60 truncate">{a.name}</p>
+                  <p className="text-[10px] text-white/25 capitalize">{a.role.replace(/_/g, " ")}</p>
+                </div>
+                <p className="text-xs text-white/25 shrink-0">No activity</p>
               </div>
             ))}
           </div>
