@@ -58,6 +58,8 @@ export default function WalletPage() {
   const [instantAvailable, setInstantAvailable] = useState<number | null>(null);
   const [stripeAvailable, setStripeAvailable] = useState<number | null>(null);
   const [stripeInstantNet, setStripeInstantNet] = useState<number | null>(null);
+  const [availableSoon, setAvailableSoon] = useState<number | null>(null);
+  const [pendingAvailableOn, setPendingAvailableOn] = useState<string | null>(null);
   const [withdrawMode, setWithdrawMode] = useState<"instant" | "standard">("instant");
   const { toasts, show: showToast, dismiss } = useToast(4000);
   const router = useRouter();
@@ -125,6 +127,8 @@ export default function WalletPage() {
           setInstantAvailable(typeof j.instant_available === "number" ? j.instant_available : null);
           setStripeAvailable(typeof j.stripe_available === "number" ? j.stripe_available : null);
           setStripeInstantNet(typeof j.stripe_instant_net === "number" ? j.stripe_instant_net : null);
+          setAvailableSoon(typeof j.available_soon === "number" ? j.available_soon : null);
+          setPendingAvailableOn(typeof j.pending_available_on === "string" ? j.pending_available_on : null);
           setLoadingWallet(false);
           return;
         }
@@ -150,10 +154,13 @@ export default function WalletPage() {
     setInstantAvailable(null); // Stripe data unavailable in fallback
     setStripeAvailable(null);
     setStripeInstantNet(null);
+    setAvailableSoon(null);
+    setPendingAvailableOn(null);
     setLoadingWallet(false);
   };
 
-  const availableBalance = wallet?.balance ?? 0;
+  // Available balance = settled Stripe funds only (ready for payout now)
+  const availableBalance = stripeAvailable ?? wallet?.balance ?? 0;
   const totalWithdrawFees = wallet?.withdraw_fee ?? 0; // lifetime fees paid
 
   const [amountStr, setAmountStr] = useState("");
@@ -167,11 +174,10 @@ export default function WalletPage() {
   const net = useMemo(() => Math.max(0, amount - fee), [amount, fee]);
 
   // effectiveMax:
-  // - instant: Stripe net_available (= exactly what the bank receives; Stripe's
-  //   own fee is deducted from the connected account balance, not from the payout)
-  // - standard: Stripe settled available (no fees at all)
+  // - standard: settled Stripe funds only (stripeAvailable)
+  // - instant: Stripe net_available ceiling (stripeInstantNet)
   const effectiveMax = withdrawMode === "standard"
-    ? (stripeAvailable ?? availableBalance)
+    ? availableBalance
     : stripeInstantNet ?? availableBalance;
   const amountTooLow = amount > 0 && amount < 1;
   const amountTooHigh = amount > effectiveMax;
@@ -787,44 +793,58 @@ export default function WalletPage() {
       {!walletLocked && <StripeRequirementsCenter />}
 
       {/* Hero balance */}
-      <div className="text-center py-8 space-y-2">
-        <p className="text-sm text-white/50">Available balance</p>
-        <div
-          className={`transition-all duration-500 rounded-xl px-4 py-2 ${
-            balanceFlash ? "bg-emerald-500/20 scale-105" : "bg-transparent scale-100"
-          }`}
-        >
-          {loadingWallet ? (
-            <div className="flex justify-center">
-              <div className="h-10 w-40 shimmer rounded-lg" />
-            </div>
-          ) : (
-            <h1 className="text-4xl font-semibold tracking-tight text-white">
-              <AnimatedBalance value={availableBalance} />
-            </h1>
-          )}
-        </div>
-        {loadingWallet ? (
-          <div className="flex justify-center">
-            <div className="h-4 w-24 shimmer rounded" />
+      <div className="py-8 space-y-4">
+        {/* Two-stat row */}
+        <div className="grid grid-cols-2 gap-3">
+          {/* Available Balance */}
+          <div className={`rounded-2xl p-4 transition-all duration-500 ${
+            balanceFlash ? "bg-emerald-500/20" : "bg-white/5"
+          }`}>
+            <p className="text-[11px] text-white/40 uppercase tracking-wider mb-2">Available Balance</p>
+            {loadingWallet ? (
+              <div className="h-8 w-28 shimmer rounded-lg" />
+            ) : (
+              <p className="text-2xl font-semibold text-white">
+                <AnimatedBalance value={availableBalance} />
+              </p>
+            )}
+            <p className="text-[11px] mt-1.5 text-emerald-400/80">
+              {loadingWallet ? "" : availableBalance > 0 ? "Ready to withdraw" : "No funds yet"}
+            </p>
           </div>
-        ) : (
-          <p className="text-xs text-emerald-400">
-          {todayEarnings > 0
-            ? `+${formatMoney(todayEarnings)} today`
-            : availableBalance > 0
-              ? "Ready to withdraw"
-              : "No funds yet"}
-        </p>
-        )}
-        {!loadingWallet && totalWithdrawFees > 0 && (
-          <p className="text-[11px] text-white/30">{formatMoney(totalWithdrawFees)} in fees paid lifetime</p>
-        )}
-        {!loadingWallet && instantAvailable !== null && (
-          <p className="text-xs text-white/45 mt-1">
-            <span className="text-white/30">Instant payout available · </span>
-            <span className="text-emerald-400/80 font-medium">{formatMoney(instantAvailable)}</span>
-          </p>
+
+          {/* Available Soon */}
+          <div className="bg-white/5 rounded-2xl p-4">
+            <p className="text-[11px] text-white/40 uppercase tracking-wider mb-2">Available Soon</p>
+            {loadingWallet ? (
+              <div className="h-8 w-28 shimmer rounded-lg" />
+            ) : (
+              <p className="text-2xl font-semibold text-white/70">
+                {formatMoney(availableSoon ?? 0)}
+              </p>
+            )}
+            <p className="text-[11px] mt-1.5 text-white/30">
+              {loadingWallet ? "" : (
+                availableSoon && availableSoon > 0
+                  ? pendingAvailableOn
+                    ? `Settles ${new Date(pendingAvailableOn).toLocaleDateString([], { month: "short", day: "numeric" })}`
+                    : "Settling in 2–3 days"
+                  : "No pending funds"
+              )}
+            </p>
+          </div>
+        </div>
+
+        {/* Sub-info row */}
+        {!loadingWallet && (todayEarnings > 0 || totalWithdrawFees > 0) && (
+          <div className="flex items-center justify-between text-[11px] px-1">
+            {todayEarnings > 0 ? (
+              <span className="text-emerald-400">+{formatMoney(todayEarnings)} today</span>
+            ) : <span />}
+            {totalWithdrawFees > 0 && (
+              <span className="text-white/25">{formatMoney(totalWithdrawFees)} in fees paid lifetime</span>
+            )}
+          </div>
         )}
       </div>
 
