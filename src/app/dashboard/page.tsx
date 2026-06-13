@@ -73,11 +73,11 @@ export default function DashboardPage() {
         });
         const j = await res.json().catch(() => null);
         if (j && !j.error) {
-          const bal = Number(j.total_balance ?? 0);
+          const bal = Number(j.available_balance ?? 0); // settled only
           setWallet({ balance: bal, withdraw_fee: 0 });
           setInstantAvailable(typeof j.instant_available === "number" ? j.instant_available : getNetWithdrawalAmount(bal, "instant"));
           setStripeAvailable(typeof j.stripe_available === "number" ? j.stripe_available : bal);
-          setPendingAmount(typeof j.available_soon === "number" ? j.available_soon : bal);
+          setPendingAmount(typeof j.available_soon === "number" ? j.available_soon : 0);
           if (typeof j.pending_available_on === "string") setPendingAvailableOn(j.pending_available_on);
           setLoadingWallet(false);
           return;
@@ -487,7 +487,9 @@ export default function DashboardPage() {
           <h1 className={`mt-2 text-3xl font-bold ${loadingWallet ? "text-white/20 animate-pulse" : "text-white"}`}>
             {loadingWallet ? "$—.——" : formatMoney(wallet?.balance ?? 0)}
           </h1>
-          <p className="mt-1 text-xs text-white/40">Total wallet balance</p>
+          <p className="mt-1 text-xs text-white/40">
+            {(wallet?.balance ?? 0) > 0 ? "Ready to withdraw" : "No settled funds yet"}
+          </p>
           {/* Floating +$X tip animation */}
           {tipFloat !== null && (
             <span
