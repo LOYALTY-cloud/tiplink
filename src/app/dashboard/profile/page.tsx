@@ -26,7 +26,7 @@ export default function ProfilePage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const baseHandle = useMemo(() => handle.trim().replace(/\s+/g, ""), [handle]);
+  const baseHandle = useMemo(() => handle.trim().replace(/\s+/g, "").toLowerCase(), [handle]);
 
   useEffect(() => {
     (async () => {
@@ -126,7 +126,7 @@ export default function ProfilePage() {
 
     const now = new Date();
     const hasExistingHandle = Boolean(savedHandle);
-    const isHandleChange = Boolean(savedHandle) && cleanHandle !== savedHandle;
+    const isHandleChange = Boolean(savedHandle) && cleanHandle.toLowerCase() !== savedHandle.toLowerCase();
 
     if (isHandleChange && hasExistingHandle) {
       // Check 2-week handle lock
