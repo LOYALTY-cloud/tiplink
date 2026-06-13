@@ -354,7 +354,8 @@ export default function AdminPayrollPage() {
             {liveAdmins.length === 0 && (
               <p className="text-xs text-white/30 text-center py-3">No session data for this period</p>
             )}
-            {liveAdmins.map((a) => (
+            {/* Admins with activity first */}
+            {liveAdmins.filter((a) => (a.daily_breakdown?.length ?? 0) > 0).map((a) => (
               <div key={a.admin_id} className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
                 {/* Admin summary row */}
                 <div
@@ -370,22 +371,34 @@ export default function AdminPayrollPage() {
                     <p className="text-sm font-semibold text-emerald-400">${(a.hours * a.rate).toFixed(2)}</p>
                   </div>
                 </div>
-                {/* Per-day breakdown — always visible if data exists */}
-                {(a.daily_breakdown?.length ?? 0) > 0 && (
-                  <div className="border-t border-white/[0.07]">
-                    {a.daily_breakdown!.map((d) => (
-                      <div key={d.date} className="flex items-center justify-between px-3 py-1.5 text-xs border-b border-white/[0.04] last:border-b-0">
-                        <span className="text-white/40">
-                          {new Date(d.date + "T12:00:00Z").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
-                        </span>
-                        <span className="text-white/70 font-medium">
-                          {d.minutes}m
-                          <span className="text-white/30 font-normal ml-1">({d.hours}h)</span>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {/* Per-day breakdown */}
+                <div className="border-t border-white/[0.07]">
+                  {a.daily_breakdown!.map((d) => (
+                    <div key={d.date} className="flex items-center justify-between px-3 py-1.5 text-xs border-b border-white/[0.04] last:border-b-0">
+                      <span className="text-white/40">
+                        {new Date(d.date + "T12:00:00Z").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                      </span>
+                      <span className="text-white/70 font-medium">
+                        {d.minutes}m
+                        <span className="text-white/30 font-normal ml-1">({d.hours}h)</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {/* Admins with no activity — collapsed, dimmed */}
+            {liveAdmins.filter((a) => (a.daily_breakdown?.length ?? 0) === 0).map((a) => (
+              <div
+                key={a.admin_id}
+                onClick={() => openAdminProfile(a.admin_id)}
+                className="flex items-center justify-between bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2 opacity-50 cursor-pointer hover:opacity-70 transition"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-white/60 truncate">{a.name}</p>
+                  <p className="text-[10px] text-white/25 capitalize">{a.role.replace(/_/g, " ")}</p>
+                </div>
+                <p className="text-xs text-white/25 shrink-0">No activity</p>
               </div>
             ))}
           </div>
