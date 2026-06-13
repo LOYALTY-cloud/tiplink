@@ -278,10 +278,19 @@ export default function AdminPayrollPage() {
     setAdminProfileLoading(false);
   }
 
-  const totalPayroll = liveAdmins.reduce((sum, a) => sum + a.hours * a.rate, 0);
-  const totalHours = liveAdmins.reduce((sum, a) => sum + a.hours, 0);
-  const activeAdmins = liveAdmins.filter((a) => a.hours > 0).length;
-  const avgRate = totalHours > 0 ? totalPayroll / totalHours : 0;
+  const activeAdmins = liveAdmins.filter(
+    (a) => (a.daily_breakdown?.length ?? 0) > 0
+  ).length;
+
+  const totalHours = liveAdmins.reduce(
+    (sum, a) => sum + a.hours,
+    0
+  );
+
+  const avgHourlyRate =
+    totalHours > 0
+      ? liveTotal / totalHours
+      : 0;
 
   return (
     <div className="space-y-6">
@@ -307,35 +316,54 @@ export default function AdminPayrollPage() {
         </div>
       </div>
 
-      {/* Executive KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 fade-up">
+      {/* Workforce Activity KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 fade-up">
         <div className={`${ui.card} p-5`}>
-          <p className="text-[10px] text-white/40 uppercase tracking-wider">Total Payroll</p>
-          <p className="text-3xl font-bold text-emerald-400 mt-2">
-            {liveLoading ? <span className="text-emerald-400/20 animate-pulse">$—</span> : `$${totalPayroll.toFixed(2)}`}
+          <p className="text-[11px] uppercase tracking-wider text-white/40">
+            Active Payroll
           </p>
-          <p className="text-[11px] text-white/30 mt-1">{liveRange === "today" ? "Today" : "This week"}</p>
+          <p className="text-3xl font-bold text-emerald-400 mt-2">
+            {liveLoading ? <span className="text-emerald-400/20 animate-pulse">$—</span> : `$${liveTotal.toFixed(2)}`}
+          </p>
+          <p className="text-xs text-white/30 mt-1">
+            Current tracked earnings
+          </p>
         </div>
+
         <div className={`${ui.card} p-5`}>
-          <p className="text-[10px] text-white/40 uppercase tracking-wider">Hours Worked</p>
+          <p className="text-[11px] uppercase tracking-wider text-white/40">
+            Active Work Hours
+          </p>
           <p className="text-3xl font-bold text-white mt-2">
             {liveLoading ? <span className="text-white/20 animate-pulse">—</span> : totalHours.toFixed(1)}
           </p>
-          <p className="text-[11px] text-white/30 mt-1">Across all staff</p>
+          <p className="text-xs text-white/30 mt-1">
+            Tracked activity time
+          </p>
         </div>
+
         <div className={`${ui.card} p-5`}>
-          <p className="text-[10px] text-white/40 uppercase tracking-wider">Active Admins</p>
+          <p className="text-[11px] uppercase tracking-wider text-white/40">
+            Staff Working
+          </p>
           <p className="text-3xl font-bold text-blue-400 mt-2">
             {liveLoading ? <span className="text-blue-400/20 animate-pulse">—</span> : activeAdmins}
           </p>
-          <p className="text-[11px] text-white/30 mt-1">With logged hours</p>
-        </div>
-        <div className={`${ui.card} p-5`}>
-          <p className="text-[10px] text-white/40 uppercase tracking-wider">Avg Hourly Cost</p>
-          <p className="text-3xl font-bold text-purple-400 mt-2">
-            {liveLoading ? <span className="text-purple-400/20 animate-pulse">$—</span> : `$${avgRate.toFixed(2)}`}
+          <p className="text-xs text-white/30 mt-1">
+            Active this period
           </p>
-          <p className="text-[11px] text-white/30 mt-1">Blended rate</p>
+        </div>
+
+        <div className={`${ui.card} p-5`}>
+          <p className="text-[11px] uppercase tracking-wider text-white/40">
+            Avg Hourly Cost
+          </p>
+          <p className="text-3xl font-bold text-purple-400 mt-2">
+            {liveLoading ? <span className="text-purple-400/20 animate-pulse">$—</span> : `$${avgHourlyRate.toFixed(2)}`}
+          </p>
+          <p className="text-xs text-white/30 mt-1">
+            Average pay rate
+          </p>
         </div>
       </div>
 
@@ -351,9 +379,14 @@ export default function AdminPayrollPage() {
       <div className={`${ui.card} p-5 space-y-4 fade-up`}>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-white">Payroll Overview</h2>
-            <p className="text-sm text-white/40 mt-0.5">Real-time labor cost tracking and earnings monitoring</p>
+            <h2 className="text-xl font-semibold text-white">
+              Workforce Activity
+            </h2>
+            <p className="text-sm text-white/40">
+              Active tracked work time used for payroll calculations
+            </p>
           </div>
+
           <div className="flex items-center gap-2">
             <select
               value={liveRange}
@@ -369,16 +402,10 @@ export default function AdminPayrollPage() {
             >
               ↻
             </button>
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-              </span>
-              <span className="text-[10px] text-emerald-400 uppercase tracking-wider">Live</span>
-              {liveUpdatedLabel && (
-                <span className="text-[10px] text-white/25">· {liveUpdatedLabel}</span>
-              )}
-            </div>
+            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs text-emerald-400 uppercase tracking-wider">
+              Live
+            </span>
           </div>
         </div>
 
@@ -398,35 +425,58 @@ export default function AdminPayrollPage() {
               <div
                 key={a.admin_id}
                 onClick={() => openAdminProfile(a.admin_id)}
-                className="bg-gradient-to-r from-white/5 to-white/[0.02] border border-white/10 rounded-xl p-4 cursor-pointer hover:border-white/20 transition"
+                className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.02] p-4 hover:border-emerald-500/30 hover:bg-white/[0.06] transition cursor-pointer"
               >
-                {/* Top row: name + earnings */}
-                <div className="flex items-start justify-between">
+                <div className="flex justify-between items-start">
                   <div>
-                    <h3 className="text-white font-semibold">{a.name}</h3>
-                    <span className="inline-flex px-2 py-0.5 mt-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] uppercase tracking-wider">
-                      {a.role.replace(/_/g, " ")}
-                    </span>
+                    <h3 className="text-white font-semibold">
+                      {a.name}
+                    </h3>
+
+                    <div className="mt-2 inline-flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                      <span className="text-xs text-emerald-400">
+                        Active
+                      </span>
+                    </div>
                   </div>
+
                   <div className="text-right">
-                    <p className="text-2xl font-bold text-emerald-400">${(a.hours * a.rate).toFixed(2)}</p>
-                    <p className="text-[10px] text-white/40 mt-0.5">Current Earnings</p>
+                    <p className="text-2xl font-bold text-emerald-400">
+                      ${(a.hours * a.rate).toFixed(2)}
+                    </p>
+                    <p className="text-xs text-white/30">
+                      Estimated Pay
+                    </p>
                   </div>
                 </div>
 
-                {/* Stats row */}
-                <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-white/[0.07]">
+                <div className="grid grid-cols-3 gap-3 mt-5">
                   <div>
-                    <p className="text-[10px] text-white/30 uppercase tracking-wider">Hours</p>
-                    <p className="text-sm font-medium text-white mt-0.5">{fmtHrs(a.hours)}</p>
+                    <p className="text-[10px] uppercase text-white/30">
+                      Hours
+                    </p>
+                    <p className="text-white font-medium">
+                      {a.hours.toFixed(2)}
+                    </p>
                   </div>
+
                   <div>
-                    <p className="text-[10px] text-white/30 uppercase tracking-wider">Rate</p>
-                    <p className="text-sm font-medium text-white mt-0.5">${a.rate.toFixed(2)}/hr</p>
+                    <p className="text-[10px] uppercase text-white/30">
+                      Rate
+                    </p>
+                    <p className="text-white font-medium">
+                      ${a.rate.toFixed(2)}
+                    </p>
                   </div>
+
                   <div>
-                    <p className="text-[10px] text-white/30 uppercase tracking-wider">Days</p>
-                    <p className="text-sm font-medium text-white mt-0.5">{a.daily_breakdown?.length ?? 0}</p>
+                    <p className="text-[10px] uppercase text-white/30">
+                      Days Worked
+                    </p>
+                    <p className="text-white font-medium">
+                      {a.daily_breakdown?.length ?? 0}
+                    </p>
                   </div>
                 </div>
 
