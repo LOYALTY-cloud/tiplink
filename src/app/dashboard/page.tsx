@@ -39,13 +39,14 @@ export default function DashboardPage() {
   const [stripeAvailable, setStripeAvailable] = useState<number | null>(null);
   const [pendingAmount, setPendingAmount] = useState<number | null>(null);
   const [pendingAvailableOn, setPendingAvailableOn] = useState<string | null>(null);
-  const [withdrawCardMode, setWithdrawCardMode] = useState<"instant" | "standard">(() => {
-    if (typeof window !== "undefined") {
-      return (localStorage.getItem("dashboard_withdraw_card_mode") as "instant" | "standard") || "instant";
-    }
-    return "instant";
-  });
+  const [withdrawCardMode, setWithdrawCardMode] = useState<"instant" | "standard">("instant");
   const [showWithdrawCardMenu, setShowWithdrawCardMenu] = useState(false);
+
+  // Sync withdrawCardMode from localStorage after mount to avoid SSR/client mismatch
+  useEffect(() => {
+    const stored = localStorage.getItem("dashboard_withdraw_card_mode");
+    if (stored === "standard" || stored === "instant") setWithdrawCardMode(stored);
+  }, []);
 
   // Creator application
   const [isCreator, setIsCreator] = useState<boolean | null>(null);
