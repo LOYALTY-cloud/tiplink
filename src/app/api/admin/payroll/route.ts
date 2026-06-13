@@ -62,8 +62,8 @@ export async function GET(req: Request) {
 
     const { data: sessions } = await supabaseAdmin
       .from("admin_sessions")
-      .select("admin_id, total_active_seconds")
-      .gte("started_at", start.toISOString())
+      .select("admin_id, total_active_seconds, started_at, last_active_at")
+      .or(`started_at.gte.${start.toISOString()},last_active_at.gte.${start.toISOString()}`)
       .lte("started_at", end.toISOString());
 
     const { data: profiles } = await supabaseAdmin
@@ -93,10 +93,19 @@ export async function GET(req: Request) {
       return NextResponse.json({ admins: [], total: 0 });
     }
 
-    // Aggregate seconds per admin
+    // Aggregate seconds per admin + per day
     const totals = new Map<string, number>();
+    const dailyTotals = new Map<string, Map<string, number>>(); // admin_id → date → seconds
+
     for (const s of sessions ?? []) {
       totals.set(s.admin_id, (totals.get(s.admin_id) ?? 0) + (s.total_active_seconds ?? 0));
+
+      // Use last_active_at for day bucket — reflects which day the work actually happened
+      const activeDay = s.last_active_at ?? s.started_at;
+      const day = new Date(activeDay).toISOString().slice(0, 10); // YYYY-MM-DD UTC
+      if (!dailyTotals.has(s.admin_id)) dailyTotals.set(s.admin_id, new Map());
+      const dayMap = dailyTotals.get(s.admin_id)!;
+      dayMap.set(day, (dayMap.get(day) ?? 0) + (s.total_active_seconds ?? 0));
     }
 
     const admins = profiles.map((p) => {
@@ -108,12 +117,24 @@ export async function GET(req: Request) {
           ? `${p.first_name} ${p.last_name}`
           : p.display_name || "Unnamed";
 
+      const dayMap = dailyTotals.get(p.user_id);
+      const daily_breakdown = dayMap
+        ? Array.from(dayMap.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([date, secs]) => ({
+              date,
+              hours: parseFloat((secs / 3600).toFixed(2)),
+              minutes: Math.round(secs / 60),
+            }))
+        : [];
+
       return {
         admin_id: p.user_id,
         name,
         role: p.role,
         hours: parseFloat(hours.toFixed(2)),
         rate,
+        daily_breakdown,
       };
     });
 
