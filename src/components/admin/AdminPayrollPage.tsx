@@ -155,13 +155,19 @@ export default function AdminPayrollPage() {
       const res = await fetch(`/api/admin/payroll?range=${liveRange}`, {
         headers: getAdminHeaders(),
       });
+      const json = await res.json();
       if (res.ok) {
-        const json = await res.json();
         setLiveAdmins(json.admins ?? []);
         setLiveUpdated(new Date());
         liveFirstLoad.current = false;
+      } else {
+        console.error("payroll API error:", json);
+        setError(json.error ?? `Failed to load payroll data (${res.status})`);
       }
-    } catch {}
+    } catch (err) {
+      console.error("payroll fetch failed:", err);
+      setError("Failed to load payroll data. Check your connection.");
+    }
     if (!silent) setLiveLoading(false);
   }, [liveRange]);
 
