@@ -48,10 +48,30 @@ export async function GET(
 
   const byTheme = Array.from(themeMap.values()).sort((a, b) => b.earnings - a.earnings);
 
+  // Active themes currently live in the store
+  const { data: activeThemes, error: activeErr } = await supabaseAdmin
+    .from("themes")
+    .select("id, name, price, unlock_count")
+    .eq("user_id", userId)
+    .eq("is_public", true)
+    .eq("is_market_active", true)
+    .eq("status", "approved")
+    .order("unlock_count", { ascending: false });
+
+  if (activeErr) {
+    console.error("store-analytics: active themes fetch failed", activeErr);
+  }
+
   return NextResponse.json({
     pending,
     available,
     total_sold: (sales ?? []).length,
     by_theme: byTheme,
+    active_themes: (activeThemes ?? []).map((t) => ({
+      id: t.id,
+      name: t.name,
+      price: t.price,
+      unlock_count: t.unlock_count,
+    })),
   });
 }

@@ -158,10 +158,12 @@ export default function AdminUserDetailPage() {
     available: number;
     total_sold: number;
     by_theme: Array<{ name: string; sold: number; earnings: number }>;
+    active_themes: Array<{ id: string; name: string; price: number | null; unlock_count: number }>;
   };
 
   const [creatorStore, setCreatorStore] = useState<{ id: string; is_active: boolean; store_name: string | null } | null>(null);
   const [storeAnalytics, setStoreAnalytics] = useState<StoreAnalytics | null>(null);
+  const [storeThemesOpen, setStoreThemesOpen] = useState(false);
   const [storeToggling, setStoreToggling] = useState(false);
   const [storeMsg, setStoreMsg] = useState<{ ok: boolean; text: string } | null>(null);
   // Disable-store modal
@@ -1388,6 +1390,30 @@ export default function AdminUserDetailPage() {
                       <p className="text-sm font-semibold text-white">{storeAnalytics.total_sold}</p>
                     </div>
                   </div>
+
+                  {/* Active themes dropdown */}
+                  {storeAnalytics.active_themes.length > 0 && (
+                    <div className="mb-3">
+                      <button
+                        onClick={() => setStoreThemesOpen((o) => !o)}
+                        className="w-full flex items-center justify-between text-[11px] text-white/50 bg-white/5 hover:bg-white/10 rounded-lg px-3 py-2 transition-colors"
+                      >
+                        <span className="uppercase tracking-wider">Active Themes ({storeAnalytics.active_themes.length})</span>
+                        <span className="text-white/30">{storeThemesOpen ? "▲" : "▼"}</span>
+                      </button>
+                      {storeThemesOpen && (
+                        <div className="mt-1.5 space-y-1">
+                          {storeAnalytics.active_themes.map((t) => (
+                            <div key={t.id} className="flex items-center justify-between text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2">
+                              <span className="font-medium text-white truncate max-w-[55%]">{t.name}</span>
+                              <span className="text-white/40">{t.unlock_count} sold</span>
+                              <span className="text-blue-400">{t.price != null ? `$${Number(t.price).toFixed(2)}` : "Free"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {storeAnalytics.by_theme.length > 0 && (
                     <div className="space-y-1.5">
