@@ -73,7 +73,7 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/stale-queue-themes",
+      "path": "/api/cron/auto-expire-pending-themes",
       "schedule": "0 */6 * * *"
     },
     {

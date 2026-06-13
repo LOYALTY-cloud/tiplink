@@ -45,8 +45,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Theme not found or not owned by you" }, { status: 404 });
   }
 
+  // Look up the creator's active store so we can stamp store_id when activating
+  const { data: store } = await supabaseAdmin
+    .from("creator_stores")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .maybeSingle();
+
   const update = active
-    ? { is_market_active: true, is_public: true, status: "pending_review", queue_entered_at: new Date().toISOString() }
+    ? { is_market_active: true, is_public: true, status: "pending_review", queue_entered_at: new Date().toISOString(), store_id: store?.id ?? null }
     : { is_market_active: false, is_public: false, store_id: null, status: "draft", queue_entered_at: null };
 
   const { error: updateErr } = await supabaseAdmin

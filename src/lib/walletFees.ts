@@ -1,9 +1,10 @@
 export type WithdrawalType = "standard" | "instant";
 
-// Stripe's actual instant payout fee for connected accounts:
+// Platform instant withdrawal fee (charged by 1nelink, not Stripe):
 //   3.5% of withdrawal amount, minimum $1.00, maximum $75.00
-// Fee is deducted FROM the withdrawal amount:
+// Fee is deducted FROM the withdrawal amount and transferred to the platform account:
 //   user requests $100 → bank gets $96.50, platform gets $3.50
+// Note: Stripe also charges its own ~1.5% instant payout service fee on top of this.
 // Standard withdrawals have no platform fee.
 export const PLATFORM_INSTANT_FEE_RATE = 0.035;
 export const PLATFORM_INSTANT_FEE_MIN  = 1.00;

@@ -14,9 +14,28 @@ export async function POST(req: Request) {
     const { themeId } = await req.json();
     if (!themeId) return NextResponse.json({ error: "themeId required" }, { status: 400 });
 
+    // Fetch the theme's owner so we can stamp store_id on approval
+    const { data: themeRow } = await supabaseAdmin
+      .from("themes")
+      .select("user_id, store_id")
+      .eq("id", themeId)
+      .maybeSingle();
+
+    // If the theme doesn't already have a store_id, look up the creator's active store
+    let storeId: string | null = themeRow?.store_id ?? null;
+    if (!storeId && themeRow?.user_id) {
+      const { data: store } = await supabaseAdmin
+        .from("creator_stores")
+        .select("id")
+        .eq("user_id", themeRow.user_id)
+        .eq("is_active", true)
+        .maybeSingle();
+      storeId = store?.id ?? null;
+    }
+
     const { data: updatedTheme, error } = await supabaseAdmin
       .from("themes")
-      .update({ status: "approved", is_public: true, moderation_reason: null, queue_entered_at: null })
+      .update({ status: "approved", is_public: true, moderation_reason: null, queue_entered_at: null, ...(storeId ? { store_id: storeId } : {}) })
       .eq("id", themeId)
       .select("user_id")
       .single();

@@ -153,7 +153,17 @@ export default function AdminUserDetailPage() {
   const [sendingReminder, setSendingReminder] = useState(false);
   const [reminderMsg, setReminderMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const [creatorStore, setCreatorStore] = useState<{ id: string; is_active: boolean } | null>(null);
+  type StoreAnalytics = {
+    pending: number;
+    available: number;
+    total_sold: number;
+    by_theme: Array<{ name: string; sold: number; earnings: number }>;
+    active_themes: Array<{ id: string; name: string; price: number | null; unlock_count: number }>;
+  };
+
+  const [creatorStore, setCreatorStore] = useState<{ id: string; is_active: boolean; store_name: string | null } | null>(null);
+  const [storeAnalytics, setStoreAnalytics] = useState<StoreAnalytics | null>(null);
+  const [storeThemesOpen, setStoreThemesOpen] = useState(false);
   const [storeToggling, setStoreToggling] = useState(false);
   const [storeMsg, setStoreMsg] = useState<{ ok: boolean; text: string } | null>(null);
   // Disable-store modal
@@ -292,7 +302,7 @@ export default function AdminUserDetailPage() {
 
     const storeRes = await supabase
       .from("creator_stores")
-      .select("id, is_active")
+      .select("id, is_active, store_name")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -327,6 +337,15 @@ export default function AdminUserDetailPage() {
 
     setProfile(profileRes.data);
     setCreatorStore(storeRes?.data ?? null);
+
+    // Fetch store analytics if this user has an active store
+    if (storeRes?.data?.is_active) {
+      const analyticsRes = await fetch(`/api/admin/users/${userId}/store-analytics`, { headers });
+      if (analyticsRes.ok) {
+        const analyticsJson = await analyticsRes.json();
+        setStoreAnalytics(analyticsJson);
+      }
+    }
     setWallet(statsWallet);
     setTransactions(txData);
     setTips(statsTips);
@@ -1305,7 +1324,7 @@ export default function AdminUserDetailPage() {
             </div>
           </div>
 
-          {/* STORE RESTRICTION — only shown when user has an active store */}
+          {/* STORE — only shown when user has an active store */}
           {creatorStore?.is_active && (
             <div className={`${ui.card} p-4`}>
               <p className="text-[10px] text-white/40 uppercase tracking-wider mb-3">Store</p>
@@ -1316,15 +1335,17 @@ export default function AdminUserDetailPage() {
                 </div>
               )}
 
-              <div className="flex items-center justify-between gap-3">
+              {/* Store name + status row */}
+              <div className="flex items-center justify-between gap-3 mb-4">
                 <div className="flex flex-col gap-0.5">
                   <span className="text-sm text-white font-medium">
-                    {profile?.store_disabled ? "🔴 Store disabled" : "🟢 Store active"}
+                    {profile?.store_disabled ? "🔴" : "🟢"}{" "}
+                    {creatorStore.store_name ?? "Creator Store"}
                   </span>
                   <span className="text-[11px] text-white/40">
                     {profile?.store_disabled
                       ? profile.store_disabled_until
-                        ? `Until ${new Date(profile.store_disabled_until).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`
+                        ? `Disabled until ${new Date(profile.store_disabled_until).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`
                         : "Indefinite restriction"
                       : "Store is live and publicly visible."}
                   </span>
@@ -1351,6 +1372,63 @@ export default function AdminUserDetailPage() {
                   {storeToggling ? "…" : profile?.store_disabled ? "Re-enable Store" : "Disable Store"}
                 </button>
               </div>
+
+              {/* Balance + sales summary */}
+              {storeAnalytics && (
+                <>
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    <div className="bg-white/5 rounded-lg px-3 py-2">
+                      <p className="text-[10px] text-white/40 uppercase tracking-wider mb-0.5">Available</p>
+                      <p className="text-sm font-semibold text-green-400">${storeAnalytics.available.toFixed(2)}</p>
+                    </div>
+                    <div className="bg-white/5 rounded-lg px-3 py-2">
+                      <p className="text-[10px] text-white/40 uppercase tracking-wider mb-0.5">Pending</p>
+                      <p className="text-sm font-semibold text-yellow-400">${storeAnalytics.pending.toFixed(2)}</p>
+                    </div>
+                    <div className="bg-white/5 rounded-lg px-3 py-2">
+                      <p className="text-[10px] text-white/40 uppercase tracking-wider mb-0.5">Total Sold</p>
+                      <p className="text-sm font-semibold text-white">{storeAnalytics.total_sold}</p>
+                    </div>
+                  </div>
+
+                  {/* Active themes dropdown */}
+                  {storeAnalytics.active_themes.length > 0 && (
+                    <div className="mb-3">
+                      <button
+                        onClick={() => setStoreThemesOpen((o) => !o)}
+                        className="w-full flex items-center justify-between text-[11px] text-white/50 bg-white/5 hover:bg-white/10 rounded-lg px-3 py-2 transition-colors"
+                      >
+                        <span className="uppercase tracking-wider">Active Themes ({storeAnalytics.active_themes.length})</span>
+                        <span className="text-white/30">{storeThemesOpen ? "▲" : "▼"}</span>
+                      </button>
+                      {storeThemesOpen && (
+                        <div className="mt-1.5 space-y-1">
+                          {storeAnalytics.active_themes.map((t) => (
+                            <div key={t.id} className="flex items-center justify-between text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2">
+                              <span className="font-medium text-white truncate max-w-[55%]">{t.name}</span>
+                              <span className="text-white/40">{t.unlock_count} sold</span>
+                              <span className="text-blue-400">{t.price != null ? `$${Number(t.price).toFixed(2)}` : "Free"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {storeAnalytics.by_theme.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] text-white/40 uppercase tracking-wider mb-2">Theme Breakdown</p>
+                      {storeAnalytics.by_theme.map((t) => (
+                        <div key={t.name} className="flex items-center justify-between text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2">
+                          <span className="font-medium text-white truncate max-w-[55%]">{t.name}</span>
+                          <span className="text-white/40">{t.sold} sold</span>
+                          <span className="text-green-400 font-semibold">${t.earnings.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 
