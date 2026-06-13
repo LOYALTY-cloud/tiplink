@@ -40,8 +40,7 @@ export default function DashboardPage() {
   const [pendingAmount, setPendingAmount] = useState<number | null>(null);
   const [pendingAvailableOn, setPendingAvailableOn] = useState<string | null>(null);
   const [withdrawCardMode, setWithdrawCardMode] = useState<"instant" | "standard">("instant");
-  const [showWithdrawCardMenu, setShowWithdrawCardMenu] = useState(false);
-
+  
   // Sync withdrawCardMode from localStorage after mount to avoid SSR/client mismatch
   useEffect(() => {
     const stored = localStorage.getItem("dashboard_withdraw_card_mode");
@@ -516,53 +515,13 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Instant / Standard Withdrawal toggle card */}
+        {/* Standard Withdrawal card */}
         <div className="relative rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
-          <div className="flex items-start justify-between">
-            <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">
-              {withdrawCardMode === "instant" ? "Instant Withdrawal" : "Standard Withdrawal"}
-            </p>
-            {/* 3-dot menu */}
-            <div className="relative">
-              <button
-                onClick={() => setShowWithdrawCardMenu((v) => !v)}
-                className="text-white/30 hover:text-white/60 transition p-1 -mt-1 -mr-1 rounded-lg"
-                aria-label="Switch withdrawal type"
-              >
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <circle cx="4" cy="10" r="1.5" /><circle cx="10" cy="10" r="1.5" /><circle cx="16" cy="10" r="1.5" />
-                </svg>
-              </button>
-              {showWithdrawCardMenu && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowWithdrawCardMenu(false)} />
-                  <div className="absolute right-0 top-7 z-20 bg-[#0f1623] border border-white/10 rounded-xl shadow-xl w-52 py-1 text-sm">
-                    <button
-                      className={`w-full text-left px-4 py-2.5 hover:bg-white/5 transition flex items-center gap-2 ${withdrawCardMode === "instant" ? "text-emerald-400 font-medium" : "text-white/70"}`}
-                      onClick={() => { setWithdrawCardMode("instant"); localStorage.setItem("dashboard_withdraw_card_mode", "instant"); setShowWithdrawCardMenu(false); }}
-                    >
-                      <span>⚡</span> Instant
-                    </button>
-                    <button
-                      className={`w-full text-left px-4 py-2.5 hover:bg-white/5 transition flex items-center gap-2 ${withdrawCardMode === "standard" ? "text-emerald-400 font-medium" : "text-white/70"}`}
-                      onClick={() => { setWithdrawCardMode("standard"); localStorage.setItem("dashboard_withdraw_card_mode", "standard"); setShowWithdrawCardMenu(false); }}
-                    >
-                      <span>🏦</span> Standard
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+          <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">Standard Withdrawal</p>
           <p className={`mt-2 text-3xl font-bold ${loadingWallet ? "text-emerald-400/20 animate-pulse" : "text-emerald-400"}`}>
-            {loadingWallet ? "$—.——" : withdrawCardMode === "instant"
-              ? formatMoney(instantAvailable ?? 0)
-              : formatMoney(getNetWithdrawalAmount(stripeAvailable ?? 0, "standard"))
-            }
+            {loadingWallet ? "$—.——" : formatMoney(stripeAvailable ?? 0)}
           </p>
-          <p className="mt-1 text-xs text-emerald-300">
-            {withdrawCardMode === "instant" ? "⚡ Available now" : "🏦 1–3 business days"}
-          </p>
+          <p className="mt-1 text-xs text-emerald-300">🏦 1–3 business days</p>
         </div>
       </div>
 
