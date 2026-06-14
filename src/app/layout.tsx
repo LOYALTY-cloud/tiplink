@@ -14,33 +14,39 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "1neLink — Receive & Withdraw Tips Instantly",
+  title: "1neLink — Send & Receive Tips Instantly",
   description:
-    "A creator platform to receive tips and withdraw instantly.",
+    "The creator platform for instant tips, fast withdrawals, and a built-in marketplace. Get paid by your fans in seconds.",
   metadataBase: new URL("https://1nelink.com"),
   icons: {
-    icon: "/favicon.ico",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.png", type: "image/png" },
+    ],
     apple: "/icon-192.png",
   },
   manifest: "/manifest.json",
   openGraph: {
-    title: "1neLink",
-    description: "Receive & withdraw tips instantly.",
+    title: "1neLink — Send & Receive Tips Instantly",
+    description:
+      "The creator platform for instant tips, fast withdrawals, and a built-in marketplace. Get paid by your fans in seconds.",
     url: "https://1nelink.com",
     siteName: "1neLink",
     images: [
       {
         url: "/og-image.png",
-        width: 1200,
-        height: 630,
+        width: 1734,
+        height: 907,
+        alt: "1neLink — Send & Receive Tips Instantly",
       },
     ],
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "1neLink",
-    description: "Receive & withdraw tips instantly.",
+    title: "1neLink — Send & Receive Tips Instantly",
+    description:
+      "The creator platform for instant tips, fast withdrawals, and a built-in marketplace.",
     images: ["/og-image.png"],
   },
 };
