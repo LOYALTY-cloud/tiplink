@@ -410,6 +410,11 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
 
   async function handleContinueToPayment() {
     if (chosenAmount <= 0 || submittingRef.current) return;
+    const emailVal = receiptEmail.trim();
+    if (!emailVal || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
+      alert("Please enter a valid email address to receive your receipt.");
+      return;
+    }
     submittingRef.current = true;
 
     setLoadingIntent(true);
@@ -425,7 +430,7 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
           supporter_name: isAnonymous ? null : supporterName,
           message: note,
           is_anonymous: isAnonymous,
-          supporter_email: receiptEmail.trim() || null,
+          supporter_email: receiptEmail.trim(),
         }),
       });
 
@@ -678,15 +683,16 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
             </div>
           )}
 
-          {/* Receipt email (optional) */}
+          {/* Receipt email (required) */}
           <div className="mt-4">
-            <div className="text-sm font-medium">Email for receipt (optional)</div>
+            <div className="text-sm font-medium">Email for receipt <span className="text-red-500">*</span></div>
             <input
               type="email"
               value={receiptEmail}
               onChange={(e) => setReceiptEmail(e.target.value)}
               maxLength={200}
               placeholder="you@email.com"
+              required
               className={`w-full rounded-xl ${theme.inputBg} border ${theme.border} px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500/15 transition mt-2`}
             />
             <div className={`mt-1 text-xs ${theme.muted2}`}>We&apos;ll send a receipt to this email. Never shared with the creator.</div>
@@ -723,7 +729,7 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
             {!showPayment ? (
               <button
                 onClick={handleContinueToPayment}
-                disabled={chosenAmount <= 0 || loadingIntent || profile.canAcceptTips === false}
+                disabled={chosenAmount <= 0 || loadingIntent || profile.canAcceptTips === false || !receiptEmail.trim()}
                 style={chosenAmount > 0 && !loadingIntent && profile.canAcceptTips !== false && ctButtonStyle ? ctButtonStyle : undefined}
                 className={
                     chosenAmount > 0 && !loadingIntent && profile.canAcceptTips !== false

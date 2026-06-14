@@ -35,6 +35,33 @@ type PayrollRun = {
 };
 
 // Biweekly pay schedule — one paycheck every 14 days
+// ── Biweekly calendar helpers ────────────────────────────────────────────────
+const BIWEEKLY_ANCHOR_MS = new Date("2026-01-05T00:00:00Z").getTime();
+const MS14 = 14 * 24 * 60 * 60 * 1000;
+
+type CalPeriod = { index: number; startMs: number; endMs: number; startStr: string; endStr: string };
+
+function getPeriodsForMonth(year: number, month: number): CalPeriod[] {
+  const firstDayMs = Date.UTC(year, month, 1);
+  const lastDayMs  = Date.UTC(year, month + 1, 0, 23, 59, 59, 999);
+  const approxIdx  = Math.floor((firstDayMs - BIWEEKLY_ANCHOR_MS) / MS14);
+  const results: CalPeriod[] = [];
+  for (let i = Math.max(0, approxIdx - 1); i <= approxIdx + 4; i++) {
+    const sMs = BIWEEKLY_ANCHOR_MS + i * MS14;
+    const eMs = sMs + 13 * 86_400_000; // display end = day 14
+    if (eMs + 86_400_000 >= firstDayMs && sMs <= lastDayMs) {
+      results.push({
+        index: i,
+        startMs: sMs,
+        endMs: eMs,
+        startStr: new Date(sMs).toISOString().slice(0, 10),
+        endStr:   new Date(eMs).toISOString().slice(0, 10),
+      });
+    }
+  }
+  return results;
+}
+
 const RANGE_LABELS: Record<string, string> = {
   current_period: "Current Period",
   last_period:    "Last Period",
@@ -90,11 +117,8 @@ export default function AdminPayrollPage() {
   const [selectedRun, setSelectedRun] = useState<PayrollRun | null>(null);
   const [selectedItems, setSelectedItems] = useState<PayrollItem[]>([]);
 
-  // History filters
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "paid" | "pending">("all");
-  const [dateFilter, setDateFilter] = useState<"all" | "7d" | "30d" | "90d" | "6m" | "1y" | "2y">("all");
-  const [sortBy, setSortBy] = useState<"date_desc" | "date_asc" | "amount_desc" | "amount_asc">("date_desc");
+  // Payroll calendar navigation
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() => { const d = new Date(); d.setDate(1); return d; });
 
   // Admin pay profile modal
   const [adminProfile, setAdminProfile] = useState<{
@@ -112,33 +136,6 @@ export default function AdminPayrollPage() {
   const [liveUpdated, setLiveUpdated] = useState<Date | null>(null);
   const [liveNow, setLiveNow] = useState(() => new Date());
   const liveFirstLoad = useRef(true);
-
-  const DATE_DAYS: Record<string, number> = { "7d": 7, "30d": 30, "90d": 90, "6m": 182, "1y": 365, "2y": 730 };
-
-  const filteredHistory = history.filter((r) => {
-    const q = search.toLowerCase();
-    const matchSearch =
-      !q ||
-      r.start_date.includes(q) ||
-      r.end_date.includes(q) ||
-      String(r.total_amount).includes(q);
-    const matchStatus = statusFilter === "all" || r.status === statusFilter;
-    let matchDate = true;
-    if (dateFilter !== "all") {
-      const days = DATE_DAYS[dateFilter] ?? 30;
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - days);
-      matchDate = new Date(r.created_at) >= cutoff;
-    }
-    return matchSearch && matchStatus && matchDate;
-  });
-
-  const sortedHistory = [...filteredHistory].sort((a, b) => {
-    if (sortBy === "date_asc") return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-    if (sortBy === "amount_desc") return Number(b.total_amount) - Number(a.total_amount);
-    if (sortBy === "amount_asc") return Number(a.total_amount) - Number(b.total_amount);
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime(); // date_desc default
-  });
 
   useEffect(() => {
     fetchHistory();
@@ -686,117 +683,158 @@ export default function AdminPayrollPage() {
         </div>
       )}
 
-      {/* Payroll History — always visible */}
+      {/* ── Payroll Calendar ─────────────────────────────────────────────── */}
       <div className={`${ui.card} p-5 space-y-4`}>
-        <h3 className="text-sm text-white/60">Payroll History</h3>
-
-        {/* Filters */}
-        {history.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            <input
-              type="text"
-              placeholder="Search date or amount…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded-md px-2 py-1 text-xs text-white placeholder:text-white/30 w-[160px] outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30 transition"
-            />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as "all" | "paid" | "pending")}
-              className="bg-zinc-900 border border-white/10 rounded-md px-2 py-1 text-xs text-white cursor-pointer"
-            >
-              <option value="all">All Status</option>
-              <option value="paid">Paid</option>
-              <option value="pending">Pending</option>
-            </select>
-            <select
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)}
-              className="bg-zinc-900 border border-white/10 rounded-md px-2 py-1 text-xs text-white cursor-pointer"
-            >
-              <option value="all">All Time</option>
-              <option value="7d">Last 7 days</option>
-              <option value="30d">Last 30 days</option>
-              <option value="90d">Last 3 months</option>
-              <option value="6m">Last 6 months</option>
-              <option value="1y">Last year</option>
-              <option value="2y">Last 2 years</option>
-            </select>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-              className="bg-zinc-900 border border-white/10 rounded-md px-2 py-1 text-xs text-white cursor-pointer"
-            >
-              <option value="date_desc">Newest</option>
-              <option value="date_asc">Oldest</option>
-              <option value="amount_desc">Highest Amount</option>
-              <option value="amount_asc">Lowest Amount</option>
-            </select>
+        {/* Header + month nav */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-white">Payroll Calendar</h3>
+            <p className="text-xs text-white/40 mt-0.5">Biweekly pay periods · click any period to view details</p>
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCalendarMonth(m => { const d = new Date(m); d.setMonth(d.getMonth() - 1); return d; })
+              }
+              className="h-8 w-8 rounded-lg bg-white/[0.06] hover:bg-white/10 flex items-center justify-center text-white/60 hover:text-white transition text-sm"
+            >←</button>
+            <span className="text-sm font-semibold text-white min-w-[120px] text-center">
+              {calendarMonth.toLocaleDateString([], { month: "long", year: "numeric" })}
+            </span>
+            <button
+              onClick={() => setCalendarMonth(m => { const d = new Date(m); d.setMonth(d.getMonth() + 1); return d; })}
+              disabled={calendarMonth.getFullYear() > new Date().getFullYear() ||
+                (calendarMonth.getFullYear() === new Date().getFullYear() && calendarMonth.getMonth() >= new Date().getMonth())}
+              className="h-8 w-8 rounded-lg bg-white/[0.06] hover:bg-white/10 disabled:opacity-30 flex items-center justify-center text-white/60 hover:text-white transition text-sm"
+            >→</button>
+          </div>
+        </div>
 
         {historyLoading && history.length === 0 && (
-          <div className="flex items-center justify-center py-6">
+          <div className="flex items-center justify-center py-8">
             <div className="h-5 w-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
           </div>
         )}
 
-        {!historyLoading && history.length === 0 && (
-          <p className={`text-sm ${ui.muted2} text-center py-8`}>
-            No payroll runs yet. Generate one using the buttons above.
-          </p>
-        )}
+        {/* Period cards for this month */}
+        {!historyLoading && (() => {
+          const periods = getPeriodsForMonth(calendarMonth.getFullYear(), calendarMonth.getMonth());
+          const nowMs = Date.now();
+          const currentPeriodIdx = Math.floor((nowMs - BIWEEKLY_ANCHOR_MS) / MS14);
 
-        {/* Runs list */}
-        <div className="space-y-2 max-h-[480px] overflow-y-auto">
-          {sortedHistory.length === 0 && history.length > 0 && (
-            <p className="text-xs text-white/30 text-center py-4">No matching payroll runs</p>
-          )}
-          {sortedHistory.map((r, idx) => (
-            <button
-              key={r.id}
-              onClick={() => openRun(r.id)}
-              style={{ animation: `fadeUp 0.3s ease ${idx * 50}ms both` }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:scale-[1.01] transition text-left ${
-                selectedRun?.id === r.id ? "ring-1 ring-blue-500/40 bg-white/10" : ""
-              }`}
-            >
-              <div>
-                <p className="text-sm text-white">
-                  {r.start_date} → {r.end_date}
-                </p>
-                <p className="text-[10px] text-white/30">
-                  {new Date(r.created_at).toLocaleDateString()}
-                </p>
+          return (
+            <div className="space-y-3">
+              {periods.map((p) => {
+                const run = history.find(r => r.start_date === p.startStr && r.end_date === p.endStr)
+                  ?? history.find(r => r.start_date === p.startStr)
+                  ?? null;
+                const isCurrent = p.index === currentPeriodIdx;
+                const isFuture  = p.startMs > nowMs;
+                const isPast    = p.endMs + 86_400_000 < nowMs && !isCurrent;
+
+                return (
+                  <div
+                    key={p.index}
+                    onClick={() => run ? openRun(run.id) : undefined}
+                    className={`rounded-2xl border p-4 transition ${
+                      run
+                        ? "cursor-pointer hover:bg-white/[0.06] hover:border-white/20 " + (selectedRun?.id === run.id ? "border-blue-500/40 bg-blue-500/[0.06]" : "border-white/10 bg-white/[0.03]")
+                        : isCurrent
+                          ? "border-emerald-500/30 bg-emerald-500/[0.04] cursor-default"
+                          : isFuture
+                            ? "border-white/[0.04] bg-white/[0.02] opacity-40 cursor-default"
+                            : "border-white/[0.06] bg-white/[0.02] cursor-default"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        {/* Period label */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-white">
+                            {new Date(p.startMs).toLocaleDateString([], { month: "short", day: "numeric" })}
+                            {" → "}
+                            {new Date(p.endMs).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}
+                          </p>
+                          {isCurrent && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/25 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                              Current Period
+                            </span>
+                          )}
+                          {isFuture && (
+                            <span className="text-[10px] text-white/25 italic">Upcoming</span>
+                          )}
+                        </div>
+                        {/* Run meta */}
+                        {run ? (
+                          <p className="text-xs text-white/40">
+                            Generated {new Date(run.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}
+                            {run.paid_at && ` · Paid ${new Date(run.paid_at).toLocaleDateString([], { month: "short", day: "numeric" })}`}
+                          </p>
+                        ) : !isFuture && !isCurrent ? (
+                          <p className="text-xs text-white/25 italic">No payroll run recorded</p>
+                        ) : isCurrent ? (
+                          <p className="text-xs text-white/40">Pay date: {new Date(BIWEEKLY_ANCHOR_MS + (p.index + 1) * MS14).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</p>
+                        ) : null}
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        {run ? (
+                          <>
+                            <p className="text-xl font-bold text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.35)]">
+                              ${Number(run.total_amount).toFixed(2)}
+                            </p>
+                            <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full mt-1 ${
+                              run.status === "paid"
+                                ? "bg-emerald-500/10 text-emerald-400"
+                                : "bg-yellow-500/10 text-yellow-400"
+                            }`}>
+                              {run.status === "paid" ? "✓ Paid" : "⏳ Pending"}
+                            </span>
+                            <p className="text-[10px] text-white/25 mt-1">View details →</p>
+                          </>
+                        ) : isCurrent ? (
+                          <p className="text-xs text-white/30 italic">In progress</p>
+                        ) : isFuture ? (
+                          <p className="text-xs text-white/20 italic">—</p>
+                        ) : (
+                          <p className="text-xs text-white/20 italic">No data</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Jump to year */}
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  onClick={() => setCalendarMonth(m => { const d = new Date(m); d.setFullYear(d.getFullYear() - 1); return d; })}
+                  className="text-xs text-white/30 hover:text-white/60 transition"
+                >← {calendarMonth.getFullYear() - 1}</button>
+                <button
+                  onClick={() => { const d = new Date(); d.setDate(1); setCalendarMonth(d); }}
+                  className="text-xs text-blue-400/60 hover:text-blue-400 transition"
+                >Jump to today</button>
+                <button
+                  onClick={() => setCalendarMonth(m => { const d = new Date(m); d.setFullYear(d.getFullYear() + 1); return d; })}
+                  disabled={calendarMonth.getFullYear() >= new Date().getFullYear()}
+                  className="text-xs text-white/30 hover:text-white/60 disabled:opacity-20 transition"
+                >{calendarMonth.getFullYear() + 1} →</button>
               </div>
-              <div className="text-right">
-                <p className="text-sm font-semibold text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.3)]">
-                  ${Number(r.total_amount).toFixed(2)}
-                </p>
-                <span
-                  className={`text-[10px] px-2 py-0.5 rounded-full ${
-                    r.status === "paid"
-                      ? "bg-emerald-500/10 text-emerald-400"
-                      : "bg-yellow-500/10 text-yellow-400"
-                  }`}
+
+              {/* Load more if history might be incomplete */}
+              {hasMore && (
+                <button
+                  onClick={() => fetchHistory(nextCursor)}
+                  disabled={loadingMore}
+                  className="w-full text-center py-2 text-xs text-blue-400 hover:text-blue-300 transition disabled:opacity-50"
                 >
-                  {r.status}
-                </span>
-              </div>
-            </button>
-          ))}
-
-          {/* Load more */}
-          {hasMore && (
-            <button
-              onClick={() => fetchHistory(nextCursor)}
-              disabled={loadingMore}
-              className="w-full text-center py-2 text-xs text-blue-400 hover:text-blue-300 transition disabled:opacity-50"
-            >
-              {loadingMore ? "Loading…" : "Load older runs ↓"}
-            </button>
-          )}
-        </div>
+                  {loadingMore ? "Loading older records…" : "Load more history ↓"}
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Selected run drill-down */}
         {selectedRun && (
