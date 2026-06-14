@@ -544,7 +544,7 @@ export default function AdminLayout({
           : []),
       ],
     },
-    ...(userRole && ["owner", "co_owner", "super_admin"].includes(userRole)
+    ...(["owner", "co_owner", "super_admin"].includes(userRole ?? "")
           ? [{
           title: "Staff / HR",
           items: [
