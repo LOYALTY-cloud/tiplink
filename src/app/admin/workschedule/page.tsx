@@ -5,7 +5,7 @@ import {
   Clock3, CalendarDays, Activity, Users, DollarSign,
   ChevronLeft, Save, CheckCircle2, Circle, LogIn, LogOut,
 } from "lucide-react";
-import { getAdminHeaders, getAdminSession } from "@/lib/auth/adminSession";
+import { getAdminHeaders, getAdminSession, clearAdminSession } from "@/lib/auth/adminSession";
 import { ui } from "@/lib/ui";
 
 const DAYS = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"] as const;
@@ -114,6 +114,7 @@ export default function WorkSchedulePage(){
   const isOwner=ownerRoles.includes(session?.role??"");
 
   const[tab,setTab]=useState<"schedule"|"owner">("schedule");
+  const[endingShift,setEndingShift]=useState(false);
   const[self,setSelf]=useState<SelfData|null>(null);
   const[company,setCompany]=useState<CompanyData|null>(null);
   const[admins,setAdmins]=useState<AdminEntry[]>([]);
@@ -122,6 +123,21 @@ export default function WorkSchedulePage(){
   const[editingAdmin,setEditingAdmin]=useState<AdminEntry|null>(null);
   const[now,setNow]=useState(()=>new Date());
   const pollRef=useRef<ReturnType<typeof setInterval>>(undefined);
+
+  async function handleEndShift(){
+    if(!window.confirm("End your shift and log out?"))return;
+    setEndingShift(true);
+    try{
+      const res=await fetch("/api/admin/workforce/end-shift",{method:"POST",headers:getAdminHeaders()});
+      const json=await res.json();
+      if(!res.ok)throw new Error(json.error??"Failed to end shift");
+      clearAdminSession();
+      window.location.href="/admin/login";
+    }catch(err){
+      alert(err instanceof Error?err.message:"Failed to end shift");
+      setEndingShift(false);
+    }
+  }
 
   const fetchData=useCallback(async(silent=false)=>{
     if(!silent)setLoading(true);
@@ -200,19 +216,30 @@ export default function WorkSchedulePage(){
         <div className="space-y-5 fade-up">
 
           {/* Clock status */}
-          <div className={`flex items-center justify-between rounded-2xl border px-5 py-4 ${self.clocked_in?"border-emerald-500/30 bg-emerald-500/[0.07]":"border-white/10 bg-white/[0.03]"}`}>
-            <div className="flex items-center gap-3">
-              {self.clocked_in?(
-                <><span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"/><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-400"/></span>
-                  <div><p className="text-sm font-semibold text-emerald-300">Clocked In</p>{self.session_started_at&&<p className="text-xs text-white/40">Since {fmtTime(self.session_started_at)}</p>}</div></>
-              ):(
-                <><span className="h-3 w-3 rounded-full bg-white/20"/><p className="text-sm text-white/50">Clocked Out</p></>
-              )}
+          <div className={`rounded-2xl border px-5 py-4 ${self.clocked_in?"border-emerald-500/30 bg-emerald-500/[0.07]":"border-white/10 bg-white/[0.03]"}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {self.clocked_in?(
+                  <><span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"/><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-400"/></span>
+                    <div><p className="text-sm font-semibold text-emerald-300">Clocked In</p>{self.session_started_at&&<p className="text-xs text-white/40">Since {fmtTime(self.session_started_at)}</p>}</div></>
+                ):(
+                  <><span className="h-3 w-3 rounded-full bg-white/20"/><p className="text-sm text-white/50">Clocked Out</p></>
+                )}
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-white/40">Pay period</p>
+                <p className="text-xs text-white/60">{fmtDate(self.period_start)} → {fmtDate(self.period_end)}</p>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="text-xs text-white/40">Pay period</p>
-              <p className="text-xs text-white/60">{fmtDate(self.period_start)} → {fmtDate(self.period_end)}</p>
-            </div>
+            {self.clocked_in&&(
+              <button
+                onClick={handleEndShift}
+                disabled={endingShift}
+                className="mt-4 w-full rounded-xl bg-red-600 hover:bg-red-500 py-3 text-sm font-semibold text-white transition disabled:opacity-50 active:scale-[0.98]"
+              >
+                {endingShift?"Ending Shift…":"End Shift & Log Out"}
+              </button>
+            )}
           </div>
 
           {/* Today's shift card */}
@@ -378,14 +405,24 @@ export default function WorkSchedulePage(){
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/[0.04]">
-                    {company.workforce.map(w=>(
+                    {company.workforce.map(w=>{
+                      const diff=w.last_active_at?Date.now()-new Date(w.last_active_at).getTime():Infinity;
+                      const wStatus=diff<60000?"working":diff<300000?"idle":"off";
+                      return(
                       <tr key={w.user_id} className="hover:bg-white/[0.02] transition">
                         <td className="py-3 pr-4"><p className="font-medium text-white">{w.name}</p><p className="text-[11px] text-white/30 capitalize mt-0.5">{w.role.replace(/_/g," ")}</p></td>
                         <td className="py-3 pr-4 text-center">
-                          {w.online?(
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 px-2.5 py-1 text-xs font-medium text-emerald-300"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>Active</span>
-                          ):(
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.04] border border-white/10 px-2.5 py-1 text-xs text-white/30"><span className="h-1.5 w-1.5 rounded-full bg-white/20"/>{lastSeenText(w.last_active_at)}</span>
+                          {wStatus==="working"&&(
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 px-2.5 py-1 text-xs font-medium text-emerald-300"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"/>🟢 Working</span>
+                          )}
+                          {wStatus==="idle"&&(
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/10 border border-yellow-500/20 px-2.5 py-1 text-xs font-medium text-yellow-300">🟡 Idle · {lastSeenText(w.last_active_at)}</span>
+                          )}
+                          {wStatus==="off"&&(
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 border border-red-500/20 px-2.5 py-1 text-xs font-medium text-red-400">🔴 Off Shift</span>
+                              {w.last_active_at&&<p className="text-[10px] text-white/30">Ended {fmtTime(w.last_active_at)} · {w.today_hours.toFixed(1)}h today</p>}
+                            </div>
                           )}
                         </td>
                         <td className="py-3 pr-4 text-right text-white/70 font-medium">{fmtSecs(w.today_hours*3600)}</td>
@@ -393,7 +430,8 @@ export default function WorkSchedulePage(){
                         <td className="py-3 pr-4 text-right text-white/80 font-semibold">{fmtSecs(w.period_hours*3600)}</td>
                         <td className="py-3 text-right text-emerald-400 font-bold">${w.period_pay.toFixed(2)}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                   <tfoot className="border-t border-white/10">
                     <tr><td colSpan={4} className="pt-3 text-xs text-white/30">Total</td><td className="pt-3 text-right text-white/80 font-bold">{fmtSecs(company.period_seconds)}</td><td className="pt-3 text-right text-emerald-400 font-bold">${company.payroll_estimate.toFixed(2)}</td></tr>
