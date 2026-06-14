@@ -11,6 +11,7 @@ type LiveAdmin = {
   hours: number;
   rate: number;
   daily_breakdown?: Array<{ date: string; hours: number; minutes: number }>;
+  sessions?: Array<{ id: string; started_at: string; ended_at: string | null; active_seconds: number }>;
 };
 
 type PayrollItem = {
@@ -47,6 +48,20 @@ function fmtHrs(hours: number): string {
   if (h === 0) return `${m}m`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
+}
+
+function fmtTime(isoString: string): string {
+  return new Date(isoString).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
+function fmtActiveSecs(seconds: number): string {
+  if (seconds <= 0) return "0m";
+  const m = Math.round(seconds / 60);
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  if (h === 0) return `${rem}m`;
+  if (rem === 0) return `${h}h`;
+  return `${h}h ${rem}m`;
 }
 
 export default function AdminPayrollPage() {
@@ -279,7 +294,7 @@ export default function AdminPayrollPage() {
   }
 
   const activeAdmins = liveAdmins.filter(
-    (a) => (a.daily_breakdown?.length ?? 0) > 0
+    (a) => (a.sessions?.length ?? 0) > 0
   ).length;
 
   const totalHours = liveAdmins.reduce(
@@ -421,7 +436,7 @@ export default function AdminPayrollPage() {
               <p className="text-xs text-white/30 text-center py-3">No session data for this period</p>
             )}
             {/* Admins with activity first — premium cards */}
-            {liveAdmins.filter((a) => (a.daily_breakdown?.length ?? 0) > 0).map((a) => (
+            {liveAdmins.filter((a) => (a.daily_breakdown?.length ?? 0) > 0 || (a.sessions?.length ?? 0) > 0).map((a) => (
               <div
                 key={a.admin_id}
                 onClick={() => openAdminProfile(a.admin_id)}
@@ -432,6 +447,7 @@ export default function AdminPayrollPage() {
                     <h3 className="text-white font-semibold">
                       {a.name}
                     </h3>
+                    <p className="text-[11px] text-white/40 capitalize mt-0.5">{a.role.replace(/_/g, " ")}</p>
 
                     <div className="mt-2 inline-flex items-center gap-2">
                       <div className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -454,10 +470,10 @@ export default function AdminPayrollPage() {
                 <div className="grid grid-cols-3 gap-3 mt-5">
                   <div>
                     <p className="text-[10px] uppercase text-white/30">
-                      Hours
+                      Active Time
                     </p>
                     <p className="text-white font-medium">
-                      {a.hours.toFixed(2)}
+                      {fmtHrs(a.hours)}
                     </p>
                   </div>
 
@@ -466,23 +482,51 @@ export default function AdminPayrollPage() {
                       Rate
                     </p>
                     <p className="text-white font-medium">
-                      ${a.rate.toFixed(2)}
+                      ${a.rate.toFixed(2)}/hr
                     </p>
                   </div>
 
                   <div>
                     <p className="text-[10px] uppercase text-white/30">
-                      Days Worked
+                      Sessions
                     </p>
                     <p className="text-white font-medium">
-                      {a.daily_breakdown?.length ?? 0}
+                      {a.sessions?.length ?? 0}
                     </p>
                   </div>
                 </div>
 
-                {/* Per-day breakdown */}
-                {(a.daily_breakdown?.length ?? 0) > 0 && (
+                {/* Session clock-in / clock-out timeline */}
+                {(a.sessions?.length ?? 0) > 0 && (
+                  <div className="mt-3 space-y-1.5">
+                    <p className="text-[10px] uppercase text-white/30 tracking-wider">Clock In / Out</p>
+                    {a.sessions!.map((s, idx) => (
+                      <div key={s.id} className="flex items-center justify-between text-xs bg-white/[0.04] rounded-lg px-3 py-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-white/30 shrink-0">#{idx + 1}</span>
+                          <span className="text-white/70 font-medium">{fmtTime(s.started_at)}</span>
+                          <span className="text-white/20">→</span>
+                          {s.ended_at ? (
+                            <span className="text-white/60">{fmtTime(s.ended_at)}</span>
+                          ) : (
+                            <span className="text-emerald-400 flex items-center gap-1">
+                              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-white/50 font-medium shrink-0 ml-3">
+                          {fmtActiveSecs(s.active_seconds)} worked
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Per-day breakdown (week view) */}
+                {liveRange === "week" && (a.daily_breakdown?.length ?? 0) > 0 && (
                   <div className="mt-3 space-y-1">
+                    <p className="text-[10px] uppercase text-white/30 tracking-wider">Daily Breakdown</p>
                     {a.daily_breakdown!.map((d) => (
                       <div key={d.date} className="flex items-center justify-between text-xs bg-white/[0.03] rounded-lg px-3 py-1.5">
                         <span className="text-white/40">
@@ -499,7 +543,7 @@ export default function AdminPayrollPage() {
               </div>
             ))}
             {/* Admins with no activity — dimmed */}
-            {liveAdmins.filter((a) => (a.daily_breakdown?.length ?? 0) === 0).map((a) => (
+            {liveAdmins.filter((a) => (a.daily_breakdown?.length ?? 0) === 0 && (a.sessions?.length ?? 0) === 0).map((a) => (
               <div
                 key={a.admin_id}
                 onClick={() => openAdminProfile(a.admin_id)}

@@ -161,6 +161,9 @@ export default function AdminLayout({
   const searchRef = useRef<HTMLDivElement>(null);
   const drawerScrollRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Tracks last real interaction (keydown/mousedown/scroll/touch).
+  // mousemove is intentionally excluded — only purposeful actions count as work.
+  const lastMeaningfulActivityRef = useRef<number>(Date.now());
 
   // Admin: lock after 5 min idle or tab switch; hard-logout at 60 min
   const lockEnabled = !loading && pathname !== "/admin/login" && pathname !== "/admin/blocked";
@@ -263,6 +266,22 @@ export default function AdminLayout({
     router.replace("/admin/login");
   };
 
+  // Record last real interaction so the heartbeat can gate on actual work.
+  // mousemove is excluded — only intentional input counts toward payroll time.
+  useEffect(() => {
+    const track = () => { lastMeaningfulActivityRef.current = Date.now(); };
+    window.addEventListener("keydown", track, { passive: true });
+    window.addEventListener("mousedown", track, { passive: true });
+    window.addEventListener("scroll", track, { passive: true, capture: true });
+    window.addEventListener("touchstart", track, { passive: true });
+    return () => {
+      window.removeEventListener("keydown", track);
+      window.removeEventListener("mousedown", track);
+      window.removeEventListener("scroll", track, { capture: true });
+      window.removeEventListener("touchstart", track);
+    };
+  }, []);
+
   // Heartbeat: ping presence API every 20s to stay online (production-grade)
   // Intentionally no pathname dependency — one interval for the layout lifetime.
   useEffect(() => {
@@ -284,12 +303,15 @@ export default function AdminLayout({
 
     const interval = setInterval(() => {
       // Multi-tab fix: only send heartbeat when tab is visible
-      if (document.visibilityState === "visible") {
-        fetch("/api/admin/presence", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...getAdminHeaders() },
-        }).catch(() => {});
-      }
+      if (document.visibilityState !== "visible") return;
+      // Payroll accuracy: only count time when admin has done something real in
+      // the last 30s. Sitting idle or wiggling the mouse does NOT count.
+      const idleMs = Date.now() - lastMeaningfulActivityRef.current;
+      if (idleMs > 30_000) return;
+      fetch("/api/admin/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAdminHeaders() },
+      }).catch(() => {});
     }, 20_000); // every 20 seconds
 
     return () => clearInterval(interval);
@@ -328,7 +350,9 @@ export default function AdminLayout({
     function handleVisibility() {
       if (document.visibilityState === "hidden") sendOffline();
       else {
-        // Tab re-focused → presence ping to come back online
+        // Tab re-focused → reset activity clock and presence ping.
+        // Don't count idle time accumulated while the tab was in the background.
+        lastMeaningfulActivityRef.current = Date.now();
         fetch("/api/admin/presence", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...getAdminHeaders() },

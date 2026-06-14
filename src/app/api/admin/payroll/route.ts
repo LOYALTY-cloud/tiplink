@@ -62,9 +62,10 @@ export async function GET(req: Request) {
 
     const { data: sessions } = await supabaseAdmin
       .from("admin_sessions")
-      .select("admin_id, total_active_seconds, started_at, last_active_at")
+      .select("id, admin_id, total_active_seconds, started_at, ended_at, last_active_at")
       .or(`started_at.gte.${start.toISOString()},last_active_at.gte.${start.toISOString()}`)
-      .lte("started_at", end.toISOString());
+      .lte("started_at", end.toISOString())
+      .order("started_at", { ascending: true });
 
     const { data: profiles } = await supabaseAdmin
       .from("profiles")
@@ -96,6 +97,7 @@ export async function GET(req: Request) {
     // Aggregate seconds per admin + per day
     const totals = new Map<string, number>();
     const dailyTotals = new Map<string, Map<string, number>>(); // admin_id → date → seconds
+    const sessionsByAdmin = new Map<string, Array<{ id: string; started_at: string; ended_at: string | null; active_seconds: number }>>(); // admin_id → sessions
 
     for (const s of sessions ?? []) {
       totals.set(s.admin_id, (totals.get(s.admin_id) ?? 0) + (s.total_active_seconds ?? 0));
@@ -106,6 +108,15 @@ export async function GET(req: Request) {
       if (!dailyTotals.has(s.admin_id)) dailyTotals.set(s.admin_id, new Map());
       const dayMap = dailyTotals.get(s.admin_id)!;
       dayMap.set(day, (dayMap.get(day) ?? 0) + (s.total_active_seconds ?? 0));
+
+      // Collect individual sessions for clock-in/clock-out display
+      if (!sessionsByAdmin.has(s.admin_id)) sessionsByAdmin.set(s.admin_id, []);
+      sessionsByAdmin.get(s.admin_id)!.push({
+        id: s.id,
+        started_at: s.started_at,
+        ended_at: s.ended_at ?? null,
+        active_seconds: s.total_active_seconds ?? 0,
+      });
     }
 
     const admins = profiles.map((p) => {
@@ -135,6 +146,7 @@ export async function GET(req: Request) {
         hours: parseFloat(hours.toFixed(2)),
         rate,
         daily_breakdown,
+        sessions: sessionsByAdmin.get(p.user_id) ?? [],
       };
     });
 
