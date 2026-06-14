@@ -26,6 +26,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 });
   }
 
+  // Detect Stripe key mode mismatch (live secret key + test publishable key or vice versa)
+  const secretKey = process.env.STRIPE_SECRET_KEY ?? "";
+  const pubKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
+  const secretIsLive = secretKey.startsWith("sk_live_");
+  const pubIsLive = pubKey.startsWith("pk_live_");
+  if (secretKey && pubKey && secretIsLive !== pubIsLive) {
+    console.error("[create-intent] STRIPE KEY MODE MISMATCH — secret key is", secretIsLive ? "LIVE" : "TEST", "but publishable key is", pubIsLive ? "LIVE" : "TEST");
+    return NextResponse.json({ error: "Payment system misconfigured. Please contact support." }, { status: 503 });
+  }
+  if (!secretKey) {
+    console.error("[create-intent] STRIPE_SECRET_KEY is not set");
+    return NextResponse.json({ error: "Payment system unavailable." }, { status: 503 });
+  }
+
   // Dev-only mock: set DEV_MOCK_PAYMENTS=1 in your environment to bypass Stripe/Supabase
   if (process.env.DEV_MOCK_PAYMENTS === "1") {
     try {
