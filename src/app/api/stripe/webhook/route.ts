@@ -743,6 +743,49 @@ export async function handleStripeEvent(
                 hour: "numeric", minute: "2-digit", timeZoneName: "short",
               }),
             }).catch(() => {});
+
+            // ── Digital product delivery ─────────────────────────────────
+            // If this creator has a digital product priced at exactly this
+            // tip amount, generate a signed download URL and email it.
+            try {
+              const priceCents = Math.round(receivedAmount * 100);
+              const { data: product } = await supabaseClient
+                .from("digital_products")
+                .select("id, title, storage_path")
+                .eq("creator_user_id", tipIntent.creator_user_id)
+                .eq("price_cents", priceCents)
+                .eq("active", true)
+                .maybeSingle();
+
+              if (product?.storage_path) {
+                const EXPIRY_SECONDS = 48 * 60 * 60; // 48-hour link
+                const { supabaseAdmin } = await import("@/lib/supabase/admin");
+                const { data: signedData, error: signErr } = await supabaseAdmin
+                  .storage
+                  .from("digital-products")
+                  .createSignedUrl(product.storage_path, EXPIRY_SECONDS);
+
+                if (signErr || !signedData?.signedUrl) {
+                  console.error("digital_product: failed to create signed URL", { product: product.id, error: signErr?.message });
+                } else {
+                  const { sendEbookDelivery } = await import("@/lib/email/sendEbookDelivery");
+                  sendEbookDelivery({
+                    to: tipIntent.supporter_email,
+                    productTitle: product.title,
+                    creatorName: creatorLabel,
+                    receiptId: receiptId,
+                    amountUsd: `$${receivedAmount.toFixed(2)}`,
+                    downloadUrl: signedData.signedUrl,
+                    expiresHours: 48,
+                  }).catch(() => {});
+                  console.log(`digital_product: delivered "${product.title}" to ${tipIntent.supporter_email} (receipt ${receiptId})`);
+                }
+              }
+            } catch (dpErr) {
+              // Never block the tip flow — log and continue
+              console.error("digital_product: delivery error", dpErr);
+            }
+            // ── End digital product delivery ─────────────────────────────
           } catch (_) {}
         }
       } catch (e) {

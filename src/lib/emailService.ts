@@ -45,6 +45,7 @@ export type EmailType =
   | "EMAIL_CHANGED_CONFIRMATION"  /* ── Money ───────────────────────────────────────── */
   | "TIP_RECEIVED"
   | "TIP_RECEIPT"
+  | "EBOOK_DELIVERY"
   | "WITHDRAWAL_SUCCESS"
   | "PAYOUT_FAILED"
   /* ── Support ─────────────────────────────────────── */
@@ -90,6 +91,7 @@ const TYPE_TO_CATEGORY: Record<EmailType, EmailCategory> = {
   // Money
   TIP_RECEIVED: "receipts",
   TIP_RECEIPT: "receipts",
+  EBOOK_DELIVERY: "receipts",
   WITHDRAWAL_SUCCESS: "receipts",
   PAYOUT_FAILED: "receipts",
   // Support
