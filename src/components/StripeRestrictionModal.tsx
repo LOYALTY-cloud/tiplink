@@ -4,10 +4,12 @@ export default function StripeRestrictionModal({
   open,
   onClose,
   creator,
+  onVerify,
 }: {
   open: boolean;
   onClose: () => void;
   creator: any;
+  onVerify?: () => void;
 }) {
   if (!open) return null;
 
@@ -47,10 +49,6 @@ export default function StripeRestrictionModal({
   const inactiveCapabilities = Object.entries(capabilities).filter(
     ([, value]) => value !== "active"
   );
-
-  const onboardingLink =
-    (creator?.stripe_onboarding_link as string | undefined) ??
-    "/api/stripe/connect/refresh";
 
   const badgeClass =
     severity === "danger"
@@ -173,12 +171,12 @@ export default function StripeRestrictionModal({
         {/* ACTIONS — pinned to bottom */}
         <div className="px-4 pb-5 pt-2 sm:px-6 sm:pb-6 flex flex-col gap-2.5 sm:flex-row border-t border-white/5">
           {hasActionableRequirements && (
-            <a
-              href={onboardingLink}
+            <button
+              onClick={() => { onClose(); onVerify?.(); }}
               className="flex-1 rounded-2xl bg-white px-4 py-3 text-center text-sm font-semibold text-black transition hover:opacity-90"
             >
               Resolve Verification Issues
-            </a>
+            </button>
           )}
           <button
             onClick={onClose}
