@@ -763,7 +763,7 @@ export async function handleStripeEvent(
                 const { data: signedData, error: signErr } = await supabaseAdmin
                   .storage
                   .from("digital-products")
-                  .createSignedUrl(product.storage_path, EXPIRY_SECONDS);
+                  .createSignedUrl(product.storage_path, EXPIRY_SECONDS, { download: true });
 
                 if (signErr || !signedData?.signedUrl) {
                   console.error("digital_product: failed to create signed URL", { product: product.id, error: signErr?.message });
