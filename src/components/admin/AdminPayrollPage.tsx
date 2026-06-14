@@ -313,6 +313,19 @@ export default function AdminPayrollPage() {
       ? liveTotal / totalHours
       : 0;
 
+  // Next payday = next Monday 00:00 UTC (end of current biweekly period)
+  const nextPayday = useMemo(() => {
+    const ANCHOR = new Date("2026-01-05T00:00:00Z").getTime();
+    const MS14 = 14 * 24 * 60 * 60 * 1000;
+    const now = liveNow.getTime();
+    const idx = Math.floor((now - ANCHOR) / MS14);
+    return new Date(ANCHOR + (idx + 1) * MS14); // start of next period = payday
+  }, [liveNow]);
+
+  const daysUntilPayday = Math.ceil(
+    (nextPayday.getTime() - liveNow.getTime()) / (24 * 60 * 60 * 1000)
+  );
+
   return (
     <div className="space-y-6">
       {/* Header + Generate buttons */}
@@ -339,6 +352,27 @@ export default function AdminPayrollPage() {
               </button>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Payday countdown banner */}
+      <div className="flex items-center justify-between rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-5 py-3.5 fade-up">
+        <div className="flex items-center gap-3">
+          <span className="text-xl">💸</span>
+          <div>
+            <p className="text-sm font-semibold text-white">
+              Next payday: {nextPayday.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}
+            </p>
+            <p className="text-xs text-white/50 mt-0.5">
+              Checks go out automatically Sunday midnight UTC · biweekly
+            </p>
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-2xl font-bold text-emerald-400">{daysUntilPayday}</p>
+          <p className="text-[11px] text-white/40 uppercase tracking-wider">
+            {daysUntilPayday === 1 ? "day away" : "days away"}
+          </p>
         </div>
       </div>
 
