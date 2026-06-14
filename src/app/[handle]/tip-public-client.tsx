@@ -445,7 +445,9 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
 
       if (!res.ok) {
         submittingRef.current = false;
-        alert(data?.error || "Could not start payment.");
+        const msg = data?.error || "Could not start payment. Please try again.";
+        alert(msg);
+        console.error("[tip-page] create-intent failed:", res.status, msg);
         return;
       }
 

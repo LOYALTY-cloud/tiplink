@@ -35,8 +35,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: "/og-image.png",
-        width: 1734,
-        height: 907,
+        width: 1200,
+        height: 630,
         alt: "1neLink — Send & Receive Tips Instantly",
       },
     ],

@@ -12,7 +12,7 @@ export default function PayrollPage() {
   useEffect(() => {
     const session = getAdminSession();
     if (!session) { router.replace("/admin/login"); return; }
-    const roles = ["owner", "super_admin"];
+    const roles = ["owner", "co_owner", "super_admin"];
     if (!roles.includes(session.role)) { router.replace("/admin"); return; }
     setAllowed(true);
   }, [router]);
