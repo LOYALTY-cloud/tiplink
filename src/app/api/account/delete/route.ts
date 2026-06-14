@@ -155,6 +155,9 @@ export async function POST(req: Request) {
       supabaseAdmin.from("creator_stores").delete().eq("user_id", user.id),
       supabaseAdmin.from("support_tickets").delete().eq("user_id", user.id),
       supabaseAdmin.from("reports").delete().eq("reporter_id", user.id),
+      // admin_actions: admin_id and target_user both FK to profiles(user_id)
+      supabaseAdmin.from("admin_actions").delete().eq("admin_id", user.id),
+      supabaseAdmin.from("admin_actions").delete().eq("target_user", user.id),
       // issuing_logs and card_declines have user_id referencing profiles(id)
       // — must delete by profileId (the profile UUID primary key), NOT auth UUID
       ...(profileId

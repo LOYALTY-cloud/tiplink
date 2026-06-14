@@ -11,6 +11,7 @@ type LiveAdmin = {
   hours: number;
   rate: number;
   daily_breakdown?: Array<{ date: string; hours: number; minutes: number }>;
+  sessions?: Array<{ id: string; started_at: string; ended_at: string | null; active_seconds: number }>;
 };
 
 type PayrollItem = {
@@ -33,10 +34,16 @@ type PayrollRun = {
   paid_at: string | null;
 };
 
+// Biweekly pay schedule — one paycheck every 14 days
 const RANGE_LABELS: Record<string, string> = {
-  week: "This Week",
-  last_week: "Last Week",
-  today: "Today",
+  current_period: "Current Period",
+  last_period:    "Last Period",
+};
+
+const PERIOD_LABEL: Record<string, string> = {
+  current_period: "Current pay period (14 days)",
+  last_period:    "Last pay period (14 days)",
+  today:          "Today",
 };
 
 function fmtHrs(hours: number): string {
@@ -47,6 +54,20 @@ function fmtHrs(hours: number): string {
   if (h === 0) return `${m}m`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
+}
+
+function fmtTime(isoString: string): string {
+  return new Date(isoString).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
+function fmtActiveSecs(seconds: number): string {
+  if (seconds <= 0) return "0m";
+  const m = Math.round(seconds / 60);
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  if (h === 0) return `${rem}m`;
+  if (rem === 0) return `${h}h`;
+  return `${h}h ${rem}m`;
 }
 
 export default function AdminPayrollPage() {
@@ -85,7 +106,7 @@ export default function AdminPayrollPage() {
   const [adminProfileLoading, setAdminProfileLoading] = useState(false);
 
   // Live hours preview (real-time, polls every 30s)
-  const [liveRange, setLiveRange] = useState<"today" | "week">("week");
+  const [liveRange, setLiveRange] = useState<"today" | "current_period" | "last_period">("current_period");
   const [liveAdmins, setLiveAdmins] = useState<LiveAdmin[]>([]);
   const [liveLoading, setLiveLoading] = useState(true);
   const [liveUpdated, setLiveUpdated] = useState<Date | null>(null);
@@ -279,7 +300,7 @@ export default function AdminPayrollPage() {
   }
 
   const activeAdmins = liveAdmins.filter(
-    (a) => (a.daily_breakdown?.length ?? 0) > 0
+    (a) => (a.sessions?.length ?? 0) > 0
   ).length;
 
   const totalHours = liveAdmins.reduce(
@@ -292,6 +313,19 @@ export default function AdminPayrollPage() {
       ? liveTotal / totalHours
       : 0;
 
+  // Next payday = next Monday 00:00 UTC (end of current biweekly period)
+  const nextPayday = useMemo(() => {
+    const ANCHOR = new Date("2026-01-05T00:00:00Z").getTime();
+    const MS14 = 14 * 24 * 60 * 60 * 1000;
+    const now = liveNow.getTime();
+    const idx = Math.floor((now - ANCHOR) / MS14);
+    return new Date(ANCHOR + (idx + 1) * MS14); // start of next period = payday
+  }, [liveNow]);
+
+  const daysUntilPayday = Math.ceil(
+    (nextPayday.getTime() - liveNow.getTime()) / (24 * 60 * 60 * 1000)
+  );
+
   return (
     <div className="space-y-6">
       {/* Header + Generate buttons */}
@@ -302,17 +336,43 @@ export default function AdminPayrollPage() {
             Finance dashboard · real-time labor cost tracking and earnings monitoring
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {Object.entries(RANGE_LABELS).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => generate(key)}
-              disabled={generating}
-              className={`${ui.btnGhost} ${ui.btnSmall} text-xs hover:scale-[1.03] active:scale-[0.98] transition`}
-            >
-              {generating ? "…" : `+ ${label}`}
-            </button>
-          ))}
+        <div className="flex flex-col items-end gap-1.5">
+          <p className="text-[10px] uppercase tracking-wider text-white/30">Generate payroll run</p>
+          <div className="flex flex-wrap gap-2 justify-end">
+            {Object.entries(RANGE_LABELS).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => generate(key)}
+                disabled={generating}
+                className={`${ui.btnGhost} ${ui.btnSmall} text-xs hover:scale-[1.03] active:scale-[0.98] transition ${
+                  key === "current_period" ? "border-emerald-500/30 text-emerald-300" : ""
+                }`}
+              >
+                {generating ? "…" : `+ ${label}`}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Payday countdown banner */}
+      <div className="flex items-center justify-between rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-5 py-3.5 fade-up">
+        <div className="flex items-center gap-3">
+          <span className="text-xl">💸</span>
+          <div>
+            <p className="text-sm font-semibold text-white">
+              Next payday: {nextPayday.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}
+            </p>
+            <p className="text-xs text-white/50 mt-0.5">
+              Checks go out automatically Sunday midnight UTC · biweekly
+            </p>
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-2xl font-bold text-emerald-400">{daysUntilPayday}</p>
+          <p className="text-[11px] text-white/40 uppercase tracking-wider">
+            {daysUntilPayday === 1 ? "day away" : "days away"}
+          </p>
         </div>
       </div>
 
@@ -379,22 +439,25 @@ export default function AdminPayrollPage() {
       <div className={`${ui.card} p-5 space-y-4 fade-up`}>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-white">
-              Workforce Activity
-            </h2>
-            <p className="text-sm text-white/40">
-              Active tracked work time used for payroll calculations
-            </p>
+            <div>
+              <h2 className="text-xl font-semibold text-white">
+                Workforce Activity
+              </h2>
+              <p className="text-sm text-white/40">
+                {PERIOD_LABEL[liveRange] ?? liveRange} · active tracked work time
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
             <select
               value={liveRange}
-              onChange={(e) => setLiveRange(e.target.value as "today" | "week")}
+              onChange={(e) => setLiveRange(e.target.value as typeof liveRange)}
               className="bg-[#0B1220] border border-white/10 rounded-md text-xs px-2 py-1 text-white outline-none focus:border-emerald-500/50 transition"
             >
-              <option value="today" className="bg-[#0B1220] text-white">Today</option>
-              <option value="week" className="bg-[#0B1220] text-white">This Week</option>
+              <option value="current_period" className="bg-[#0B1220] text-white">Current Period</option>
+              <option value="last_period"    className="bg-[#0B1220] text-white">Last Period</option>
+              <option value="today"          className="bg-[#0B1220] text-white">Today</option>
             </select>
             <button
               onClick={() => void fetchLive()}
@@ -421,7 +484,7 @@ export default function AdminPayrollPage() {
               <p className="text-xs text-white/30 text-center py-3">No session data for this period</p>
             )}
             {/* Admins with activity first — premium cards */}
-            {liveAdmins.filter((a) => (a.daily_breakdown?.length ?? 0) > 0).map((a) => (
+            {liveAdmins.filter((a) => (a.daily_breakdown?.length ?? 0) > 0 || (a.sessions?.length ?? 0) > 0).map((a) => (
               <div
                 key={a.admin_id}
                 onClick={() => openAdminProfile(a.admin_id)}
@@ -432,6 +495,7 @@ export default function AdminPayrollPage() {
                     <h3 className="text-white font-semibold">
                       {a.name}
                     </h3>
+                    <p className="text-[11px] text-white/40 capitalize mt-0.5">{a.role.replace(/_/g, " ")}</p>
 
                     <div className="mt-2 inline-flex items-center gap-2">
                       <div className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -454,10 +518,10 @@ export default function AdminPayrollPage() {
                 <div className="grid grid-cols-3 gap-3 mt-5">
                   <div>
                     <p className="text-[10px] uppercase text-white/30">
-                      Hours
+                      Active Time
                     </p>
                     <p className="text-white font-medium">
-                      {a.hours.toFixed(2)}
+                      {fmtHrs(a.hours)}
                     </p>
                   </div>
 
@@ -466,23 +530,51 @@ export default function AdminPayrollPage() {
                       Rate
                     </p>
                     <p className="text-white font-medium">
-                      ${a.rate.toFixed(2)}
+                      ${a.rate.toFixed(2)}/hr
                     </p>
                   </div>
 
                   <div>
                     <p className="text-[10px] uppercase text-white/30">
-                      Days Worked
+                      Sessions
                     </p>
                     <p className="text-white font-medium">
-                      {a.daily_breakdown?.length ?? 0}
+                      {a.sessions?.length ?? 0}
                     </p>
                   </div>
                 </div>
 
-                {/* Per-day breakdown */}
-                {(a.daily_breakdown?.length ?? 0) > 0 && (
+                {/* Session clock-in / clock-out timeline */}
+                {(a.sessions?.length ?? 0) > 0 && (
+                  <div className="mt-3 space-y-1.5">
+                    <p className="text-[10px] uppercase text-white/30 tracking-wider">Clock In / Out</p>
+                    {a.sessions!.map((s, idx) => (
+                      <div key={s.id} className="flex items-center justify-between text-xs bg-white/[0.04] rounded-lg px-3 py-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-white/30 shrink-0">#{idx + 1}</span>
+                          <span className="text-white/70 font-medium">{fmtTime(s.started_at)}</span>
+                          <span className="text-white/20">→</span>
+                          {s.ended_at ? (
+                            <span className="text-white/60">{fmtTime(s.ended_at)}</span>
+                          ) : (
+                            <span className="text-emerald-400 flex items-center gap-1">
+                              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-white/50 font-medium shrink-0 ml-3">
+                          {fmtActiveSecs(s.active_seconds)} worked
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Per-day breakdown (multi-day views) */}
+                {liveRange !== "today" && (a.daily_breakdown?.length ?? 0) > 0 && (
                   <div className="mt-3 space-y-1">
+                    <p className="text-[10px] uppercase text-white/30 tracking-wider">Daily Breakdown</p>
                     {a.daily_breakdown!.map((d) => (
                       <div key={d.date} className="flex items-center justify-between text-xs bg-white/[0.03] rounded-lg px-3 py-1.5">
                         <span className="text-white/40">
@@ -499,7 +591,7 @@ export default function AdminPayrollPage() {
               </div>
             ))}
             {/* Admins with no activity — dimmed */}
-            {liveAdmins.filter((a) => (a.daily_breakdown?.length ?? 0) === 0).map((a) => (
+            {liveAdmins.filter((a) => (a.daily_breakdown?.length ?? 0) === 0 && (a.sessions?.length ?? 0) === 0).map((a) => (
               <div
                 key={a.admin_id}
                 onClick={() => openAdminProfile(a.admin_id)}

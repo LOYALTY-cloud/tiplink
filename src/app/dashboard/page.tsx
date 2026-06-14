@@ -14,6 +14,8 @@ import { ui } from "@/lib/ui";
 import EarningsCard from "@/components/EarningsCard";
 import VerifyEmailBanner from "@/components/VerifyEmailBanner";
 import StripeRestrictionModal from "@/components/StripeRestrictionModal";
+import dynamic from "next/dynamic";
+const StripeVerificationModal = dynamic(() => import("@/components/StripeVerificationModal"), { ssr: false });
 
 export default function DashboardPage() {
   const { toast, show } = useToast();
@@ -52,6 +54,7 @@ export default function DashboardPage() {
   const [creatorApp, setCreatorApp] = useState<{ status: string; review_notes: string | null } | null>(null);
   const [showCreatorModal, setShowCreatorModal] = useState(false);
   const [showRestrictionModal, setShowRestrictionModal] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [stripeProfile, setStripeProfile] = useState<any>(null);
   const [applyForm, setApplyForm] = useState({ social_links: "", description: "", audience_size: "" });
   const [applyState, setApplyState] = useState<"idle" | "loading" | "success" | "error">("idle");
@@ -347,6 +350,12 @@ export default function DashboardPage() {
           setShowRestrictionModal(false);
         }}
         creator={stripeProfile}
+        onVerify={() => setShowVerificationModal(true)}
+      />
+
+      <StripeVerificationModal
+        open={showVerificationModal}
+        onClose={() => setShowVerificationModal(false)}
       />
 
       {!emailVerified && userEmail && userId && (

@@ -16,32 +16,30 @@ const FALLBACK_RATES: Record<string, number> = {
 
 type PayRate = { admin_id: string | null; role: string | null; hourly_rate: number };
 
+// Biweekly anchor: Monday 2026-01-05 UTC — every pay period is exactly 14 days
+// from this point forward. Period index = floor((now - anchor) / 14d).
+const BIWEEKLY_ANCHOR_MS = new Date("2026-01-05T00:00:00Z").getTime();
+const BIWEEKLY_MS = 14 * 24 * 60 * 60 * 1000;
+
+function getBiweeklyBounds(periodOffset: number, now: Date): { start: Date; end: Date } {
+  const currentIndex = Math.floor((now.getTime() - BIWEEKLY_ANCHOR_MS) / BIWEEKLY_MS);
+  const targetIndex = currentIndex + periodOffset;
+  const start = new Date(BIWEEKLY_ANCHOR_MS + targetIndex * BIWEEKLY_MS);
+  const end   = new Date(BIWEEKLY_ANCHOR_MS + (targetIndex + 1) * BIWEEKLY_MS - 1); // last ms of period
+  return { start, end: end > now ? now : end }; // cap future end at now
+}
+
 function getDateRange(range: string, now: Date): { start: Date; end: Date } {
   if (range === "today") {
     const start = new Date(now);
     start.setUTCHours(0, 0, 0, 0);
     return { start, end: now };
   }
-
-  if (range === "last_week") {
-    const end = new Date(now);
-    const day = end.getUTCDay();
-    const diff = day === 0 ? 6 : day - 1;
-    end.setUTCDate(end.getUTCDate() - diff);
-    end.setUTCHours(0, 0, 0, 0);
-
-    const start = new Date(end);
-    start.setUTCDate(start.getUTCDate() - 7);
-    return { start, end };
+  if (range === "last_period") {
+    return getBiweeklyBounds(-1, now); // previous completed 14-day period
   }
-
-  // default: this week (Mon–now)
-  const start = new Date(now);
-  const day = start.getUTCDay();
-  const diff = day === 0 ? 6 : day - 1;
-  start.setUTCDate(start.getUTCDate() - diff);
-  start.setUTCHours(0, 0, 0, 0);
-  return { start, end: now };
+  // default / "current_period": current 14-day biweekly period up to now
+  return getBiweeklyBounds(0, now);
 }
 
 /**
@@ -62,9 +60,10 @@ export async function GET(req: Request) {
 
     const { data: sessions } = await supabaseAdmin
       .from("admin_sessions")
-      .select("admin_id, total_active_seconds, started_at, last_active_at")
+      .select("id, admin_id, total_active_seconds, started_at, ended_at, last_active_at")
       .or(`started_at.gte.${start.toISOString()},last_active_at.gte.${start.toISOString()}`)
-      .lte("started_at", end.toISOString());
+      .lte("started_at", end.toISOString())
+      .order("started_at", { ascending: true });
 
     const { data: profiles } = await supabaseAdmin
       .from("profiles")
@@ -96,6 +95,7 @@ export async function GET(req: Request) {
     // Aggregate seconds per admin + per day
     const totals = new Map<string, number>();
     const dailyTotals = new Map<string, Map<string, number>>(); // admin_id → date → seconds
+    const sessionsByAdmin = new Map<string, Array<{ id: string; started_at: string; ended_at: string | null; active_seconds: number }>>(); // admin_id → sessions
 
     for (const s of sessions ?? []) {
       totals.set(s.admin_id, (totals.get(s.admin_id) ?? 0) + (s.total_active_seconds ?? 0));
@@ -106,6 +106,15 @@ export async function GET(req: Request) {
       if (!dailyTotals.has(s.admin_id)) dailyTotals.set(s.admin_id, new Map());
       const dayMap = dailyTotals.get(s.admin_id)!;
       dayMap.set(day, (dayMap.get(day) ?? 0) + (s.total_active_seconds ?? 0));
+
+      // Collect individual sessions for clock-in/clock-out display
+      if (!sessionsByAdmin.has(s.admin_id)) sessionsByAdmin.set(s.admin_id, []);
+      sessionsByAdmin.get(s.admin_id)!.push({
+        id: s.id,
+        started_at: s.started_at,
+        ended_at: s.ended_at ?? null,
+        active_seconds: s.total_active_seconds ?? 0,
+      });
     }
 
     const admins = profiles.map((p) => {
@@ -135,6 +144,7 @@ export async function GET(req: Request) {
         hours: parseFloat(hours.toFixed(2)),
         rate,
         daily_breakdown,
+        sessions: sessionsByAdmin.get(p.user_id) ?? [],
       };
     });
 

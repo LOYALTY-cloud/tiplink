@@ -31,7 +31,7 @@ export async function PATCH(req: Request) {
         .eq("user_id", user.id)
         .maybeSingle();
 
-      if (profile && profile.handle !== h) {
+      if (profile && profile.handle.toLowerCase() !== h) {
         if (profile.handle_locked_until) {
           const lockEnd = new Date(profile.handle_locked_until);
           if (lockEnd > new Date()) {

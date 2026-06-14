@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/payroll-auto-run",
+      "schedule": "0 0 * * 1"
+    },
+    {
       "path": "/api/support/session/cleanup",
       "schedule": "*/5 * * * *"
     },

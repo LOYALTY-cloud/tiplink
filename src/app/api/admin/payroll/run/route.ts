@@ -14,31 +14,29 @@ const FALLBACK_RATES: Record<string, number> = {
 
 type PayRate = { admin_id: string | null; role: string | null; hourly_rate: number };
 
+// Biweekly anchor: Monday 2026-01-05 UTC — every pay period is exactly 14 days
+const BIWEEKLY_ANCHOR_MS = new Date("2026-01-05T00:00:00Z").getTime();
+const BIWEEKLY_MS = 14 * 24 * 60 * 60 * 1000;
+
+function getBiweeklyBounds(periodOffset: number, now: Date): { start: Date; end: Date } {
+  const currentIndex = Math.floor((now.getTime() - BIWEEKLY_ANCHOR_MS) / BIWEEKLY_MS);
+  const targetIndex = currentIndex + periodOffset;
+  const start = new Date(BIWEEKLY_ANCHOR_MS + targetIndex * BIWEEKLY_MS);
+  const end   = new Date(BIWEEKLY_ANCHOR_MS + (targetIndex + 1) * BIWEEKLY_MS - 1);
+  return { start, end: end > now ? now : end };
+}
+
 function getDateRange(range: string, now: Date): { start: Date; end: Date } {
   if (range === "today") {
     const start = new Date(now);
     start.setUTCHours(0, 0, 0, 0);
     return { start, end: now };
   }
-
-  if (range === "last_week") {
-    const end = new Date(now);
-    const day = end.getUTCDay();
-    const diff = day === 0 ? 6 : day - 1;
-    end.setUTCDate(end.getUTCDate() - diff);
-    end.setUTCHours(0, 0, 0, 0);
-    const start = new Date(end);
-    start.setUTCDate(start.getUTCDate() - 7);
-    return { start, end };
+  if (range === "last_period") {
+    return getBiweeklyBounds(-1, now); // previous completed 14-day period
   }
-
-  // default: this week (Mon–now)
-  const start = new Date(now);
-  const day = start.getUTCDay();
-  const diff = day === 0 ? 6 : day - 1;
-  start.setUTCDate(start.getUTCDate() - diff);
-  start.setUTCHours(0, 0, 0, 0);
-  return { start, end: now };
+  // default / "current_period": current 14-day biweekly period up to now
+  return getBiweeklyBounds(0, now);
 }
 
 /**
