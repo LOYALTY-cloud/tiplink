@@ -668,17 +668,18 @@ export default function AdminLayout({
           : []),
       ],
     },
-    ...(userRole && staffRoles.includes(userRole)
+    ...(staffRoles.includes(userRole ?? "")
       ? [{
           title: "Staff / HR",
           items: [
             { label: "Staff", href: "/admin/staff", icon: "🛡️" },
+            { label: "Workforce", href: "/admin/workschedule", icon: "🕐" },
             { label: "Discipline", href: "/admin/staff/tickets", icon: "🧾" },
             { label: "Applicants", href: "/admin/applicants", icon: "📝" },
             { label: "Interviews", href: "/admin/interviews", icon: "📅" },
           ],
         }]
-      : []),
+      : [{ title: "My Schedule", items: [{ label: "Workforce", href: "/admin/workschedule", icon: "🕐" }] }]),
     {
       title: "Tools",
       items: [
