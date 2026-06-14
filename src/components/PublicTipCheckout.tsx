@@ -51,6 +51,7 @@ function InnerCheckout({
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   async function handlePay() {
     if (!stripe || !elements) return;
@@ -98,9 +99,17 @@ function InnerCheckout({
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-4 text-sm text-red-300">
+        Payment form failed to load. Please refresh the page and try again. If the issue persists, try a different browser or disable any content blockers.
+      </div>
+    );
+  }
+
   return (
     <div>
-      <PaymentElement />
+      <PaymentElement onLoadError={() => setLoadError(true)} />
 
       {error ? <div className="mt-3 text-sm text-red-300">{error}</div> : null}
 

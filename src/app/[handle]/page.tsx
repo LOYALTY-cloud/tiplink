@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { ProfileRow } from "@/types/db";
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import TipPublicClient from "./tip-public-client";
 
 export const runtime = "nodejs";
@@ -93,16 +94,7 @@ export default async function PublicTipPage({
   const profile = await getProfile(rawHandle);
 
   if (!profile) {
-    return (
-      <div className="min-h-screen bg-[#0B0F19] text-white flex items-center justify-center p-6">
-        <div className="max-w-md w-full rounded-2xl border border-white/10 bg-white/5 p-6">
-          <div className="text-lg font-semibold">Page not found</div>
-          <div className="mt-2 text-sm text-white/70">
-            This 1neLink page does not exist.
-          </div>
-        </div>
-      </div>
-    );
+    notFound();
   }
 
   // Determine if the creator can currently accept tips:

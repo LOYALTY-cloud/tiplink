@@ -417,7 +417,13 @@ export async function POST(req: Request) {
       .single();
 
     if (intentErr || !intentRow) {
-      console.error("[create-intent] tip_intents insert error:", intentErr);
+      console.error("[create-intent] tip_intents insert error:", {
+        message: intentErr?.message,
+        code: intentErr?.code,
+        details: intentErr?.details,
+        hint: intentErr?.hint,
+        hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      });
       return NextResponse.json({ error: "Failed to create tip intent" }, { status: 500 });
     }
 
