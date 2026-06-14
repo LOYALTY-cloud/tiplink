@@ -14,12 +14,17 @@ create index idx_digital_products_handle on public.digital_products (creator_han
 create index idx_digital_products_user   on public.digital_products (creator_user_id);
 
 -- Seed: @gfebook ebook at $9.99
--- NOTE: update creator_user_id after confirming the profile UUID for @gfebook
+-- NOTE: creator_user_id is set by the post-deploy SQL below (requires live profile lookup)
 insert into public.digital_products (creator_handle, title, price_cents, storage_path, active)
 values (
   'gfebook',
   'GOLDI MAYKN RESOURCE GUIDE',
   999,
-  'ebooks/goldi-maykn-resource-guide.pdf',
+  'MAYKN_Second_Life_Beginner_Resource_Guide.pdf',
   true
 );
+
+-- Run after insert to link the profile:
+-- UPDATE digital_products
+--   SET creator_user_id = (SELECT user_id FROM profiles WHERE handle = 'gfebook')
+-- WHERE creator_handle = 'gfebook';
