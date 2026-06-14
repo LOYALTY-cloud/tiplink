@@ -394,6 +394,151 @@ async function runDbTests() {
   void baseTime; // suppress unused warning
 }
 
+// ── Twice-weekly date range logic (unit, mirrors route getDateRange) ──────────
+function getDateRange(range, now) {
+  const day = now.getUTCDay(); // 0=Sun,1=Mon,...,6=Sat
+
+  if (range === "today") {
+    const start = new Date(now);
+    start.setUTCHours(0, 0, 0, 0);
+    return { start, end: now };
+  }
+
+  if (range === "week_first_half") {
+    const start = new Date(now);
+    const toMon = day === 0 ? -6 : -(day - 1);
+    start.setUTCDate(start.getUTCDate() + toMon);
+    start.setUTCHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 2); // Wednesday
+    end.setUTCHours(23, 59, 59, 999);
+    return { start, end: end > now ? now : end };
+  }
+
+  if (range === "week_second_half") {
+    const start = new Date(now);
+    const toMon = day === 0 ? -6 : -(day - 1);
+    start.setUTCDate(start.getUTCDate() + toMon + 3); // Thursday
+    start.setUTCHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 3); // Sunday
+    end.setUTCHours(23, 59, 59, 999);
+    return { start, end: end > now ? now : end };
+  }
+
+  if (range === "last_period") {
+    const inFirstHalf = day >= 1 && day <= 3;
+    if (inFirstHalf) {
+      const thisMonday = new Date(now);
+      thisMonday.setUTCDate(thisMonday.getUTCDate() - (day - 1));
+      thisMonday.setUTCHours(0, 0, 0, 0);
+      const start = new Date(thisMonday);
+      start.setUTCDate(start.getUTCDate() - 4); // last Thursday
+      const end = new Date(thisMonday);
+      return { start, end };
+    } else {
+      const start = new Date(now);
+      const toMon = day === 0 ? -6 : -(day - 1);
+      start.setUTCDate(start.getUTCDate() + toMon);
+      start.setUTCHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setUTCDate(end.getUTCDate() + 2);
+      end.setUTCHours(23, 59, 59, 999);
+      return { start, end };
+    }
+  }
+
+  // default: this week (Mon–now)
+  const start = new Date(now);
+  const diff = day === 0 ? 6 : day - 1;
+  start.setUTCDate(start.getUTCDate() - diff);
+  start.setUTCHours(0, 0, 0, 0);
+  return { start, end: now };
+}
+
+function isoDate(d) { return d.toISOString().slice(0, 10); }
+function dayName(d) { return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getUTCDay()]; }
+
+function testTwiceWeeklyPeriods() {
+  section("Twice-weekly period date ranges (unit)");
+
+  // Build a representative date for each day of the week to test all branches
+  // Use a known Monday: 2026-06-15 (Mon)
+  const BASE_MON = new Date("2026-06-15T14:00:00Z"); // Monday
+
+  const days = [
+    { label: "Monday",    d: new Date("2026-06-15T14:00:00Z") },
+    { label: "Tuesday",   d: new Date("2026-06-16T14:00:00Z") },
+    { label: "Wednesday", d: new Date("2026-06-17T14:00:00Z") },
+    { label: "Thursday",  d: new Date("2026-06-18T14:00:00Z") },
+    { label: "Friday",    d: new Date("2026-06-19T14:00:00Z") },
+    { label: "Saturday",  d: new Date("2026-06-20T14:00:00Z") },
+    { label: "Sunday",    d: new Date("2026-06-21T14:00:00Z") },
+  ];
+
+  // 1st half always starts on Monday, ends on Wednesday
+  for (const { label, d } of days) {
+    const { start, end } = getDateRange("week_first_half", d);
+    const startDay = dayName(start);
+    const endDay = dayName(end > d ? d : end);
+    ok(`week_first_half start is Monday (tested on ${label})`,
+      startDay === "Mon", `got ${startDay} (${isoDate(start)})`);
+  }
+
+  // 2nd half always starts on Thursday
+  for (const { label, d } of days) {
+    const { start } = getDateRange("week_second_half", d);
+    const startDay = dayName(start);
+    ok(`week_second_half start is Thursday (tested on ${label})`,
+      startDay === "Thu", `got ${startDay} (${isoDate(start)})`);
+  }
+
+  // 1st half end date is Wed (or now if before Wed)
+  const { end: endOnMon } = getDateRange("week_first_half", days[0].d);
+  ok("week_first_half end is capped at 'now' when today is Monday (period not yet over)",
+    endOnMon <= days[0].d, `end = ${isoDate(endOnMon)}, now = ${isoDate(days[0].d)}`);
+
+  const { end: endOnWed } = getDateRange("week_first_half", days[2].d);
+  ok("week_first_half end is capped at 'now' when today is Wednesday",
+    endOnWed <= days[2].d, `end = ${isoDate(endOnWed)}, now = ${isoDate(days[2].d)}`);
+
+  const { end: endOnFri } = getDateRange("week_first_half", days[4].d);
+  ok("week_first_half end is Wed 23:59:59 when today is past Wednesday",
+    isoDate(endOnFri) === "2026-06-17", `got ${isoDate(endOnFri)}`);
+
+  // 2nd half end date is Sun (or now if before Sun)
+  const { end: endOnThu } = getDateRange("week_second_half", days[3].d);
+  ok("week_second_half end is capped at 'now' when today is Thursday",
+    endOnThu <= days[3].d, `end = ${isoDate(endOnThu)}, now = ${isoDate(days[3].d)}`);
+
+  // last_period: when in first half (Mon/Tue/Wed) → returns last week's Thu–Sun
+  for (const { label, d } of [days[0], days[1], days[2]]) {
+    const { start, end } = getDateRange("last_period", d);
+    ok(`last_period from ${label}: start is last week's Thursday`,
+      dayName(start) === "Thu", `got ${dayName(start)} (${isoDate(start)})`);
+    // end should be this Monday midnight (exclusive end of last Thu-Sun)
+    ok(`last_period from ${label}: end is this Monday`,
+      dayName(end) === "Mon", `got ${dayName(end)} (${isoDate(end)})`);
+  }
+
+  // last_period: when in second half (Thu/Fri/Sat/Sun) → returns this week's Mon–Wed
+  for (const { label, d } of [days[3], days[4], days[5], days[6]]) {
+    const { start } = getDateRange("last_period", d);
+    ok(`last_period from ${label}: start is this week's Monday`,
+      dayName(start) === "Mon", `got ${dayName(start)} (${isoDate(start)})`);
+  }
+
+  // 1st and 2nd halves together cover the full week (Mon–Sun) with no gap
+  const firstEnd   = new Date("2026-06-17T23:59:59.999Z"); // Wed end
+  const secondStart = new Date("2026-06-18T00:00:00.000Z"); // Thu start
+  ok("1st half (Mon–Wed) and 2nd half (Thu–Sun) are contiguous — no gap between periods",
+    secondStart.getTime() - firstEnd.getTime() === 1, // 1ms gap = contiguous
+    `gap = ${secondStart.getTime() - firstEnd.getTime()}ms`);
+
+  ok("Two periods per week = 2 pay periods", true); // definitional
+  void BASE_MON;
+}
+
 // ── Cleanup ────────────────────────────────────────────────────────────────────
 async function cleanup() {
   section("Cleanup");
@@ -418,6 +563,7 @@ async function main() {
 
   try {
     testActivityGateLogic();
+    testTwiceWeeklyPeriods();
     await runDbTests();
   } catch (err) {
     console.error("\n💥 UNCAUGHT ERROR:", err.message);

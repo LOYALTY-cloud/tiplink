@@ -15,6 +15,8 @@ const FALLBACK_RATES: Record<string, number> = {
 type PayRate = { admin_id: string | null; role: string | null; hourly_rate: number };
 
 function getDateRange(range: string, now: Date): { start: Date; end: Date } {
+  const day = now.getUTCDay(); // 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+
   if (range === "today") {
     const start = new Date(now);
     start.setUTCHours(0, 0, 0, 0);
@@ -23,7 +25,6 @@ function getDateRange(range: string, now: Date): { start: Date; end: Date } {
 
   if (range === "last_week") {
     const end = new Date(now);
-    const day = end.getUTCDay();
     const diff = day === 0 ? 6 : day - 1;
     end.setUTCDate(end.getUTCDate() - diff);
     end.setUTCHours(0, 0, 0, 0);
@@ -32,9 +33,55 @@ function getDateRange(range: string, now: Date): { start: Date; end: Date } {
     return { start, end };
   }
 
+  // Twice-weekly: Mon–Wed (1st half) and Thu–Sun (2nd half)
+  if (range === "week_first_half") {
+    const start = new Date(now);
+    const toMon = day === 0 ? -6 : -(day - 1);
+    start.setUTCDate(start.getUTCDate() + toMon);
+    start.setUTCHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 2); // Wednesday
+    end.setUTCHours(23, 59, 59, 999);
+    return { start, end: end > now ? now : end };
+  }
+
+  if (range === "week_second_half") {
+    const start = new Date(now);
+    const toMon = day === 0 ? -6 : -(day - 1);
+    start.setUTCDate(start.getUTCDate() + toMon + 3); // Thursday
+    start.setUTCHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 3); // Sunday
+    end.setUTCHours(23, 59, 59, 999);
+    return { start, end: end > now ? now : end };
+  }
+
+  if (range === "last_period") {
+    const inFirstHalf = day >= 1 && day <= 3;
+    if (inFirstHalf) {
+      // Thu–Sun of last week
+      const thisMonday = new Date(now);
+      thisMonday.setUTCDate(thisMonday.getUTCDate() - (day - 1));
+      thisMonday.setUTCHours(0, 0, 0, 0);
+      const start = new Date(thisMonday);
+      start.setUTCDate(start.getUTCDate() - 4); // last Thursday
+      const end = new Date(thisMonday);
+      return { start, end };
+    } else {
+      // Mon–Wed of this week
+      const start = new Date(now);
+      const toMon = day === 0 ? -6 : -(day - 1);
+      start.setUTCDate(start.getUTCDate() + toMon);
+      start.setUTCHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setUTCDate(end.getUTCDate() + 2); // Wednesday
+      end.setUTCHours(23, 59, 59, 999);
+      return { start, end };
+    }
+  }
+
   // default: this week (Mon–now)
   const start = new Date(now);
-  const day = start.getUTCDay();
   const diff = day === 0 ? 6 : day - 1;
   start.setUTCDate(start.getUTCDate() - diff);
   start.setUTCHours(0, 0, 0, 0);

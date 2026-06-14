@@ -34,10 +34,22 @@ type PayrollRun = {
   paid_at: string | null;
 };
 
+// Pay periods — admins are paid twice a week: Mon–Wed and Thu–Sun
 const RANGE_LABELS: Record<string, string> = {
-  week: "This Week",
-  last_week: "Last Week",
-  today: "Today",
+  week_first_half:  "1st Half (Mon–Wed)",
+  week_second_half: "2nd Half (Thu–Sun)",
+  last_period:      "Last Period",
+  week:             "Full Week",
+  last_week:        "Last Week",
+};
+
+const PERIOD_LABEL: Record<string, string> = {
+  week_first_half:  "Mon – Wed",
+  week_second_half: "Thu – Sun",
+  last_period:      "Last period",
+  week:             "This week",
+  last_week:        "Last week",
+  today:            "Today",
 };
 
 function fmtHrs(hours: number): string {
@@ -100,7 +112,7 @@ export default function AdminPayrollPage() {
   const [adminProfileLoading, setAdminProfileLoading] = useState(false);
 
   // Live hours preview (real-time, polls every 30s)
-  const [liveRange, setLiveRange] = useState<"today" | "week">("week");
+  const [liveRange, setLiveRange] = useState<"today" | "week" | "week_first_half" | "week_second_half" | "last_period">("week_first_half");
   const [liveAdmins, setLiveAdmins] = useState<LiveAdmin[]>([]);
   const [liveLoading, setLiveLoading] = useState(true);
   const [liveUpdated, setLiveUpdated] = useState<Date | null>(null);
@@ -317,17 +329,24 @@ export default function AdminPayrollPage() {
             Finance dashboard · real-time labor cost tracking and earnings monitoring
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {Object.entries(RANGE_LABELS).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => generate(key)}
-              disabled={generating}
-              className={`${ui.btnGhost} ${ui.btnSmall} text-xs hover:scale-[1.03] active:scale-[0.98] transition`}
-            >
-              {generating ? "…" : `+ ${label}`}
-            </button>
-          ))}
+        <div className="flex flex-col items-end gap-1.5">
+          <p className="text-[10px] uppercase tracking-wider text-white/30">Generate payroll run</p>
+          <div className="flex flex-wrap gap-2 justify-end">
+            {Object.entries(RANGE_LABELS).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => generate(key)}
+                disabled={generating}
+                className={`${ui.btnGhost} ${ui.btnSmall} text-xs hover:scale-[1.03] active:scale-[0.98] transition ${
+                  key === "week_first_half" || key === "week_second_half"
+                    ? "border-emerald-500/30 text-emerald-300"
+                    : ""
+                }`}
+              >
+                {generating ? "…" : `+ ${label}`}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -394,22 +413,27 @@ export default function AdminPayrollPage() {
       <div className={`${ui.card} p-5 space-y-4 fade-up`}>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-white">
-              Workforce Activity
-            </h2>
-            <p className="text-sm text-white/40">
-              Active tracked work time used for payroll calculations
-            </p>
+            <div>
+              <h2 className="text-xl font-semibold text-white">
+                Workforce Activity
+              </h2>
+              <p className="text-sm text-white/40">
+                {PERIOD_LABEL[liveRange] ?? liveRange} · active tracked work time
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
             <select
               value={liveRange}
-              onChange={(e) => setLiveRange(e.target.value as "today" | "week")}
+              onChange={(e) => setLiveRange(e.target.value as typeof liveRange)}
               className="bg-[#0B1220] border border-white/10 rounded-md text-xs px-2 py-1 text-white outline-none focus:border-emerald-500/50 transition"
             >
-              <option value="today" className="bg-[#0B1220] text-white">Today</option>
-              <option value="week" className="bg-[#0B1220] text-white">This Week</option>
+              <option value="week_first_half"  className="bg-[#0B1220] text-white">1st Half (Mon–Wed)</option>
+              <option value="week_second_half" className="bg-[#0B1220] text-white">2nd Half (Thu–Sun)</option>
+              <option value="today"            className="bg-[#0B1220] text-white">Today</option>
+              <option value="week"             className="bg-[#0B1220] text-white">Full Week</option>
+              <option value="last_period"      className="bg-[#0B1220] text-white">Last Period</option>
             </select>
             <button
               onClick={() => void fetchLive()}
@@ -523,8 +547,8 @@ export default function AdminPayrollPage() {
                   </div>
                 )}
 
-                {/* Per-day breakdown (week view) */}
-                {liveRange === "week" && (a.daily_breakdown?.length ?? 0) > 0 && (
+                {/* Per-day breakdown (multi-day views) */}
+                {(liveRange === "week" || liveRange === "week_first_half" || liveRange === "week_second_half" || liveRange === "last_period") && (a.daily_breakdown?.length ?? 0) > 0 && (
                   <div className="mt-3 space-y-1">
                     <p className="text-[10px] uppercase text-white/30 tracking-wider">Daily Breakdown</p>
                     {a.daily_breakdown!.map((d) => (
