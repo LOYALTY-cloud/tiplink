@@ -34,22 +34,16 @@ type PayrollRun = {
   paid_at: string | null;
 };
 
-// Pay periods — admins are paid twice a week: Mon–Wed and Thu–Sun
+// Biweekly pay schedule — one paycheck every 14 days
 const RANGE_LABELS: Record<string, string> = {
-  week_first_half:  "1st Half (Mon–Wed)",
-  week_second_half: "2nd Half (Thu–Sun)",
-  last_period:      "Last Period",
-  week:             "Full Week",
-  last_week:        "Last Week",
+  current_period: "Current Period",
+  last_period:    "Last Period",
 };
 
 const PERIOD_LABEL: Record<string, string> = {
-  week_first_half:  "Mon – Wed",
-  week_second_half: "Thu – Sun",
-  last_period:      "Last period",
-  week:             "This week",
-  last_week:        "Last week",
-  today:            "Today",
+  current_period: "Current pay period (14 days)",
+  last_period:    "Last pay period (14 days)",
+  today:          "Today",
 };
 
 function fmtHrs(hours: number): string {
@@ -112,7 +106,7 @@ export default function AdminPayrollPage() {
   const [adminProfileLoading, setAdminProfileLoading] = useState(false);
 
   // Live hours preview (real-time, polls every 30s)
-  const [liveRange, setLiveRange] = useState<"today" | "week" | "week_first_half" | "week_second_half" | "last_period">("week_first_half");
+  const [liveRange, setLiveRange] = useState<"today" | "current_period" | "last_period">("current_period");
   const [liveAdmins, setLiveAdmins] = useState<LiveAdmin[]>([]);
   const [liveLoading, setLiveLoading] = useState(true);
   const [liveUpdated, setLiveUpdated] = useState<Date | null>(null);
@@ -338,9 +332,7 @@ export default function AdminPayrollPage() {
                 onClick={() => generate(key)}
                 disabled={generating}
                 className={`${ui.btnGhost} ${ui.btnSmall} text-xs hover:scale-[1.03] active:scale-[0.98] transition ${
-                  key === "week_first_half" || key === "week_second_half"
-                    ? "border-emerald-500/30 text-emerald-300"
-                    : ""
+                  key === "current_period" ? "border-emerald-500/30 text-emerald-300" : ""
                 }`}
               >
                 {generating ? "…" : `+ ${label}`}
@@ -429,11 +421,9 @@ export default function AdminPayrollPage() {
               onChange={(e) => setLiveRange(e.target.value as typeof liveRange)}
               className="bg-[#0B1220] border border-white/10 rounded-md text-xs px-2 py-1 text-white outline-none focus:border-emerald-500/50 transition"
             >
-              <option value="week_first_half"  className="bg-[#0B1220] text-white">1st Half (Mon–Wed)</option>
-              <option value="week_second_half" className="bg-[#0B1220] text-white">2nd Half (Thu–Sun)</option>
-              <option value="today"            className="bg-[#0B1220] text-white">Today</option>
-              <option value="week"             className="bg-[#0B1220] text-white">Full Week</option>
-              <option value="last_period"      className="bg-[#0B1220] text-white">Last Period</option>
+              <option value="current_period" className="bg-[#0B1220] text-white">Current Period</option>
+              <option value="last_period"    className="bg-[#0B1220] text-white">Last Period</option>
+              <option value="today"          className="bg-[#0B1220] text-white">Today</option>
             </select>
             <button
               onClick={() => void fetchLive()}
@@ -548,7 +538,7 @@ export default function AdminPayrollPage() {
                 )}
 
                 {/* Per-day breakdown (multi-day views) */}
-                {(liveRange === "week" || liveRange === "week_first_half" || liveRange === "week_second_half" || liveRange === "last_period") && (a.daily_breakdown?.length ?? 0) > 0 && (
+                {liveRange !== "today" && (a.daily_breakdown?.length ?? 0) > 0 && (
                   <div className="mt-3 space-y-1">
                     <p className="text-[10px] uppercase text-white/30 tracking-wider">Daily Breakdown</p>
                     {a.daily_breakdown!.map((d) => (

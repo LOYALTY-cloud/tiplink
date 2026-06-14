@@ -16,86 +16,30 @@ const FALLBACK_RATES: Record<string, number> = {
 
 type PayRate = { admin_id: string | null; role: string | null; hourly_rate: number };
 
-function getDateRange(range: string, now: Date): { start: Date; end: Date } {
-  const day = now.getUTCDay(); // 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+// Biweekly anchor: Monday 2026-01-05 UTC — every pay period is exactly 14 days
+// from this point forward. Period index = floor((now - anchor) / 14d).
+const BIWEEKLY_ANCHOR_MS = new Date("2026-01-05T00:00:00Z").getTime();
+const BIWEEKLY_MS = 14 * 24 * 60 * 60 * 1000;
 
+function getBiweeklyBounds(periodOffset: number, now: Date): { start: Date; end: Date } {
+  const currentIndex = Math.floor((now.getTime() - BIWEEKLY_ANCHOR_MS) / BIWEEKLY_MS);
+  const targetIndex = currentIndex + periodOffset;
+  const start = new Date(BIWEEKLY_ANCHOR_MS + targetIndex * BIWEEKLY_MS);
+  const end   = new Date(BIWEEKLY_ANCHOR_MS + (targetIndex + 1) * BIWEEKLY_MS - 1); // last ms of period
+  return { start, end: end > now ? now : end }; // cap future end at now
+}
+
+function getDateRange(range: string, now: Date): { start: Date; end: Date } {
   if (range === "today") {
     const start = new Date(now);
     start.setUTCHours(0, 0, 0, 0);
     return { start, end: now };
   }
-
-  if (range === "last_week") {
-    const end = new Date(now);
-    const diff = day === 0 ? 6 : day - 1;
-    end.setUTCDate(end.getUTCDate() - diff);
-    end.setUTCHours(0, 0, 0, 0);
-    const start = new Date(end);
-    start.setUTCDate(start.getUTCDate() - 7);
-    return { start, end };
-  }
-
-  // Twice-weekly: Mon–Wed (1st half) and Thu–Sun (2nd half)
-  // "week_first_half"  → Mon 00:00 → Wed 23:59:59 of this week
-  // "week_second_half" → Thu 00:00 → Sun 23:59:59 of this week
-  // "last_period"      → whichever half-week just completed
-
-  if (range === "week_first_half") {
-    const start = new Date(now);
-    const toMon = day === 0 ? -6 : -(day - 1);
-    start.setUTCDate(start.getUTCDate() + toMon);
-    start.setUTCHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 2); // Wednesday
-    end.setUTCHours(23, 59, 59, 999);
-    return { start, end: end > now ? now : end };
-  }
-
-  if (range === "week_second_half") {
-    const start = new Date(now);
-    const toMon = day === 0 ? -6 : -(day - 1);
-    start.setUTCDate(start.getUTCDate() + toMon + 3); // Thursday
-    start.setUTCHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 3); // Sunday
-    end.setUTCHours(23, 59, 59, 999);
-    return { start, end: end > now ? now : end };
-  }
-
   if (range === "last_period") {
-    // Mon(1)/Tue(2)/Wed(3) → last period was Thu–Sun of last week
-    // Thu(4)/Fri(5)/Sat(6)/Sun(0) → last period was Mon–Wed of this week
-    const inFirstHalf = day >= 1 && day <= 3;
-    if (inFirstHalf) {
-      // Thu–Sun of last week
-      const thisMonday = new Date(now);
-      const toMon = day - 1;
-      thisMonday.setUTCDate(thisMonday.getUTCDate() - toMon);
-      thisMonday.setUTCHours(0, 0, 0, 0);
-      const start = new Date(thisMonday);
-      start.setUTCDate(start.getUTCDate() - 4); // last Thu
-      const end = new Date(thisMonday);
-      end.setUTCHours(0, 0, 0, 0);              // last Sun = day before this Mon (midnight exclusive → use Mon midnight as end)
-      return { start, end };
-    } else {
-      // Mon–Wed of this week
-      const start = new Date(now);
-      const toMon = day === 0 ? -6 : -(day - 1);
-      start.setUTCDate(start.getUTCDate() + toMon);
-      start.setUTCHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setUTCDate(end.getUTCDate() + 2); // Wednesday
-      end.setUTCHours(23, 59, 59, 999);
-      return { start, end };
-    }
+    return getBiweeklyBounds(-1, now); // previous completed 14-day period
   }
-
-  // default: this week (Mon–now)
-  const start = new Date(now);
-  const diff = day === 0 ? 6 : day - 1;
-  start.setUTCDate(start.getUTCDate() - diff);
-  start.setUTCHours(0, 0, 0, 0);
-  return { start, end: now };
+  // default / "current_period": current 14-day biweekly period up to now
+  return getBiweeklyBounds(0, now);
 }
 
 /**

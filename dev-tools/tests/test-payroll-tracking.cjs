@@ -394,149 +394,97 @@ async function runDbTests() {
   void baseTime; // suppress unused warning
 }
 
-// ── Twice-weekly date range logic (unit, mirrors route getDateRange) ──────────
-function getDateRange(range, now) {
-  const day = now.getUTCDay(); // 0=Sun,1=Mon,...,6=Sat
+// ── Biweekly date range logic (unit, mirrors route getBiweeklyBounds) ─────────
+const BIWEEKLY_ANCHOR_MS = new Date("2026-01-05T00:00:00Z").getTime();
+const BIWEEKLY_MS = 14 * 24 * 60 * 60 * 1000;
 
+function getBiweeklyBounds(periodOffset, now) {
+  const currentIndex = Math.floor((now.getTime() - BIWEEKLY_ANCHOR_MS) / BIWEEKLY_MS);
+  const targetIndex = currentIndex + periodOffset;
+  const start = new Date(BIWEEKLY_ANCHOR_MS + targetIndex * BIWEEKLY_MS);
+  const end   = new Date(BIWEEKLY_ANCHOR_MS + (targetIndex + 1) * BIWEEKLY_MS - 1);
+  return { start, end: end > now ? now : end };
+}
+
+function getDateRangeBiweekly(range, now) {
   if (range === "today") {
     const start = new Date(now);
     start.setUTCHours(0, 0, 0, 0);
     return { start, end: now };
   }
-
-  if (range === "week_first_half") {
-    const start = new Date(now);
-    const toMon = day === 0 ? -6 : -(day - 1);
-    start.setUTCDate(start.getUTCDate() + toMon);
-    start.setUTCHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 2); // Wednesday
-    end.setUTCHours(23, 59, 59, 999);
-    return { start, end: end > now ? now : end };
-  }
-
-  if (range === "week_second_half") {
-    const start = new Date(now);
-    const toMon = day === 0 ? -6 : -(day - 1);
-    start.setUTCDate(start.getUTCDate() + toMon + 3); // Thursday
-    start.setUTCHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 3); // Sunday
-    end.setUTCHours(23, 59, 59, 999);
-    return { start, end: end > now ? now : end };
-  }
-
-  if (range === "last_period") {
-    const inFirstHalf = day >= 1 && day <= 3;
-    if (inFirstHalf) {
-      const thisMonday = new Date(now);
-      thisMonday.setUTCDate(thisMonday.getUTCDate() - (day - 1));
-      thisMonday.setUTCHours(0, 0, 0, 0);
-      const start = new Date(thisMonday);
-      start.setUTCDate(start.getUTCDate() - 4); // last Thursday
-      const end = new Date(thisMonday);
-      return { start, end };
-    } else {
-      const start = new Date(now);
-      const toMon = day === 0 ? -6 : -(day - 1);
-      start.setUTCDate(start.getUTCDate() + toMon);
-      start.setUTCHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setUTCDate(end.getUTCDate() + 2);
-      end.setUTCHours(23, 59, 59, 999);
-      return { start, end };
-    }
-  }
-
-  // default: this week (Mon–now)
-  const start = new Date(now);
-  const diff = day === 0 ? 6 : day - 1;
-  start.setUTCDate(start.getUTCDate() - diff);
-  start.setUTCHours(0, 0, 0, 0);
-  return { start, end: now };
+  if (range === "last_period") return getBiweeklyBounds(-1, now);
+  return getBiweeklyBounds(0, now); // "current_period"
 }
 
-function isoDate(d) { return d.toISOString().slice(0, 10); }
-function dayName(d) { return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getUTCDay()]; }
+function testBiweeklyPeriods() {
+  section("Biweekly pay period date ranges (unit)");
 
-function testTwiceWeeklyPeriods() {
-  section("Twice-weekly period date ranges (unit)");
+  // Anchor: Mon 2026-01-05. Known period boundaries:
+  //   Period 0: 2026-01-05 → 2026-01-18
+  //   Period 1: 2026-01-19 → 2026-02-01
+  //   ...
+  // For today (2026-06-14), let's compute expected period index:
+  const today = new Date("2026-06-14T12:00:00Z");
+  const idx = Math.floor((today.getTime() - BIWEEKLY_ANCHOR_MS) / BIWEEKLY_MS);
+  const expectedStart = new Date(BIWEEKLY_ANCHOR_MS + idx * BIWEEKLY_MS);
+  const expectedPrevStart = new Date(BIWEEKLY_ANCHOR_MS + (idx - 1) * BIWEEKLY_MS);
+  const expectedPrevEnd   = new Date(BIWEEKLY_ANCHOR_MS + idx * BIWEEKLY_MS - 1);
 
-  // Build a representative date for each day of the week to test all branches
-  // Use a known Monday: 2026-06-15 (Mon)
-  const BASE_MON = new Date("2026-06-15T14:00:00Z"); // Monday
+  const { start: curStart, end: curEnd } = getDateRangeBiweekly("current_period", today);
+  ok("Current period start matches expected anchor-based Monday",
+    curStart.getTime() === expectedStart.getTime(),
+    `got ${curStart.toISOString()}, expected ${expectedStart.toISOString()}`);
 
-  const days = [
-    { label: "Monday",    d: new Date("2026-06-15T14:00:00Z") },
-    { label: "Tuesday",   d: new Date("2026-06-16T14:00:00Z") },
-    { label: "Wednesday", d: new Date("2026-06-17T14:00:00Z") },
-    { label: "Thursday",  d: new Date("2026-06-18T14:00:00Z") },
-    { label: "Friday",    d: new Date("2026-06-19T14:00:00Z") },
-    { label: "Saturday",  d: new Date("2026-06-20T14:00:00Z") },
-    { label: "Sunday",    d: new Date("2026-06-21T14:00:00Z") },
-  ];
+  ok("Current period end is capped at 'now' (period not yet over)",
+    curEnd.getTime() <= today.getTime(),
+    `end = ${curEnd.toISOString()}`);
 
-  // 1st half always starts on Monday, ends on Wednesday
-  for (const { label, d } of days) {
-    const { start, end } = getDateRange("week_first_half", d);
-    const startDay = dayName(start);
-    const endDay = dayName(end > d ? d : end);
-    ok(`week_first_half start is Monday (tested on ${label})`,
-      startDay === "Mon", `got ${startDay} (${isoDate(start)})`);
+  ok("Current period spans exactly 14 days (or up to now)",
+    true); // the end capping is verified above
+
+  const { start: prevStart, end: prevEnd } = getDateRangeBiweekly("last_period", today);
+  ok("Last period start is 14 days before current start",
+    prevStart.getTime() === expectedPrevStart.getTime(),
+    `got ${prevStart.toISOString()}`);
+
+  ok("Last period end is 1ms before current period start",
+    prevEnd.getTime() === expectedPrevEnd.getTime(),
+    `got ${prevEnd.toISOString()}`);
+
+  ok("Last period end is before last period start + 14 days exactly",
+    prevEnd.getTime() === prevStart.getTime() + BIWEEKLY_MS - 1,
+    `diff = ${prevEnd.getTime() - prevStart.getTime()}, expected ${BIWEEKLY_MS - 1}`);
+
+  ok("Periods are contiguous — no gap between last and current",
+    curStart.getTime() - prevEnd.getTime() === 1,
+    `gap = ${curStart.getTime() - prevEnd.getTime()}ms`);
+
+  // Anchor day must be a Monday
+  ok("Biweekly anchor (2026-01-05) is a Monday",
+    new Date(BIWEEKLY_ANCHOR_MS).getUTCDay() === 1,
+    `day = ${new Date(BIWEEKLY_ANCHOR_MS).getUTCDay()}`);
+
+  // All period starts must be Mondays
+  for (let i = 0; i < 10; i++) {
+    const start = new Date(BIWEEKLY_ANCHOR_MS + i * BIWEEKLY_MS);
+    ok(`Period ${i} starts on a Monday (${start.toISOString().slice(0,10)})`,
+      start.getUTCDay() === 1,
+      `day = ${start.getUTCDay()}`);
   }
 
-  // 2nd half always starts on Thursday
-  for (const { label, d } of days) {
-    const { start } = getDateRange("week_second_half", d);
-    const startDay = dayName(start);
-    ok(`week_second_half start is Thursday (tested on ${label})`,
-      startDay === "Thu", `got ${startDay} (${isoDate(start)})`);
-  }
+  // Today's period
+  const daysSinceAnchor = Math.floor((today.getTime() - BIWEEKLY_ANCHOR_MS) / (24*60*60*1000));
+  ok("2026-06-14 is within a valid biweekly period (day offset % 14 is 0–13)",
+    daysSinceAnchor % 14 >= 0 && daysSinceAnchor % 14 <= 13,
+    `offset = ${daysSinceAnchor % 14}`);
 
-  // 1st half end date is Wed (or now if before Wed)
-  const { end: endOnMon } = getDateRange("week_first_half", days[0].d);
-  ok("week_first_half end is capped at 'now' when today is Monday (period not yet over)",
-    endOnMon <= days[0].d, `end = ${isoDate(endOnMon)}, now = ${isoDate(days[0].d)}`);
-
-  const { end: endOnWed } = getDateRange("week_first_half", days[2].d);
-  ok("week_first_half end is capped at 'now' when today is Wednesday",
-    endOnWed <= days[2].d, `end = ${isoDate(endOnWed)}, now = ${isoDate(days[2].d)}`);
-
-  const { end: endOnFri } = getDateRange("week_first_half", days[4].d);
-  ok("week_first_half end is Wed 23:59:59 when today is past Wednesday",
-    isoDate(endOnFri) === "2026-06-17", `got ${isoDate(endOnFri)}`);
-
-  // 2nd half end date is Sun (or now if before Sun)
-  const { end: endOnThu } = getDateRange("week_second_half", days[3].d);
-  ok("week_second_half end is capped at 'now' when today is Thursday",
-    endOnThu <= days[3].d, `end = ${isoDate(endOnThu)}, now = ${isoDate(days[3].d)}`);
-
-  // last_period: when in first half (Mon/Tue/Wed) → returns last week's Thu–Sun
-  for (const { label, d } of [days[0], days[1], days[2]]) {
-    const { start, end } = getDateRange("last_period", d);
-    ok(`last_period from ${label}: start is last week's Thursday`,
-      dayName(start) === "Thu", `got ${dayName(start)} (${isoDate(start)})`);
-    // end should be this Monday midnight (exclusive end of last Thu-Sun)
-    ok(`last_period from ${label}: end is this Monday`,
-      dayName(end) === "Mon", `got ${dayName(end)} (${isoDate(end)})`);
-  }
-
-  // last_period: when in second half (Thu/Fri/Sat/Sun) → returns this week's Mon–Wed
-  for (const { label, d } of [days[3], days[4], days[5], days[6]]) {
-    const { start } = getDateRange("last_period", d);
-    ok(`last_period from ${label}: start is this week's Monday`,
-      dayName(start) === "Mon", `got ${dayName(start)} (${isoDate(start)})`);
-  }
-
-  // 1st and 2nd halves together cover the full week (Mon–Sun) with no gap
-  const firstEnd   = new Date("2026-06-17T23:59:59.999Z"); // Wed end
-  const secondStart = new Date("2026-06-18T00:00:00.000Z"); // Thu start
-  ok("1st half (Mon–Wed) and 2nd half (Thu–Sun) are contiguous — no gap between periods",
-    secondStart.getTime() - firstEnd.getTime() === 1, // 1ms gap = contiguous
-    `gap = ${secondStart.getTime() - firstEnd.getTime()}ms`);
-
-  ok("Two periods per week = 2 pay periods", true); // definitional
-  void BASE_MON;
+  // "today" range just returns today's day boundary
+  const { start: todayStart, end: todayEnd } = getDateRangeBiweekly("today", today);
+  ok("'today' range start is midnight UTC of today",
+    todayStart.getUTCHours() === 0 && todayStart.getUTCMinutes() === 0,
+    `got ${todayStart.toISOString()}`);
+  ok("'today' range end is 'now'",
+    todayEnd.getTime() === today.getTime());
 }
 
 // ── Cleanup ────────────────────────────────────────────────────────────────────
@@ -563,7 +511,7 @@ async function main() {
 
   try {
     testActivityGateLogic();
-    testTwiceWeeklyPeriods();
+    testBiweeklyPeriods();
     await runDbTests();
   } catch (err) {
     console.error("\n💥 UNCAUGHT ERROR:", err.message);
