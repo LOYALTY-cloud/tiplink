@@ -22,7 +22,7 @@ async function main() {
   // 2. Send ebook delivery email
   const { data, error } = await resend.emails.send({
     from: "1neLink Receipts <receipts@1nelink.com>",
-    to: ["dgofr3836@gmail.com"],
+    to: [process.env.TEST_EMAIL || "dgofr3836@gmail.com"],
     subject: "Your download: GOLDI MAYKN RESOURCE GUIDE",
     html: `
     <div style="font-family:Arial,Helvetica,sans-serif;background:#f7f7f8;padding:32px 16px;">
