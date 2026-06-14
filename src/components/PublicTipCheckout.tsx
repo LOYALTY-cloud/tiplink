@@ -133,6 +133,7 @@ export default function PublicTipCheckout({
   tipAmount?: number;
 }) {
   const options = useMemo(() => ({ clientSecret }), [clientSecret]);
+  const [loadError, setLoadError] = useState(false);
 
   if (!publishableKey || !stripePromise) {
     return (
@@ -158,8 +159,16 @@ export default function PublicTipCheckout({
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-4 text-sm text-red-300">
+        Payment form failed to load. Please refresh the page and try again. If the issue persists, try a different browser or disable any content blockers.
+      </div>
+    );
+  }
+
   return (
-    <Elements stripe={stripePromise} options={options}>
+    <Elements stripe={stripePromise} options={options} onLoadError={() => setLoadError(true)}>
       <InnerCheckout receiptUrl={receiptUrl} tipAmount={tipAmount} />
     </Elements>
   );
