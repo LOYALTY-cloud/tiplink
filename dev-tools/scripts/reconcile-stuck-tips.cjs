@@ -249,9 +249,26 @@ async function main() {
 
     if (pi.status !== "succeeded") {
       const piAmountUsd = pi.amount ? usd(pi.amount / 100) : "?";
-      console.log(`│  ⏭️   Skipping — Stripe PI is "${pi.status}" (${piAmountUsd} ${pi.currency?.toUpperCase()})`);
+      const isAbandoned = pi.status === "requires_payment_method" || pi.status === "requires_confirmation";
+      console.log(`│  ⏭️   PI is "${pi.status}" (${piAmountUsd} ${pi.currency?.toUpperCase()}) — ${isAbandoned ? "abandoned checkout, no payment collected" : "not yet paid"}`);
       if (pi.last_payment_error) {
         console.log(`│      Last error: ${pi.last_payment_error.message}`);
+      }
+      if (isAbandoned && EXECUTE) {
+        const { error: markErr } = await supabase
+          .from("tip_intents")
+          .update({ status: "abandoned" })
+          .eq("receipt_id", receipt_id);
+        if (markErr) {
+          console.error(`│  ❌  Failed to mark abandoned: ${markErr.message}`);
+          results.errors++;
+        } else {
+          console.log(`│  🗑️   Marked as abandoned`);
+          results.abandoned = (results.abandoned || 0) + 1;
+        }
+      } else if (isAbandoned && !EXECUTE) {
+        console.log(`│  🔍  [DRY RUN] Would mark as abandoned`);
+        results.abandoned = (results.abandoned || 0) + 1;
       }
       results.notSucceeded++;
       console.log("└\n");
@@ -342,13 +359,14 @@ async function main() {
   console.log("─────────────────────────────────────────────────────────────");
   console.log("Summary:");
   console.log(`  ✅  Processed (${EXECUTE ? "credited" : "would credit"}): ${results.processed}`);
-  console.log(`  ⏭️   Not yet succeeded in Stripe:                          ${results.notSucceeded}`);
+  console.log(`  🗑️   Abandoned checkouts (${EXECUTE ? "marked" : "would mark"}): ${results.abandoned || 0}`);
+  console.log(`  ⏭️   Other non-succeeded in Stripe:                         ${results.notSucceeded - (results.abandoned || 0)}`);
   console.log(`  ⚠️   Skipped (no PI found / inactive account):             ${results.skipped}`);
   console.log(`  🔴  Need live Stripe key:                                  ${results.needsLiveKey}`);
   console.log(`  ❌  Errors:                                                 ${results.errors}`);
 
-  if (!EXECUTE && results.processed > 0) {
-    console.log(`\n👉  Re-run with EXECUTE=true to apply these ${results.processed} fix(es).`);
+  if (!EXECUTE && (results.processed > 0 || (results.abandoned || 0) > 0)) {
+    console.log(`\n👉  Re-run with EXECUTE=true to apply these changes.`);
   }
   if (results.needsLiveKey > 0 && !isLive) {
     console.log(`\n👉  ${results.needsLiveKey} payment(s) are LIVE mode — run again with your sk_live_... key:`);
