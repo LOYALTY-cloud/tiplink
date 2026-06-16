@@ -122,9 +122,14 @@ async function findStripePI(receiptId) {
     });
     return results.data[0] ?? null;
   } catch (err) {
-    // search() requires a paid plan on some Stripe tiers; fall back to list with metadata
-    // If we get a 403/not-supported, we'll note it and skip
-    if (err?.statusCode === 403 || err?.code === "feature_not_available") {
+    // search() may not be available on all Stripe accounts — treat as not found
+    const isUnsupported =
+      err?.statusCode === 403 ||
+      err?.code === "feature_not_available" ||
+      err?.code === "search_not_enabled" ||
+      err?.statusCode === 400 ||
+      (err?.message && err.message.toLowerCase().includes("search"));
+    if (isUnsupported) {
       return null;
     }
     throw err;
@@ -205,8 +210,11 @@ async function main() {
           console.log(`│  🔴  LIVE PAYMENT — requires live Stripe key (sk_live_...) to reconcile`);
           console.log(`│     PI: ${stripe_payment_intent_id}`);
           results.needsLiveKey = (results.needsLiveKey || 0) + 1;
+        } else if (err.message && err.message.includes("No such payment_intent")) {
+          console.log(`│  ⚠️   PI ${stripe_payment_intent_id} not found in Stripe — may have been deleted`);
+          results.skipped++;
         } else {
-          console.error(`│  ❌  Failed to retrieve PI ${stripe_payment_intent_id}: ${err.message}`);
+          console.error(`│  ❌  Stripe retrieve error [${err.statusCode ?? err.code ?? "?"}]: ${err.message}`);
           results.errors++;
         }
         console.log("└\n");
@@ -229,7 +237,7 @@ async function main() {
           console.log(`│  🔴  LIVE PAYMENT — requires live Stripe key (sk_live_...) to reconcile`);
           results.needsLiveKey = (results.needsLiveKey || 0) + 1;
         } else {
-          console.error(`│  ❌  Stripe search failed: ${err.message}`);
+          console.error(`│  ❌  Stripe search error [${err.statusCode ?? err.code ?? "?"}]: ${err.message}`);
           results.errors++;
         }
         console.log("└\n");
@@ -240,7 +248,11 @@ async function main() {
     console.log(`│  Stripe status: ${pi.status}`);
 
     if (pi.status !== "succeeded") {
-      console.log(`│  ⏭️   Skipping — Stripe PI is "${pi.status}", not succeeded`);
+      const piAmountUsd = pi.amount ? usd(pi.amount / 100) : "?";
+      console.log(`│  ⏭️   Skipping — Stripe PI is "${pi.status}" (${piAmountUsd} ${pi.currency?.toUpperCase()})`);
+      if (pi.last_payment_error) {
+        console.log(`│      Last error: ${pi.last_payment_error.message}`);
+      }
       results.notSucceeded++;
       console.log("└\n");
       continue;
