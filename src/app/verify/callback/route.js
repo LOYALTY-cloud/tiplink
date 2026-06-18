@@ -83,9 +83,12 @@ export async function GET(request) {
     // Confirm the email in Supabase's auth system (sets email_confirmed_at).
     // This is required so signInWithPassword succeeds — without it Supabase
     // returns "Email not confirmed" which the login route maps to "Invalid email or password".
-    await supabaseAdmin.auth.admin.updateUserById(record.user_id, {
+    const { error: confirmErr } = await supabaseAdmin.auth.admin.updateUserById(record.user_id, {
       email_confirm: true,
     });
+    if (confirmErr) {
+      console.error("[verify/callback] updateUserById email_confirm failed:", confirmErr.message);
+    }
 
     // Mark verified AND sync email to profile so notifications work
     await supabaseAdmin
