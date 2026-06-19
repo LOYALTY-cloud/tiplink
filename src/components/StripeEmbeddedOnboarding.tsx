@@ -126,6 +126,18 @@ export default function StripeEmbeddedOnboarding({
   // Run once on mount — the ref always has the latest fetchClientSecret.
   }, []);
 
+  useEffect(() => {
+    // User input inside Stripe's iframe does not always bubble to the parent
+    // window, so keep the dashboard inactivity timer alive while this embed is open.
+    const heartbeat = window.setInterval(() => {
+      window.dispatchEvent(new Event("session_activity"));
+    }, 20_000);
+
+    return () => {
+      window.clearInterval(heartbeat);
+    };
+  }, []);
+
   if (initError) {
     return (
       <div className="rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-200 space-y-3">
