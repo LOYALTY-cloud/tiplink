@@ -15,6 +15,45 @@ import { createNotification } from "@/lib/notifications";
 import { evaluateStripeConnectPolicy } from "@/lib/stripe/connectRisk";
 import { syncStripeAccount } from "@/lib/stripe/syncAccount";
 
+// Transient errors (lock contention, timeout) should cause webhook retry
+export class TransientWebhookError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TransientWebhookError";
+  }
+}
+
+/**
+ * Acquire wallet lock with exponential backoff retry.
+ * Returns lock on success, or throws TransientWebhookError after max retries.
+ * This prevents lock contention from immediately failing the webhook.
+ */
+async function acquireWalletLockWithRetry(
+  supabaseClient: SupabaseClient,
+  userId: string,
+  lockType: string,
+  ttlSeconds: number,
+  maxRetries: number = 3
+) {
+  let lastError = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const lock = await acquireWalletLock(supabaseClient, userId, lockType, ttlSeconds);
+    if (lock.ok) {
+      return lock;
+    }
+    
+    lastError = lock.reason;
+    if (attempt < maxRetries - 1) {
+      // Exponential backoff: 100ms, 200ms, 400ms
+      const delayMs = 100 * Math.pow(2, attempt);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  
+  throw new TransientWebhookError(`Wallet lock failed after ${maxRetries} retries: ${lastError}`);
+}
+
 export const runtime = "nodejs";
 
 async function isDuplicate(supabaseClient: SupabaseClient, eventId: string) {
@@ -312,19 +351,28 @@ export async function POST(req: NextRequest) {
   try {
     await handleStripeEvent(event as StripeWebhookEvent);
   } catch (err: unknown) {
-    console.error("Webhook processing failed:", err);
-    logCaughtError("stripe/webhook", err, { severity: "critical", metadata: { reason: "processing_failed" } });
-    await upsertFailedWebhookEvent(event, err, { status: "failed" });
-    sendAdminAlert({
-      subject: "Stripe webhook processing failed",
-      body: `Webhook event ${event.type} (${event.id}) failed to process. Event was acknowledged to prevent retries.`,
-      severity: "critical",
-      meta: { event_type: event.type, event_id: event.id, error: err instanceof Error ? err.message : String(err) },
-    });
-    // Always return 200 to prevent Stripe retry storms on permanent failures.
-    // Transient failures (e.g. lock contention) skip markProcessed so the
-    // event can be re-processed on manual retry or reconciliation.
-    return NextResponse.json({ received: true, error: "Processing failed" });
+    const isTransient = err instanceof TransientWebhookError;
+    const errMsg = err instanceof Error ? err.message : String(err);
+    
+    console.error(`Webhook ${isTransient ? "transient" : "permanent"} failure:`, errMsg);
+    logCaughtError("stripe/webhook", err, { severity: isTransient ? "warning" : "critical", metadata: { reason: "processing_failed", transient: isTransient } });
+    
+    // Only record permanent failures (transient failures will be retried by Stripe)
+    if (!isTransient) {
+      await upsertFailedWebhookEvent(event, err, { status: "failed" });
+      sendAdminAlert({
+        subject: "Stripe webhook processing failed",
+        body: `Webhook event ${event.type} (${event.id}) failed to process. Event was acknowledged to prevent retries.`,
+        severity: "critical",
+        meta: { event_type: event.type, event_id: event.id, error: errMsg },
+      });
+      // Permanent errors: return 200 to acknowledge and prevent retry storms
+      return NextResponse.json({ received: true, error: "Processing failed" });
+    }
+    
+    // Transient errors: return 503 so Stripe retries with exponential backoff
+    // This is preferred over manually queuing retries for better reliability
+    return NextResponse.json({ received: false, error: "Transient error, will retry" }, { status: 503 });
   }
 
   return NextResponse.json({ received: true });
@@ -657,11 +705,8 @@ export async function handleStripeEvent(
         break;
       }
 
-      // Acquire wallet lock (use same lock type as withdrawals so they serialize)
-      const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
-      if (!lock.ok) {
-        throw new Error(`Wallet lock failed for tip_intent ${tipIntent.id}: ${lock.reason}`);
-      }
+      // Acquire wallet lock with retry logic (use same lock type as withdrawals so they serialize)
+      const lock = await acquireWalletLockWithRetry(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
 
       try {
         // Record canonical ledger entry FIRST (source of truth)
@@ -967,10 +1012,7 @@ export async function handleStripeEvent(
         break;
       }
 
-      const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
-      if (!lock.ok) {
-        throw new Error(`Wallet lock failed for refund.created on tip ${tipIntent.id}: ${lock.reason}`);
-      }
+      const lock = await acquireWalletLockWithRetry(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
 
       try {
         // Re-check idempotency after acquiring lock to close the race window
@@ -1150,10 +1192,7 @@ export async function handleStripeEvent(
         }
 
         // Acquire wallet lock before mutating ledger/wallet
-        const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
-        if (!lock.ok) {
-          throw new Error(`Wallet lock failed for charge.refunded on tip ${tipIntent.id}: ${lock.reason}`);
-        }
+        const lock = await acquireWalletLockWithRetry(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
 
         try {
           const tipAmount = Number(tipIntent.tip_amount ?? (tipIntent.amount as any));
@@ -1207,10 +1246,7 @@ export async function handleStripeEvent(
         const userId = (charge.metadata?.user_id as string) || null;
         if (userId) {
           // Acquire wallet lock for fallback user-based refund
-          const lock = await acquireWalletLock(supabaseClient, userId, "withdrawal", 300);
-          if (!lock.ok) {
-            throw new Error(`Wallet lock failed for fallback refund on user ${userId}: ${lock.reason}`);
-          }
+          const lock = await acquireWalletLockWithRetry(supabaseClient, userId, "withdrawal", 300);
 
           try {
             await ledgerFn({ user_id: userId, type: "tip_refunded", amount: -refundAmount, reference_id: charge.id, meta: { action: "refund", fee: 0, net: -refundAmount, currency: charge.currency, event_id: event.id, external_id: charge.id } });
@@ -1286,21 +1322,20 @@ export async function handleStripeEvent(
 
           const expressUserId = prof?.user_id;
           if (expressUserId) {
-            const lock = await acquireWalletLock(supabaseClient, expressUserId, "withdrawal", 300);
-            if (lock.ok) {
-              try {
-                // Cap deduction at current balance to prevent going negative
-                const { data: walletRow } = await supabaseClient
-                  .from("wallets")
-                  .select("balance")
-                  .eq("user_id", expressUserId)
-                  .maybeSingle();
-                const currentBalance = Number(walletRow?.balance ?? 0);
-                const deductAmount = Math.min(amount, currentBalance);
+            const lock = await acquireWalletLockWithRetry(supabaseClient, expressUserId, "withdrawal", 300);
+            try {
+              // Cap deduction at current balance to prevent going negative
+              const { data: walletRow } = await supabaseClient
+                .from("wallets")
+                .select("balance")
+                .eq("user_id", expressUserId)
+                .maybeSingle();
+              const currentBalance = Number(walletRow?.balance ?? 0);
+              const deductAmount = Math.min(amount, currentBalance);
 
-                if (deductAmount > 0) {
-                  await ledgerFn({
-                    user_id: expressUserId,
+              if (deductAmount > 0) {
+                await ledgerFn({
+                  user_id: expressUserId,
                     type: "withdrawal_express",
                     amount: Number((-deductAmount).toFixed(2)),
                     reference_id: payout.id,
@@ -1347,9 +1382,8 @@ export async function handleStripeEvent(
                     meta: { user_id: expressUserId, stripe_payout_id: payout.id, stripe_amount: amount, platform_balance: currentBalance },
                   });
                 }
-              } finally {
-                try { await releaseWalletLock(supabaseClient, expressUserId, "withdrawal"); } catch (_) {}
-              }
+            } finally {
+              try { await releaseWalletLock(supabaseClient, expressUserId, "withdrawal"); } catch (_) {}
             }
           }
         }
@@ -1375,10 +1409,7 @@ export async function handleStripeEvent(
         void triggerAIAlerts("stripe.webhook:payout_failed");
 
         // Acquire wallet lock before reversing balance
-        const lock = await acquireWalletLock(supabaseClient, userId, "withdrawal", 300);
-        if (!lock.ok) {
-          throw new Error(`Wallet lock failed for payout.failed on user ${userId}: ${lock.reason}`);
-        }
+        const lock = await acquireWalletLockWithRetry(supabaseClient, userId, "withdrawal", 300);
 
         try {
           // Reverse the ledger debit so the balance is restored
@@ -1636,10 +1667,7 @@ export async function handleStripeEvent(
         `[ALERT] CHARGEBACK: dispute ${dispute.id} for $${disputeAmount} on tip ${tipIntent.id}, user ${tipIntent.creator_user_id}. Reason: ${dispute.reason}`
       );
 
-      const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
-      if (!lock.ok) {
-        throw new Error(`Wallet lock failed for dispute on user ${tipIntent.creator_user_id}: ${lock.reason}`);
-      }
+      const lock = await acquireWalletLockWithRetry(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
 
       try {
         // Debit the disputed amount (same as refund flow)
@@ -1850,10 +1878,7 @@ export async function handleStripeEvent(
       }
 
       if (dispute.status === "won") {
-        const lock = await acquireWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
-        if (!lock.ok) {
-          throw new Error(`Wallet lock failed for dispute close on user ${tipIntent.creator_user_id}: ${lock.reason}`);
-        }
+        const lock = await acquireWalletLockWithRetry(supabaseClient, tipIntent.creator_user_id, "withdrawal", 300);
         try {
           await ledgerFn({
             user_id: tipIntent.creator_user_id,

@@ -141,7 +141,16 @@ export function useUserLock(enabled: boolean) {
   // ── Activity listeners ────────────────────────────────────────────────────
   useEffect(() => {
     if (!enabled) return;
-    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
+    const events = [
+      "mousemove",
+      "mousedown",
+      "keydown",
+      "touchstart",
+      "scroll",
+      "click",
+      // Allows embedded experiences (e.g. Stripe iframe) to ping activity.
+      "session_activity",
+    ];
     events.forEach((e) => window.addEventListener(e, onActivity, { passive: true }));
     return () => events.forEach((e) => window.removeEventListener(e, onActivity));
   }, [enabled, onActivity]);
