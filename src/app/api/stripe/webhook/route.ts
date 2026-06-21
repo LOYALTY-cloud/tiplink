@@ -1470,6 +1470,86 @@ export async function handleStripeEvent(
       break;
     }
 
+    case "payout.created": {
+      // Fires when Stripe creates a payout (before it is paid/failed).
+      // For app-initiated withdrawals: advance the status to "processing" so
+      // the dashboard shows the payout is in-flight.
+      // For Express-initiated payouts there is no withdrawal row yet — payout.paid
+      // will create one when funds are confirmed delivered.
+      const payout = event.data.object as Stripe.Payout;
+      const withdrawalId = payout.metadata?.withdrawal_id as string | undefined;
+      if (withdrawalId) {
+        await supabaseClient
+          .from("withdrawals")
+          .update({ status: "processing" })
+          .eq("id", withdrawalId)
+          .eq("status", "pending"); // only advance from pending
+      }
+      console.log(`payout.created: ${payout.id} withdrawalId=${withdrawalId ?? "express"}`);
+      break;
+    }
+
+    case "payout.canceled": {
+      // A payout was canceled before it reached the bank.
+      // If it was app-initiated: mark the withdrawal canceled and reverse the ledger
+      // debit so the user's balance is restored.
+      // If it was Express-initiated (no metadata): nothing to reverse since we
+      // only debit on payout.paid, which never fired for a canceled payout.
+      const payout = event.data.object as Stripe.Payout;
+      const userId = payout.metadata?.user_id as string | undefined;
+      const withdrawalId = payout.metadata?.withdrawal_id as string | undefined;
+      console.warn(`payout.canceled: ${payout.id} userId=${userId ?? "express"}`);
+
+      if (userId && withdrawalId) {
+        await supabaseClient
+          .from("withdrawals")
+          .update({ status: "canceled" })
+          .eq("id", withdrawalId);
+
+        const cancelAmt = (payout.amount ?? 0) / 100;
+        if (cancelAmt > 0) {
+          const lock = await acquireWalletLockWithRetry(userId, "withdrawal", 300);
+          try {
+            await reversePayoutOnce({
+              supabase: supabaseClient,
+              userId,
+              amount: cancelAmt,
+              withdrawalId,
+              payoutId: payout.id,
+              reason: "Payout canceled",
+              action: "payout_canceled_reversal",
+              eventId: event.id,
+              extraMeta: { stripe_payout_status: payout.status },
+            });
+          } catch (e) {
+            console.error("Failed to reverse ledger for canceled payout:", userId, e);
+            throw e;
+          } finally {
+            try { await releaseWalletLock(supabaseClient, userId, "withdrawal"); } catch (_e) {}
+          }
+
+          try {
+            await createNotification({
+              userId,
+              type: "payout_failed",
+              title: "⚠️ Payout Canceled",
+              body: `Your $${cancelAmt.toFixed(2)} payout was canceled. The funds have been returned to your balance.`,
+              meta: { payout_id: payout.id, withdrawal_id: withdrawalId },
+            });
+          } catch (_) {}
+        }
+      }
+      break;
+    }
+
+    case "payout.reconciliation_completed": {
+      // Informational event — Stripe finished reconciling automatic payouts.
+      // No ledger action needed; log for audit visibility.
+      const payout = event.data.object as Stripe.Payout;
+      console.log(`payout.reconciliation_completed: ${payout.id} status=${payout.status}`);
+      break;
+    }
+
     // ACCOUNT STATUS / CONNECT
     case "account.updated": {
       const account = event.data.object as Stripe.Account;
