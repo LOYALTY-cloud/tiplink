@@ -90,10 +90,13 @@ export default function DMCAPage() {
             <p className="text-white/75">Submit DMCA notices to:</p>
             <div className="space-y-1 text-white/90 font-medium">
               <p>DMCA Email: <span className="text-blue-400">legal@1nelink.com</span></p>
-              <p>
+              <p className="flex items-center gap-2">
                 Support Center:{" "}
-                <Link href="/dashboard/support" className="text-blue-400 hover:text-blue-300 underline transition">
-                  /dashboard/support
+                <Link
+                  href="/dashboard/support"
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-sm font-semibold text-white bg-white/10 hover:bg-white/20 border border-white/15 transition"
+                >
+                  Open Support Center →
                 </Link>
               </p>
             </div>
