@@ -28,7 +28,7 @@ export default function StoreMobileMenu() {
   }
 
   const links = [
-    { href: "/mythemes", label: "My Themes" },
+    { href: "/dashboard/mythemes", label: "My Themes" },
     { href: "/store", label: "Theme Store" },
     ...(authed ? [{ href: "/dashboard", label: "Dashboard" }] : []),
     ...(!authed ? [{ href: "/login", label: "Log In" }, { href: "/signup", label: "Sign Up" }] : []),
