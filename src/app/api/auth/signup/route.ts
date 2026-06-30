@@ -57,11 +57,13 @@ export async function POST(req: Request) {
     }
     const cleanHandle = validation.handle;
 
-    // Check handle uniqueness BEFORE creating the user (case-insensitive)
+    // Check handle uniqueness BEFORE creating the user (case-insensitive).
+    // Escape _ so it isn't treated as a LIKE wildcard.
+    const escapedHandle = cleanHandle.replace(/_/g, "\\_");
     const { data: existing } = await supabaseAdmin
       .from("profiles")
       .select("user_id")
-      .ilike("handle", cleanHandle)
+      .ilike("handle", escapedHandle)
       .maybeSingle();
 
     if (existing) {
@@ -120,6 +122,28 @@ export async function POST(req: Request) {
       console.error("[signup] profile upsert failed:", profileErr.message);
       // Profile row is critical — clean up the auth user and surface the error
       await supabaseAdmin.auth.admin.deleteUser(authData.user.id).catch(() => {});
+
+      // 23505 = unique_violation: handle was claimed by another user between our
+      // pre-check and the upsert (race condition). Return a friendly handle-taken
+      // error with suggestions so the user can pick another handle.
+      if (profileErr.code === "23505") {
+        const suggestions = generateHandleSuggestions(cleanHandle);
+        const { data: takenRows } = await supabaseAdmin
+          .from("profiles")
+          .select("handle")
+          .in("handle", suggestions);
+        const takenSet = new Set((takenRows ?? []).map((r: { handle: string }) => r.handle));
+        const available = suggestions.filter((s) => !takenSet.has(s)).slice(0, 5);
+        return NextResponse.json(
+          {
+            error: "That handle was just taken. Please pick another.",
+            field: "handle",
+            suggestions: available,
+          },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json({ error: "Signup failed. Please try again." }, { status: 500 });
     }
 

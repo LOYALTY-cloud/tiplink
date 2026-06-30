@@ -22,11 +22,12 @@ export async function GET(req: Request) {
 
   const handle = validation.handle;
 
-  // Check if taken (case-insensitive)
+  // Check if taken (case-insensitive). Escape _ so it isn't a LIKE wildcard.
+  const escapedHandle = handle.replace(/_/g, "\\_");
   const { data: existing } = await supabaseAdmin
     .from("profiles")
     .select("user_id")
-    .ilike("handle", handle)
+    .ilike("handle", escapedHandle)
     .maybeSingle();
 
   if (!existing) {
