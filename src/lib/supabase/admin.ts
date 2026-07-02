@@ -18,8 +18,18 @@ function assertServerKeyLooksPrivileged(serviceKey: string, anonKey: string | nu
     );
   }
 
-  // Supabase currently issues secret keys with `sb_secret_` prefix.
-  // Keep a fallback for legacy JWT-style service keys while blocking anon/public keys.
+  // Supabase's new key format: publishable keys start with sb_publishable_ and
+  // are anon-level. Service keys start with sb_secret_. Reject any publishable
+  // key even if it differs from NEXT_PUBLIC_SUPABASE_ANON_KEY (e.g. wrong project).
+  if (serviceKey.startsWith("sb_publishable_")) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY is set to a publishable (anon-level) key. " +
+      "Use the project service key (sb_secret_...) for server-side admin access. " +
+      "Server routes (Stripe webhook/admin writes) will fail under RLS with an anon key."
+    );
+  }
+
+  // Legacy JWT-style anon key check (older Supabase projects).
   const looksLikeAnon = serviceKey.startsWith("eyJ") && !serviceKey.includes("service_role");
   if (looksLikeAnon) {
     throw new Error(
