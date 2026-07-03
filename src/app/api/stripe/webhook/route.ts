@@ -39,6 +39,12 @@ async function isDuplicate(supabaseClient: SupabaseClient, eventId: string) {
  * Atomically mark event as processed. Uses upsert with onConflict so
  * concurrent deliveries don't both pass the isDuplicate check.
  * Throws on failure so the caller knows the event was NOT recorded.
+ *
+ * RLS errors (code 42501 / "row-level security") indicate a misconfigured
+ * SUPABASE_SERVICE_ROLE_KEY env var (e.g. set to a publishable/anon key).
+ * These are thrown as TransientWebhookError so Stripe retries with backoff
+ * rather than permanently giving up — the event will self-heal once the key
+ * is corrected in Vercel environment variables.
  */
 async function markProcessed(supabaseClient: SupabaseClient, eventId: string, type: string) {
   const { error } = await supabaseClient
@@ -49,6 +55,19 @@ async function markProcessed(supabaseClient: SupabaseClient, eventId: string, ty
     );
   if (error) {
     console.error("markProcessed failed:", error);
+    // RLS violation = service role key is misconfigured (anon key in env var).
+    // Treat as transient so Stripe retries until the key is fixed.
+    const isRls =
+      error.code === "42501" ||
+      (typeof error.message === "string" && error.message.includes("row-level security"));
+    if (isRls) {
+      console.error(
+        "markProcessed RLS error — SUPABASE_SERVICE_ROLE_KEY in Vercel may be set to " +
+        "an anon/publishable key (sb_publishable_*). " +
+        "Update it to the service key (sb_secret_*) to restore webhook processing."
+      );
+      throw new TransientWebhookError(`markProcessed RLS error for ${eventId}: check SUPABASE_SERVICE_ROLE_KEY`);
+    }
     throw new Error(`markProcessed failed for ${eventId}: ${error.message}`);
   }
 }
