@@ -230,9 +230,11 @@ export async function POST(req: Request) {
       });
     }
 
+    // Use eventually_due so Stripe collects all required fields upfront in a
+    // single session rather than requesting more info in subsequent sessions.
     const components = isManageMode
-      ? { account_management: { enabled: true as const } }
-      : { account_onboarding: { enabled: true as const } };
+      ? { account_management: { enabled: true as const, features: { external_account_collection: true as const } } }
+      : { account_onboarding: { enabled: true as const, features: { external_account_collection: true as const } } };
 
     let accountSession;
     try {
