@@ -32,6 +32,10 @@ export default function StripeEmbeddedOnboarding({
 }) {
   const [connectInstance, setConnectInstance] = useState<StripeConnectInstance | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
+  // Runtime load errors reported by Stripe's embedded component (e.g. expired
+  // session token, failed fetchClientSecret refresh). Separate from initError
+  // which only covers the SDK boot phase.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Always keep a ref to the latest fetchClientSecret so Stripe's callback
   // never closes over a stale function reference.
@@ -138,14 +142,22 @@ export default function StripeEmbeddedOnboarding({
     };
   }, []);
 
-  if (initError) {
+  const handleLoadError = ({ error, elementTagName }: { error: { message?: string; type?: string }; elementTagName?: string }) => {
+    const msg = error?.message || error?.type || `Error loading ${elementTagName ?? "component"}`;
+    console.error("StripeEmbeddedOnboarding load error:", msg);
+    setLoadError(msg);
+  };
+
+  if (initError || loadError) {
+    const displayError = initError || loadError;
     return (
       <div className="rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-200 space-y-3">
-        <p>{initError}</p>
+        <p className="font-medium">Unable to load Stripe.</p>
+        <p className="text-red-300/70 text-xs">{displayError}</p>
         {onRetry && (
           <button
             type="button"
-            onClick={onRetry}
+            onClick={() => { setLoadError(null); setInitError(null); onRetry(); }}
             className="rounded-lg bg-red-600 text-white px-4 py-2 text-xs font-medium hover:bg-red-700 transition"
           >
             Try Again
@@ -168,9 +180,16 @@ export default function StripeEmbeddedOnboarding({
     <ConnectComponentsProvider connectInstance={connectInstance}>
       <div className="min-h-[320px]">
         {mode === "manage" ? (
-          <ConnectAccountManagement />
+          <ConnectAccountManagement
+            collectionOptions={{ fields: "eventually_due" }}
+            onLoadError={handleLoadError}
+          />
         ) : (
-          <ConnectAccountOnboarding onExit={() => { void onExit?.(); }} />
+          <ConnectAccountOnboarding
+            collectionOptions={{ fields: "eventually_due" }}
+            onLoadError={handleLoadError}
+            onExit={() => { void onExit?.(); }}
+          />
         )}
       </div>
     </ConnectComponentsProvider>
