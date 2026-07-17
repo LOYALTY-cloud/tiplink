@@ -173,10 +173,19 @@ export async function syncStripeAccount(
       .eq("id", creatorId);
 
     // ── 8b. Sync account_status from Stripe restriction level ────────────────
-    // Only touch account_status when it is "active" — never override a manual
-    // admin "suspended" or "closed". Auto-clear back to active only when Stripe
-    // lifts a restriction (i.e. current status is "restricted" and account is now clean).
-    if (restrictionLevel === "high_risk" || restrictionLevel === "restricted") {
+    // Guard: never touch account_status while the creator is still mid-onboarding
+    // (details_submitted = false). Brand-new Express accounts always start with
+    // charges_enabled=false and payouts_enabled=false, which would falsely compute
+    // restrictionLevel="high_risk" and immediately restrict the platform account of
+    // a user who is simply filling out Stripe's onboarding form.
+    //
+    // Only once details_submitted=true has Stripe actually reviewed the account —
+    // at that point a high_risk or restricted level reflects a real post-onboarding
+    // restriction that warrants locking down the platform account.
+    //
+    // Auto-clear back to active only when Stripe lifts a restriction.
+    // Never override a manual admin "suspended" or "closed".
+    if (detailsSubmitted && (restrictionLevel === "high_risk" || restrictionLevel === "restricted")) {
       await supabaseAdmin
         .from("profiles")
         .update({ account_status: "restricted" })
