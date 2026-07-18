@@ -120,13 +120,35 @@ export async function POST(req: Request) {
 
     if (profileErr) {
       console.error("[signup] profile upsert failed:", profileErr.message);
-      // Profile row is critical — clean up the auth user and surface the error
-      await supabaseAdmin.auth.admin.deleteUser(authData.user.id).catch(() => {});
 
-      // 23505 = unique_violation: handle was claimed by another user between our
-      // pre-check and the upsert (race condition). Return a friendly handle-taken
-      // error with suggestions so the user can pick another handle.
+      // 23505 = unique_violation: handle was claimed between our pre-check and upsert.
+      // Instead of deleting the auth user (which can fail silently and leave an orphan
+      // account with UUID handle), assign a readable fallback derived from the email
+      // so the user gets a usable account. They can change the handle in settings
+      // (no lock applied to auto-assigned fallback handles).
       if (profileErr.code === "23505") {
+        const emailLocal = normalizedEmail.split("@")[0] || "";
+        const base = emailLocal.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 24);
+        const fallbackHandle = (base.length >= 3 ? base : "user") + Math.floor(Math.random() * 9000 + 1000);
+        const { error: fallbackErr } = await supabaseAdmin
+          .from("profiles")
+          .upsert(
+            {
+              user_id: authData.user.id,
+              email: normalizedEmail,
+              display_name: trimmedName,
+              handle: fallbackHandle,
+              handle_locked_until: null, // no lock — let them change it freely
+            },
+            { onConflict: "user_id" }
+          );
+
+        if (fallbackErr) {
+          // Both attempts failed — clean up and surface the error
+          await supabaseAdmin.auth.admin.deleteUser(authData.user.id).catch(() => {});
+          return NextResponse.json({ error: "Signup failed. Please try again." }, { status: 500 });
+        }
+
         const suggestions = generateHandleSuggestions(cleanHandle);
         const { data: takenRows } = await supabaseAdmin
           .from("profiles")
@@ -134,9 +156,13 @@ export async function POST(req: Request) {
           .in("handle", suggestions);
         const takenSet = new Set((takenRows ?? []).map((r: { handle: string }) => r.handle));
         const available = suggestions.filter((s) => !takenSet.has(s)).slice(0, 5);
+        // Continue signup (user exists with fallback handle) but inform the client
+        // so it can prompt them to pick a new handle from the dashboard.
         return NextResponse.json(
           {
-            error: "That handle was just taken. Please pick another.",
+            handleAutoAssigned: true,
+            handle: fallbackHandle,
+            error: "That handle was just taken. Your account was created with a temporary handle — please update it in your settings.",
             field: "handle",
             suggestions: available,
           },
@@ -144,6 +170,8 @@ export async function POST(req: Request) {
         );
       }
 
+      // Non-handle error — clean up the auth user
+      await supabaseAdmin.auth.admin.deleteUser(authData.user.id).catch(() => {});
       return NextResponse.json({ error: "Signup failed. Please try again." }, { status: 500 });
     }
 
