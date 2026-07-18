@@ -396,8 +396,13 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
     return raw.filter((x) => typeof x === "string" && isValidUrl(x)).slice(0, 5);
   }, [profile.links]);
 
-  const displayName = profile.display_name?.trim() || `@${profile.handle}`;
-  const handleText = `@${profile.handle}`;
+  // Don't display a UUID as the handle — the DB trigger seeds handle = user_id
+  // as a placeholder until signup sets the real handle. If the race-condition
+  // cleanup ever fails, the UUID leaks here. Guard against it.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const isUuidHandle = UUID_RE.test(profile.handle ?? "");
+  const displayName = profile.display_name?.trim() || (isUuidHandle ? "Creator" : `@${profile.handle}`);
+  const handleText = isUuidHandle ? null : `@${profile.handle}`;
 
   const chosenAmount = useMemo(() => {
     if (amount !== null) return amount;
@@ -538,7 +543,7 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
             </div>
           </div>
           <div className="text-3xl md:text-4xl font-semibold tracking-tight">{displayName}</div>
-          <div className={`mt-1 ${theme.muted}`}>{handleText}</div>
+          {handleText && <div className={`mt-1 ${theme.muted}`}>{handleText}</div>}
 
           {profile.location ? (
             <div className={`mt-2 text-sm ${theme.muted2}`}>
