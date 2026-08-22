@@ -46,7 +46,7 @@ export async function POST(req: Request) {
 
   const { data: profiles, error } = await supabaseAdmin
     .from("profiles")
-    .select("user_id, stripe_account_id")
+    .select("user_id, stripe_account_id, payouts_enabled_first_at")
     .not("stripe_account_id", "is", null);
 
   if (error) {
@@ -60,13 +60,17 @@ export async function POST(req: Request) {
     try {
       const acct = await stripe.accounts.retrieve(p.stripe_account_id!);
       const connectPolicy = evaluateStripeConnectPolicy(acct);
+      const onboardingComplete = Boolean(acct.charges_enabled && acct.payouts_enabled);
       await supabaseAdmin
         .from("profiles")
         .update({
           stripe_charges_enabled: acct.charges_enabled ?? false,
           stripe_payouts_enabled: acct.payouts_enabled ?? false,
-          stripe_onboarding_complete: Boolean(acct.charges_enabled && acct.payouts_enabled),
-          payouts_enabled: Boolean(acct.charges_enabled && acct.payouts_enabled),
+          stripe_onboarding_complete: onboardingComplete,
+          payouts_enabled: onboardingComplete,
+          ...(onboardingComplete && !p.payouts_enabled_first_at
+            ? { payouts_enabled_first_at: new Date().toISOString() }
+            : {}),
           stripe_restriction_state: connectPolicy.state,
           stripe_verification_status: connectPolicy.verificationStatus,
           stripe_disabled_reason: connectPolicy.disabledReason,

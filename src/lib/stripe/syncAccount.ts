@@ -21,6 +21,10 @@ import { evaluateStripeConnectPolicy } from "@/lib/stripe/connectRisk";
 import { syncExternalAccounts } from "@/lib/syncExternalAccounts";
 import { createNotification } from "@/lib/notifications";
 import { sendAdminAlert } from "@/lib/adminAlerts";
+import {
+  shouldRestrictPlatformAccount,
+  wasStripeAccountEverFullyEnabled,
+} from "@/lib/stripe/accountRestriction";
 
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -43,7 +47,7 @@ export async function syncStripeAccount(
     // ── 2. Find creator profile ─────────────────────────────────────────────
     const { data: creator, error: creatorError } = await supabaseAdmin
       .from("profiles")
-      .select("id, user_id, handle, display_name, email")
+      .select("id, user_id, handle, display_name, email, payouts_enabled_first_at")
       .eq("stripe_account_id", stripeAccountId)
       .maybeSingle();
 
@@ -76,6 +80,8 @@ export async function syncStripeAccount(
     const payoutsEnabled = account.payouts_enabled ?? false;
     const detailsSubmitted = account.details_submitted ?? false;
     const onboardingComplete = chargesEnabled && payoutsEnabled;
+    const firstEnabledAt = (creator as { payouts_enabled_first_at?: string | null }).payouts_enabled_first_at ?? null;
+    const wasEverFullyEnabled = wasStripeAccountEverFullyEnabled(firstEnabledAt, onboardingComplete);
 
     // ── 6. Use existing connectRisk policy for restriction_state + verification
     const connectPolicy = evaluateStripeConnectPolicy(account);
@@ -106,11 +112,15 @@ export async function syncStripeAccount(
     if (!payoutsEnabled) {
       payoutsAllowed = false;
       instantPayoutsAllowed = false;
-      restrictionLevel = "restricted";
+      restrictionLevel = wasEverFullyEnabled ? "restricted" : "warning";
     }
 
-    // High risk / disabled
-    if (!chargesEnabled || pastDue.length > 0 || disabledReason) {
+    // High risk / disabled. During initial onboarding, ordinary missing or past-due
+    // requirements remain warnings; explicit Stripe risk rejections stay high risk.
+    if (
+      connectPolicy.state === "high_risk" ||
+      (wasEverFullyEnabled && (!chargesEnabled || pastDue.length > 0 || disabledReason))
+    ) {
       monetizationEnabled = false;
       payoutsAllowed = false;
       instantPayoutsAllowed = false;
@@ -137,6 +147,9 @@ export async function syncStripeAccount(
         stripe_onboarding_complete: onboardingComplete,
         payouts_enabled:            onboardingComplete,
         payouts_enabled_at:         onboardingComplete ? new Date().toISOString() : null,
+        ...(onboardingComplete && !firstEnabledAt
+          ? { payouts_enabled_first_at: new Date().toISOString() }
+          : {}),
 
         // Requirements
         stripe_currently_due:        currentlyDue,
@@ -173,19 +186,12 @@ export async function syncStripeAccount(
       .eq("id", creatorId);
 
     // ── 8b. Sync account_status from Stripe restriction level ────────────────
-    // Guard: never touch account_status while the creator is still mid-onboarding
-    // (details_submitted = false). Brand-new Express accounts always start with
-    // charges_enabled=false and payouts_enabled=false, which would falsely compute
-    // restrictionLevel="high_risk" and immediately restrict the platform account of
-    // a user who is simply filling out Stripe's onboarding form.
-    //
-    // Only once details_submitted=true has Stripe actually reviewed the account —
-    // at that point a high_risk or restricted level reflects a real post-onboarding
-    // restriction that warrants locking down the platform account.
+    // Brand-new Express accounts start with charges and payouts disabled, so only
+    // propagate a Stripe restriction after the account has been fully enabled once.
     //
     // Auto-clear back to active only when Stripe lifts a restriction.
     // Never override a manual admin "suspended" or "closed".
-    if (detailsSubmitted && (restrictionLevel === "high_risk" || restrictionLevel === "restricted")) {
+    if (shouldRestrictPlatformAccount(wasEverFullyEnabled, restrictionLevel)) {
       await supabaseAdmin
         .from("profiles")
         .update({ account_status: "restricted" })
