@@ -1,7 +1,7 @@
 /**
  * Fee calculation tests — verifies correct rounding and fee structure.
  */
-import { calculateTipFees, STRIPE_PERCENT, STRIPE_FLAT, PLATFORM_PERCENT } from "../../src/lib/fees";
+import { calculateTipFees, STRIPE_PERCENT, STRIPE_FLAT, PLATFORM_PERCENT, PLATFORM_FLAT } from "../../src/lib/fees";
 
 let passed = 0;
 let failed = 0;
@@ -14,39 +14,40 @@ function assert(cond: boolean, msg: string) {
 console.log("── Fee Calculation Tests ──\n");
 
 // 1. Constants
-assert(STRIPE_PERCENT === 0.029, "Stripe percent is 2.9%");
-assert(STRIPE_FLAT === 0.30, "Stripe flat fee is $0.30");
-assert(PLATFORM_PERCENT === 0, "Platform percent is 0% (no platform fee on tips");
+assert(STRIPE_PERCENT === 0, "Stripe percent is absorbed by the platform fee");
+assert(STRIPE_FLAT === 0, "Stripe flat fee is absorbed by the platform fee");
+assert(PLATFORM_PERCENT === 0.029, "Platform percent is 2.9%");
+assert(PLATFORM_FLAT === 0.30, "Platform flat fee is $0.30");
 
 // 2. $1 minimum tip
 {
   const r = calculateTipFees(1);
-  assert(r.stripeFee === 0.34, `$1 tip: stripe fee = $0.34 (got ${r.stripeFee})`);
-  assert(r.platformFee === 0, `$1 tip: platform fee = $0.00 (got ${r.platformFee})`);
+  assert(r.stripeFee === 0, `$1 tip: stripe fee = $0.00 (got ${r.stripeFee})`);
+  assert(r.platformFee === 0.34, `$1 tip: platform fee = $0.34 (got ${r.platformFee})`);
   assert(r.total === 1.34, `$1 tip: total = $1.34 (got ${r.total})`);
 }
 
 // 3. $10 tip
 {
   const r = calculateTipFees(10);
-  assert(r.stripeFee === 0.61, `$10 tip: stripe fee = $0.61 (got ${r.stripeFee})`);
-  assert(r.platformFee === 0, `$10 tip: platform fee = $0.00 (got ${r.platformFee})`);
+  assert(r.stripeFee === 0, `$10 tip: stripe fee = $0.00 (got ${r.stripeFee})`);
+  assert(r.platformFee === 0.61, `$10 tip: platform fee = $0.61 (got ${r.platformFee})`);
   assert(r.total === 10.61, `$10 tip: total = $10.61 (got ${r.total})`);
 }
 
 // 4. $100 tip
 {
   const r = calculateTipFees(100);
-  assert(r.stripeFee === 3.3, `$100 tip: stripe fee = $3.30 (got ${r.stripeFee})`);
-  assert(r.platformFee === 0, `$100 tip: platform fee = $0.00 (got ${r.platformFee})`);
+  assert(r.stripeFee === 0, `$100 tip: stripe fee = $0.00 (got ${r.stripeFee})`);
+  assert(r.platformFee === 3.3, `$100 tip: platform fee = $3.30 (got ${r.platformFee})`);
   assert(r.total === 103.3, `$100 tip: total = $103.30 (got ${r.total})`);
 }
 
 // 5. $500 max tip
 {
   const r = calculateTipFees(500);
-  assert(r.stripeFee === 15.24, `$500 tip: stripe fee = $15.24 (got ${r.stripeFee})`);
-  assert(r.platformFee === 0, `$500 tip: platform fee = $0.00 (got ${r.platformFee})`);
+  assert(r.stripeFee === 0, `$500 tip: stripe fee = $0.00 (got ${r.stripeFee})`);
+  assert(r.platformFee === 15.24, `$500 tip: platform fee = $15.24 (got ${r.platformFee})`);
   assert(r.total === 515.24, `$500 tip: total = $515.24 (got ${r.total})`);
 }
 

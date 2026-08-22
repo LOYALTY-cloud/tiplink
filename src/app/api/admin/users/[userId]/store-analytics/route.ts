@@ -36,7 +36,8 @@ export async function GET(
   // Per-theme breakdown
   const themeMap = new Map<string, { name: string; sold: number; earnings: number }>();
   for (const sale of sales ?? []) {
-    const name = (sale.themes as { name: string } | null)?.name ?? "Untitled";
+    const theme = Array.isArray(sale.themes) ? sale.themes[0] : sale.themes;
+    const name = theme?.name ?? "Untitled";
     const existing = themeMap.get(sale.theme_id);
     if (existing) {
       existing.sold += 1;
