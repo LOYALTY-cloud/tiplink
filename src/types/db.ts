@@ -7,6 +7,7 @@ export interface ProfileRow {
   stripe_charges_enabled?: boolean | null;
   email?: string | null;
   payouts_enabled?: boolean | null;
+  payouts_enabled_first_at?: string | null;
   stripe_payouts_enabled?: boolean | null;
   stripe_onboarding_complete?: boolean | null;
   handle?: string | null;
