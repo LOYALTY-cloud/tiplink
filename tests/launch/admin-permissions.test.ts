@@ -88,9 +88,10 @@ assert(ADMIN_ROLES.includes("finance_admin"), `ADMIN_ROLES has finance_admin`);
 assert(ADMIN_ROLES.includes("support_admin"), `ADMIN_ROLES has support_admin`);
 assert(!ADMIN_ROLES.includes("user"), `ADMIN_ROLES excludes user`);
 
-// 9. No self-modification possible (verify manage_staff is owner-only)
-assert(PERMISSIONS.manage_staff.length === 1, `manage_staff: owner-only (got ${PERMISSIONS.manage_staff.length} roles)`);
+// 9. Staff management is limited to the two ownership roles
+assert(PERMISSIONS.manage_staff.length === 2, `manage_staff: ownership-only (got ${PERMISSIONS.manage_staff.length} roles)`);
 assert(PERMISSIONS.manage_staff[0] === "owner", `manage_staff[0] = owner`);
+assert(PERMISSIONS.manage_staff[1] === "co_owner", `manage_staff[1] = co_owner`);
 
 console.log(`\n── Results: ${passed} passed, ${failed} failed ──`);
 process.exit(failed > 0 ? 1 : 0);

@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 // Also supports updating notes.
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getAdminFromRequest(req);
@@ -19,7 +19,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Requires moderator role" }, { status: 403 });
     }
 
-    const { id } = params;
+    const { id } = await params;
     if (!id) return NextResponse.json({ error: "Strike ID required" }, { status: 400 });
 
     const body = await req.json();
@@ -86,7 +86,7 @@ export async function PATCH(
 // Fetch a single strike with creator profile context.
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getAdminFromRequest(req);
@@ -95,7 +95,7 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { id } = params;
+    const { id } = await params;
     const { data: strike, error } = await supabaseAdmin
       .from("creator_strikes")
       .select("*")

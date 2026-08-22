@@ -83,6 +83,7 @@ export async function createNotification({
     reason?: string;
     restrictedUntil?: string;
     payout_id?: string;
+    withdrawal_id?: string;
     failure_message?: string | null;
     freeze_level?: string;
     device?: string;

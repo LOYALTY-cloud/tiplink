@@ -381,6 +381,7 @@ export async function handleStripeEvent(
     const mod = await import("@/lib/supabase/admin");
     supabaseClient = mod.supabaseAdmin as SupabaseClient;
   }
+  const activeSupabaseClient = supabaseClient;
   // wallet lock helpers (acquire/release) — lazy import so tests can inject mocks
   const lockMod = await import("@/lib/walletLocks");
   const { acquireWalletLock, releaseWalletLock } = lockMod;
@@ -399,7 +400,7 @@ export async function handleStripeEvent(
     let lastError = null;
     
     for (let attempt = 0; attempt < maxRetries; attempt++) {
-      const lock = await acquireWalletLock(supabaseClient, userId, lockType, ttlSeconds);
+      const lock = await acquireWalletLock(activeSupabaseClient, userId, lockType, ttlSeconds);
       if (lock.ok) {
         return lock;
       }

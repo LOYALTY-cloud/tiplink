@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 // [id] is the creator's auth.users UUID.
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getAdminFromRequest(req);
@@ -19,7 +19,7 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { id: creator_id } = params;
+    const { id: creator_id } = await params;
     if (!creator_id) return NextResponse.json({ error: "Creator ID required" }, { status: 400 });
 
     const [strikesRes, profileRes] = await Promise.all([
