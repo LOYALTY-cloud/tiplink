@@ -9,6 +9,7 @@ import { getAdminSession, getAdminHeaders } from "@/lib/auth/adminSession";
 import AdminConfirmModal from "@/components/AdminConfirmModal";
 import type { ConfirmVariant } from "@/components/AdminConfirmModal";
 import { stripeFieldLabel } from "@/lib/stripe/fieldLabels";
+import { getDisplayHandle } from "@/lib/profileHandle";
 
 type User = {
   id: string;
@@ -335,8 +336,9 @@ function AdminUsersContent() {
         <p className={ui.muted}>No users found.</p>
       ) : (
         <div id="user-actions" className="space-y-3">
-          {sorted.map((u) => (
-            <div
+          {sorted.map((u) => {
+            const displayHandle = getDisplayHandle(u.handle);
+            return <div
               key={u.id}
               className={`${ui.card} p-4 flex flex-col gap-3 transition-colors duration-200`}
             >
@@ -344,13 +346,13 @@ function AdminUsersContent() {
                 {/* LEFT: Avatar + Identity */}
                 <Link href={`/admin/users/${u.user_id}`} className="flex items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-sm font-semibold text-white shrink-0">
-                    {(u.display_name || u.handle || "U").charAt(0).toUpperCase()}
+                    {(u.display_name || displayHandle || "U").charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0">
                     <p className="font-semibold text-white truncate">
                       {u.display_name || "Unnamed"}
-                      {u.handle && (
-                        <span className="ml-2 text-xs text-white/40">@{u.handle}</span>
+                      {displayHandle && (
+                        <span className="ml-2 text-xs text-white/40">@{displayHandle}</span>
                       )}
                     </p>
                     <p className="text-xs text-white/40 truncate">
@@ -502,8 +504,8 @@ function AdminUsersContent() {
                   </button>
                 )}
               </div>
-            </div>
-          ))}
+            </div>;
+          })}
         </div>
       )}
 
