@@ -13,6 +13,7 @@ import { analyzeTransaction } from "@/lib/fraudEngine";
 import { runFraudCheck, humanizeFlags } from "@/lib/fraudOrchestrator";
 import { createRiskAlert } from "@/lib/riskAlerts";
 import { notifyAdmins, createNotification } from "@/lib/notifications";
+import { canStripeAccountAcceptTips } from "@/lib/stripe/tipEligibility";
 
 function money(n: number) {
   return Math.round(n * 100); // dollars -> cents
@@ -386,21 +387,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "This creator's account is temporarily unavailable" }, { status: 403 });
     }
 
-    const stripeRestrictionState = (profile as any)?.stripe_restriction_state ?? "safe";
-    if (stripeRestrictionState === "restricted" || stripeRestrictionState === "disconnected") {
+    const stripeRestrictionState = profile.stripe_restriction_state ?? "safe";
+    if (!canStripeAccountAcceptTips(Boolean(profile.stripe_charges_enabled), stripeRestrictionState)) {
       return NextResponse.json({
         error: "This creator is temporarily unavailable for tipping",
-        reason: (profile as any)?.stripe_disabled_reason ?? null,
+        reason: profile.stripe_disabled_reason ?? null,
       }, { status: 403 });
     }
 
     if (!profile.stripe_account_id) {
       return NextResponse.json({ error: "Creator payouts not enabled" }, { status: 409 });
     }
-    if (!profile.stripe_charges_enabled) {
-      return NextResponse.json({ error: "Creator charges not enabled" }, { status: 409 });
-    }
-
     // Fees
     const { stripeFee, platformFee, total: totalCharge } = calculateTipFees(tip_amount);
 
