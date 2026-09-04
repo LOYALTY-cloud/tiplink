@@ -54,13 +54,11 @@ export async function POST(req: Request) {
     const firstName = profile?.first_name ?? null;
     const lastName = profile?.last_name ?? null;
 
-    // Ensure a profiles row exists for this user
     if (!profile) {
-      const { error: insErr } = await supabaseAdmin.from("profiles").upsert({ user_id, handle: user_id }, { onConflict: "user_id" });
-      if (insErr) {
-        console.error("stripe/connect/session upsert", insErr);
-        return NextResponse.json({ error: "Failed to create profile" }, { status: 500 });
-      }
+      return NextResponse.json(
+        { error: "Complete your profile before setting up payouts", _checkpoint: "profile_missing" },
+        { status: 409 }
+      );
     }
 
     if (!mode || mode === "onboarding") {
@@ -87,14 +85,8 @@ export async function POST(req: Request) {
 
         const { error: catErr } = await supabaseAdmin
           .from("profiles")
-          .upsert(
-            {
-              user_id,
-              handle: user_id,
-              creator_activity_category: canonicalCategory,
-            },
-            { onConflict: "user_id" }
-          );
+          .update({ creator_activity_category: canonicalCategory })
+          .eq("user_id", user_id);
 
         if (catErr) {
           // If the old check constraint is still active, log a warning and continue
