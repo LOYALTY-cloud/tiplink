@@ -13,6 +13,7 @@ import AdminRiskCard from "@/components/AdminRiskCard";
 import ActivityCalendar from "@/components/admin/ActivityCalendar";
 import { getAdminWarnings } from "@/lib/adminWarnings";
 import { stripeFieldLabel } from "@/lib/stripe/fieldLabels";
+import { getDisplayHandle } from "@/lib/profileHandle";
 
 type Profile = {
   id: string;
@@ -617,6 +618,7 @@ export default function AdminUserDetailPage() {
     if (!profile) return;
     setExporting(true);
     try {
+      const displayHandle = getDisplayHandle(profile.handle);
       const bal = Number(wallet?.balance ?? 0);
       const ow = Number(profile.owed_balance ?? 0);
       const sev = (() => {
@@ -629,7 +631,7 @@ export default function AdminUserDetailPage() {
 
       const caseData = {
         userId: profile.user_id,
-        handle: profile.handle,
+        handle: displayHandle,
         displayName: profile.display_name,
         email: profile.email,
         accountStatus: profile.account_status,
@@ -658,7 +660,7 @@ export default function AdminUserDetailPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `case-report-${profile.handle || profile.user_id.slice(0, 8)}-${new Date().toISOString().split("T")[0]}.pdf`;
+      a.download = `case-report-${displayHandle || profile.user_id.slice(0, 8)}-${new Date().toISOString().split("T")[0]}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch {
@@ -685,6 +687,7 @@ export default function AdminUserDetailPage() {
 
   const balance = Number(wallet?.balance ?? 0);
   const owed = Number(profile.owed_balance ?? 0);
+  const displayHandle = getDisplayHandle(profile.handle);
 
   // Real severity — accounts for Stripe restriction, account status, frozen, disputes, owed balance
   const severity = (() => {
@@ -726,8 +729,8 @@ export default function AdminUserDetailPage() {
         <div className="flex-1 min-w-0">
           <p className="text-[10px] text-white/40 uppercase tracking-wider">Case File</p>
           <h1 className="text-lg font-semibold truncate">
-            {profile.display_name || profile.handle || "Unknown User"}
-            {profile.handle && <span className="ml-2 text-sm text-white/30">@{profile.handle}</span>}
+            {profile.display_name || displayHandle || "Unknown User"}
+            {displayHandle && <span className="ml-2 text-sm text-white/30">@{displayHandle}</span>}
           </h1>
         </div>
 
@@ -800,7 +803,7 @@ export default function AdminUserDetailPage() {
           <div className="grid md:grid-cols-3 gap-4">
             <div className={`${ui.card} p-5 bg-gradient-to-br from-white/[.04] to-transparent hover:scale-[1.01] transition-all duration-300`}>
               <p className="text-[10px] text-white/40 uppercase tracking-wider mb-2">Account</p>
-              <p className="font-medium">{profile.handle ? `@${profile.handle}` : "no handle"}</p>
+              <p className="font-medium">{displayHandle ? `@${displayHandle}` : "No handle set"}</p>
               <p className={`text-xs ${ui.muted2} mt-1`}>ID: {profile.user_id.slice(0, 16)}…</p>
               <p className={`text-xs ${ui.muted2}`}>Joined: {new Date(profile.created_at).toLocaleDateString()}</p>
               <div className="flex items-center gap-1.5 mt-2">
@@ -1843,7 +1846,7 @@ export default function AdminUserDetailPage() {
               Admin Override: {overrideModal.label}
             </h2>
             <p className={`text-sm ${ui.muted}`}>
-              This will directly modify <span className="text-white font-semibold">{profile.display_name || profile.handle || "this user"}</span>&apos;s account.
+              This will directly modify <span className="text-white font-semibold">{profile.display_name || displayHandle || "this user"}</span>&apos;s account.
               This action is logged permanently.
             </p>
             {disputeCount > 0 && (

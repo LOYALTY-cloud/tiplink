@@ -18,6 +18,7 @@ import AdminDisciplinaryAlertBanner from "@/components/admin/AdminDisciplinaryAl
 import DisciplinaryModal from "@/components/admin/DisciplinaryModal";
 import { useDisciplinaryReports } from "@/hooks/useDisciplinaryReports";
 import NotificationBell from "@/components/admin/NotificationBell";
+import { getDisplayHandle } from "@/lib/profileHandle";
 
 type SearchResult = {
   type: "user" | "transaction" | "tip";
@@ -440,10 +441,11 @@ export default function AdminLayout({
     const results: SearchResult[] = [];
 
     for (const p of data.users ?? []) {
+      const displayHandle = getDisplayHandle(p.handle);
       results.push({
         type: "user",
-        label: p.display_name || p.handle || p.user_id.slice(0, 12),
-        sub: p.email || `@${p.handle}` || p.user_id,
+        label: p.display_name || displayHandle || p.user_id.slice(0, 12),
+        sub: p.email || (displayHandle ? `@${displayHandle}` : p.user_id),
         href: `/admin/users/${p.user_id}`,
       });
     }
