@@ -22,12 +22,14 @@ function buildReminderEmail({
   pastDue,
   onboardingUrl,
   reminderNumber,
+  rejected,
 }: {
   handle: string | null;
   currentlyDue: string[];
   pastDue: string[];
   onboardingUrl: string;
   reminderNumber: number;
+  rejected: boolean;
 }): string {
   const greeting = handle ? `Hi @${sanitize(handle)},` : "Hi there,";
   const isUrgent = pastDue.length > 0;
@@ -92,19 +94,23 @@ function buildReminderEmail({
     }
 
     <p style="margin:16px 0 8px;color:#444;font-size:14px;">
-      Click the button below to open Stripe's secure verification portal and complete the required steps:
+      {rejected
+        ? "Your Stripe account needs review. Log in to 1neLink and open Account Settings to review the rejection and available appeal steps."
+        : "Click the button below to open Stripe's secure verification portal and complete the required steps:"}
     </p>
 
     <div style="text-align:center;margin:24px 0;">
       <a href="${sanitize(onboardingUrl)}"
          style="display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;letter-spacing:0.3px;">
-        Complete Verification →
+        {rejected ? "Review Account Status →" : "Complete Verification →"}
       </a>
     </div>
 
     <p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">
-      This link expires in 24 hours. If it has expired, log in to your 1neLink dashboard and navigate to
-      <a href="${APP_URL}/dashboard/account" style="color:#2563eb;">Account Settings</a> to generate a new one.
+      ${rejected
+        ? `If you need help with the rejection, contact Stripe through the appeal process shown in Account Settings.`
+        : `This link expires in 24 hours. If it has expired, log in to your 1neLink dashboard and navigate to
+           <a href="${APP_URL}/dashboard/account" style="color:#2563eb;">Account Settings</a> to generate a new one.`}
     </p>
 
     ${emailFooter()}
@@ -125,7 +131,7 @@ export async function POST(
   const { data: profile } = await supabaseAdmin
     .from("profiles")
     .select(
-      "email, handle, display_name, stripe_account_id, stripe_currently_due, stripe_past_due, stripe_reminder_sent_count, stripe_reminder_last_sent_at"
+      "email, handle, display_name, stripe_account_id, stripe_currently_due, stripe_past_due, stripe_reminder_sent_count, stripe_reminder_last_sent_at, stripe_disabled_reason"
     )
     .eq("user_id", userId)
     .maybeSingle();
@@ -167,17 +173,24 @@ export async function POST(
     );
   }
 
-  // Generate Stripe account link for re-onboarding
-  let onboardingUrl: string;
+  const currentlyDue = (profile.stripe_currently_due as string[] | null) ?? [];
+  const pastDue = (profile.stripe_past_due as string[] | null) ?? [];
+  const rejected = profile.stripe_disabled_reason?.startsWith("rejected.") ?? false;
+
+  // Rejected accounts cannot receive Stripe account links. They need to review
+  // the rejection and appeal from the authenticated 1neLink account settings.
+  let onboardingUrl = `${APP_URL}/dashboard/account`;
   try {
-    const { stripe } = await import("@/lib/stripe/server");
-    const accountLink = await stripe.accountLinks.create({
-      account: profile.stripe_account_id as string,
-      refresh_url: `${APP_URL}/dashboard/account`,
-      return_url: `${APP_URL}/dashboard/account?stripe_return=1`,
-      type: "account_onboarding",
-    });
-    onboardingUrl = accountLink.url;
+    if (!rejected) {
+      const { stripe } = await import("@/lib/stripe/server");
+      const accountLink = await stripe.accountLinks.create({
+        account: profile.stripe_account_id as string,
+        refresh_url: `${APP_URL}/dashboard/account`,
+        return_url: `${APP_URL}/dashboard/account?stripe_return=1`,
+        type: "account_onboarding",
+      });
+      onboardingUrl = accountLink.url;
+    }
   } catch (err) {
     console.error("[stripe-reminder] Failed to create account link:", err);
     return NextResponse.json(
@@ -186,8 +199,6 @@ export async function POST(
     );
   }
 
-  const currentlyDue = (profile.stripe_currently_due as string[] | null) ?? [];
-  const pastDue = (profile.stripe_past_due as string[] | null) ?? [];
   const reminderNumber = sentCount + 1;
 
   const html = buildReminderEmail({
@@ -196,6 +207,7 @@ export async function POST(
     pastDue,
     onboardingUrl,
     reminderNumber,
+    rejected,
   });
 
   const subject =
