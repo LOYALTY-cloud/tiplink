@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { getDisplayHandle } from "../src/lib/profileHandle";
 
@@ -14,4 +15,13 @@ test("preserves real handles", () => {
 test("treats empty handles as missing", () => {
   assert.equal(getDisplayHandle(null), null);
   assert.equal(getDisplayHandle("   "), null);
+});
+
+test("Stripe onboarding never replaces a chosen handle with the user ID", () => {
+  const route = readFileSync(
+    new URL("../src/app/api/stripe/connect/session/route.ts", import.meta.url),
+    "utf8"
+  );
+
+  assert.doesNotMatch(route, /handle\s*:\s*user_id/);
 });

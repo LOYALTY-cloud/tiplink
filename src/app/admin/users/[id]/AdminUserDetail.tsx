@@ -803,7 +803,7 @@ export default function AdminUserDetailPage() {
           <div className="grid md:grid-cols-3 gap-4">
             <div className={`${ui.card} p-5 bg-gradient-to-br from-white/[.04] to-transparent hover:scale-[1.01] transition-all duration-300`}>
               <p className="text-[10px] text-white/40 uppercase tracking-wider mb-2">Account</p>
-              <p className="font-medium">{displayHandle ? `@${displayHandle}` : "No handle set"}</p>
+              <p className="font-medium">{displayHandle ? `@${displayHandle}` : "Handle unavailable"}</p>
               <p className={`text-xs ${ui.muted2} mt-1`}>ID: {profile.user_id.slice(0, 16)}…</p>
               <p className={`text-xs ${ui.muted2}`}>Joined: {new Date(profile.created_at).toLocaleDateString()}</p>
               <div className="flex items-center gap-1.5 mt-2">

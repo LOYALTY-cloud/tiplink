@@ -6,6 +6,7 @@ import { formatMoney } from "@/lib/walletFees";
 
 type TopEarner = {
   user_id: string;
+  handle: string | null;
   name: string;
   avatar: string | null;
   total: number;
@@ -58,7 +59,9 @@ export default function TopEarnersWidget() {
                   )}
                 </div>
 
-                <span className="text-sm text-white truncate max-w-[120px] sm:max-w-none">@{u.name}</span>
+                <span className="text-sm text-white truncate max-w-[120px] sm:max-w-none">
+                  {u.handle ? `@${u.handle}` : u.name}
+                </span>
               </div>
 
               <span className="text-emerald-400 font-semibold">

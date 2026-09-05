@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
+import { getDisplayHandle } from "@/lib/profileHandle";
 
 export const runtime = "nodejs";
 
@@ -61,7 +62,8 @@ export async function GET(req: NextRequest) {
     const profile = profileMap.get(u.user_id);
     return {
       user_id: u.user_id,
-      name: profile?.handle || profile?.display_name || "user",
+      handle: getDisplayHandle(profile?.handle),
+      name: profile?.display_name || "User",
       avatar: profile?.avatar_url || null,
       total: Math.round(u.total * 100) / 100,
     };
