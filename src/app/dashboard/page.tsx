@@ -41,7 +41,7 @@ export default function DashboardPage() {
   const [stripeAvailable, setStripeAvailable] = useState<number | null>(null);
   const [pendingAmount, setPendingAmount] = useState<number | null>(null);
   const [pendingAvailableOn, setPendingAvailableOn] = useState<string | null>(null);
-  
+
   // Remove the retired instant-withdrawal preference from older sessions.
   useEffect(() => {
     localStorage.removeItem("dashboard_withdraw_card_mode");

@@ -61,7 +61,7 @@ export default function WalletPage() {
   const [stripeInstantNet, setStripeInstantNet] = useState<number | null>(null);
   const [availableSoon, setAvailableSoon] = useState<number | null>(null);
   const [pendingAvailableOn, setPendingAvailableOn] = useState<string | null>(null);
-  const withdrawMode = "standard" as const;
+  const [withdrawMode, setWithdrawMode] = useState<"instant" | "standard">("instant");
   const { toasts, show: showToast, dismiss } = useToast(4000);
   const router = useRouter();
   
