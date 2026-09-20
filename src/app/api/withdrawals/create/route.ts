@@ -35,6 +35,13 @@ export async function POST(req: Request) {
     const amt = Number(amount);
     const payoutType: "instant" | "standard" = payout_type === "standard" ? "standard" : "instant";
 
+    if (payout_type !== "standard") {
+      return NextResponse.json(
+        { error: "Instant withdrawals are temporarily unavailable. Please use a standard withdrawal." },
+        { status: 503 },
+      );
+    }
+
     if (!Number.isFinite(amt) || amt <= 0) {
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
     }

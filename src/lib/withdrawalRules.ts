@@ -41,6 +41,7 @@ export function validateWithdrawal(
     return { ok: false, reason: "Funds still pending clearance" };
   }
 
+
   // Daily withdrawal limit enforcement
   const alreadyWithdrawn = Number(user.daily_withdrawn ?? 0);
   if (alreadyWithdrawn + amount > DAILY_WITHDRAWAL_LIMIT) {

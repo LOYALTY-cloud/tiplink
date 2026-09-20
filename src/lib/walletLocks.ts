@@ -48,7 +48,13 @@ export async function acquireWalletLock(
     }
 
     // Lock exists and is not expired — genuinely held by another request
-    return { ok: false, reason: error?.message || "lock_exists" };
+    const reason = error?.message || "lock_exists";
+    if (error && !/duplicate key|unique constraint/i.test(error.message)) {
+      // Insert failed for a reason other than a lock collision — surface it
+      // instead of silently reporting "lock exists" for an unrelated DB error.
+      console.error(`[walletLocks] acquireWalletLock unexpected insert error for user ${userId}:`, error.message);
+    }
+    return { ok: false, reason };
   } catch (e: unknown) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
