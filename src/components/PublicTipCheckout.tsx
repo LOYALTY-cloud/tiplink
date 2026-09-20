@@ -6,7 +6,21 @@ import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-
 import { useRouter } from "next/navigation";
 
 const publishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-const stripePromise = publishableKey ? loadStripe(publishableKey) : null;
+
+// Direct charges require Stripe.js to be initialized in the connected
+// account's context. Cache one promise per account so re-renders across
+// different creators don't reuse the wrong Stripe instance.
+const stripePromiseCache = new Map<string, ReturnType<typeof loadStripe>>();
+function getStripePromise(stripeAccountId: string | null | undefined) {
+  if (!publishableKey) return null;
+  const key = stripeAccountId || "__platform__";
+  let promise = stripePromiseCache.get(key);
+  if (!promise) {
+    promise = loadStripe(publishableKey, stripeAccountId ? { stripeAccount: stripeAccountId } : undefined);
+    stripePromiseCache.set(key, promise);
+  }
+  return promise;
+}
 
 function SuccessOverlay({ amount, onDone }: { amount?: number; onDone: () => void }) {
   return (
@@ -136,12 +150,15 @@ export default function PublicTipCheckout({
   clientSecret,
   receiptUrl,
   tipAmount,
+  stripeAccountId,
 }: {
   clientSecret: string;
   receiptUrl: string;
   tipAmount?: number;
+  stripeAccountId?: string | null;
 }) {
   const options = useMemo(() => ({ clientSecret }), [clientSecret]);
+  const stripePromise = useMemo(() => getStripePromise(stripeAccountId), [stripeAccountId]);
 
   if (!publishableKey || !stripePromise) {
     return (

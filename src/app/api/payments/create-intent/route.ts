@@ -423,6 +423,10 @@ export async function POST(req: Request) {
         supporter_user_id: supporter_user_id,
         supporter_ip: supporter_ip || null,
         supporter_email: supporter_email,
+        // Direct charge: record the exact connected account this PaymentIntent
+        // is created on. Future Stripe calls for this tip must reuse this value
+        // rather than re-reading profiles.stripe_account_id (which can change).
+        stripe_account_id: profile.stripe_account_id,
       })
       .select()
       .single();
@@ -438,7 +442,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Failed to create tip intent" }, { status: 500 });
     }
 
-    // Create PaymentIntent (use idempotency key derived from DB id)
+    // Create PaymentIntent as a DIRECT CHARGE — the PaymentIntent/Charge is
+    // created in the connected account's own context (stripeAccount), so the
+    // connected account is the merchant of record and bears dispute liability
+    // directly. application_fee_amount still routes the platform's cut to us.
     const pi = await stripe.paymentIntents.create(
       {
         amount: money(totalCharge),
@@ -447,12 +454,6 @@ export async function POST(req: Request) {
 
         // Platform fee collected by your platform
         application_fee_amount: money(platformFee),
-        // Destination charge → funds go to creator connected account
-        transfer_data: {
-          destination: profile.stripe_account_id,
-        },
-        // Ensure correct dispute routing and tax/reporting
-        on_behalf_of: profile.stripe_account_id,
 
         metadata: {
           receipt_id,
@@ -465,6 +466,7 @@ export async function POST(req: Request) {
       },
       {
         idempotencyKey: `tip-${intentRow.receipt_id}`,
+        stripeAccount: profile.stripe_account_id,
       }
     );
 
@@ -477,6 +479,9 @@ export async function POST(req: Request) {
     return NextResponse.json({
       clientSecret: pi.client_secret,
       receiptId: receipt_id,
+      // Direct charge: Stripe.js must be initialized in this connected
+      // account's context to confirm the PaymentIntent client-side.
+      stripeAccountId: profile.stripe_account_id,
       breakdown: {
         tip: tip_amount,
         stripeFee,

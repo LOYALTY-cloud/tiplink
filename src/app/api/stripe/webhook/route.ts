@@ -669,7 +669,7 @@ export async function handleStripeEvent(
 
       // Prevent duplicate processing (Stripe may retry webhooks)
       if (tipIntent.status === "succeeded") {
-        console.log("Webhook already processed for tip_intent", tipIntent.id);
+        console.log("Webhook already processed for tip_intent", tipIntent.receipt_id);
         break;
       }
 
@@ -692,6 +692,7 @@ export async function handleStripeEvent(
         console.warn(
           `Blocked tip credit to ${creatorProfile.account_status} account: ${tipIntent.creator_user_id}. Auto-refunding PaymentIntent ${pi.id}.`
         );
+        // tip_intents has no `id` column — key off receipt_id.
         await supabaseClient
           .from("tip_intents")
           .update({
@@ -699,24 +700,27 @@ export async function handleStripeEvent(
             needs_refund: true,
             failure_reason: "account_not_active",
           })
-          .eq("id", tipIntent.id);
+          .eq("receipt_id", tipIntent.receipt_id);
 
         // Auto-refund the supporter — creator account is not active
         try {
           const { stripe: stripeClient } = await import("@/lib/stripe/server");
-          await stripeClient.refunds.create({
-            payment_intent: pi.id,
-            reason: "fraudulent",
-            metadata: {
-              auto_refund: "true",
-              reason: "creator_account_not_active",
-              receipt_id: receiptId,
+          await stripeClient.refunds.create(
+            {
+              payment_intent: pi.id,
+              reason: "fraudulent",
+              metadata: {
+                auto_refund: "true",
+                reason: "creator_account_not_active",
+                receipt_id: receiptId,
+              },
             },
-          });
+            tipIntent.stripe_account_id ? { stripeAccount: tipIntent.stripe_account_id } : undefined
+          );
           await supabaseClient
             .from("tip_intents")
             .update({ refund_status: "full", needs_refund: false })
-            .eq("id", tipIntent.id);
+            .eq("receipt_id", tipIntent.receipt_id);
           console.log(`Auto-refunded blocked tip ${receiptId} for PaymentIntent ${pi.id}`);
         } catch (refundErr) {
           console.error(`Auto-refund failed for ${pi.id}:`, refundErr);
@@ -735,7 +739,7 @@ export async function handleStripeEvent(
           user_id: tipIntent.creator_user_id,
           type: "tip_received",
           amount: receivedAmount,
-          reference_id: tipIntent.id,
+          reference_id: tipIntent.receipt_id,
           meta: {
             action: "tip",
             fee: Number(tipIntent.stripe_fee ?? 0) + Number(tipIntent.platform_fee ?? 0),
@@ -854,7 +858,7 @@ export async function handleStripeEvent(
           } catch (_) {}
         }
       } catch (e) {
-        console.error("Failed to record ledger entry for tip_intent", tipIntent.id, e);
+        console.error("Failed to record ledger entry for tip_intent", tipIntent.receipt_id, e);
         throw e;
       } finally {
         try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (e) {}
@@ -1028,7 +1032,7 @@ export async function handleStripeEvent(
 
       // Already fully refunded — nothing left to debit (also handles out-of-order webhooks)
       if (tipIntent.refund_status === "full" || (Number(tipIntent.refunded_amount ?? 0) >= Number(tipIntent.tip_amount ?? (tipIntent.amount as any)))) {
-        console.log("refund.created: tip already fully refunded", tipIntent.id);
+        console.log("refund.created: tip already fully refunded", tipIntent.receipt_id);
         break;
       }
 
@@ -1077,14 +1081,14 @@ export async function handleStripeEvent(
         // Alert on multiple refunds for the same tip
         if (previouslyRefunded > 0) {
           console.warn(
-            `[ALERT] refund.created: multiple refund slices on tip ${tipIntent.id}. Previous: $${previouslyRefunded}, new slice: $${sliceAmount}, total: $${newRefundedTotal}`
+            `[ALERT] refund.created: multiple refund slices on tip ${tipIntent.receipt_id}. Previous: $${previouslyRefunded}, new slice: $${sliceAmount}, total: $${newRefundedTotal}`
           );
         }
 
         // Build normalized meta for audit
         const refundMeta = {
           action: "refund",
-          tip_intent_id: tipIntent.id,
+          tip_intent_id: tipIntent.receipt_id,
           refund_id: refundId,
           payment_intent_id: paymentIntentId,
           amount: sliceAmount,
@@ -1100,7 +1104,7 @@ export async function handleStripeEvent(
 
         // Atomic: ledger insert + tip_intent update + processed_refunds insert in one DB transaction
         const { error: rpcError } = await supabaseClient.rpc("apply_refund_slice", {
-          p_tip_id: tipIntent.id,
+          p_tip_id: tipIntent.receipt_id,
           p_user_id: tipIntent.creator_user_id,
           p_amount: sliceAmount,
           p_refund_id: refundId,
@@ -1121,7 +1125,10 @@ export async function handleStripeEvent(
         // (E) Reconciliation: verify DB refunded_amount matches Stripe cumulative refunds
         try {
           const { stripe: stripeClient } = await import("@/lib/stripe/server");
-          const reconPI = await stripeClient.paymentIntents.retrieve(paymentIntentId);
+          const reconPI = await stripeClient.paymentIntents.retrieve(
+            paymentIntentId,
+            tipIntent.stripe_account_id ? { stripeAccount: tipIntent.stripe_account_id } : undefined
+          );
           const reconPIAny = reconPI as any;
           const stripeRefundedCents = reconPI.amount_received - (reconPIAny.charges?.data?.[0]?.amount_refunded
             ? reconPI.amount_received - reconPIAny.charges.data[0].amount_refunded
@@ -1132,22 +1139,22 @@ export async function handleStripeEvent(
           const drift = Math.abs(stripeCumulativeRefunded - dbCumulativeRefunded);
           if (drift > 0.01) {
             console.error(
-              `[ALERT] refund.created: DB/Stripe drift detected for tip ${tipIntent.id}. DB=$${dbCumulativeRefunded}, Stripe=$${stripeCumulativeRefunded}, drift=$${drift.toFixed(2)}`
+              `[ALERT] refund.created: DB/Stripe drift detected for tip ${tipIntent.receipt_id}. DB=$${dbCumulativeRefunded}, Stripe=$${stripeCumulativeRefunded}, drift=$${drift.toFixed(2)}`
             );
-            // Auto-correct DB to Stripe truth
+            // Auto-correct DB to Stripe truth. tip_intents has no `id` column — key off receipt_id.
             await supabaseClient
               .from("tip_intents")
               .update({
                 refunded_amount: stripeCumulativeRefunded,
                 refund_status: stripeCumulativeRefunded >= tipAmount ? "full" : "partial",
               })
-              .eq("id", tipIntent.id);
+              .eq("receipt_id", tipIntent.receipt_id);
           }
         } catch (reconErr) {
           console.warn("refund.created: reconciliation check failed (non-blocking):", reconErr);
         }
       } catch (e) {
-        console.error(`[ALERT] refund.created: failed to process slice for tip ${tipIntent.id}:`, e);
+        console.error(`[ALERT] refund.created: failed to process slice for tip ${tipIntent.receipt_id}:`, e);
       } finally {
         try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (_e) {}
       }
@@ -1201,7 +1208,7 @@ export async function handleStripeEvent(
 
         // Guard: already fully refunded — skip
         if (tipIntent.refund_status === "full") {
-          console.log("Tip already fully refunded, skipping:", tipIntent.id);
+          console.log("Tip already fully refunded, skipping:", tipIntent.receipt_id);
           break;
         }
 
@@ -1224,7 +1231,7 @@ export async function handleStripeEvent(
           // Build refund meta for audit
           const refundMeta = {
             action: "refund",
-            tip_intent_id: tipIntent.id,
+            tip_intent_id: tipIntent.receipt_id,
             refund_id: refundId ?? charge.id,
             payment_intent_id: tipIntent.stripe_payment_intent_id ?? null,
             slice_amount: refundAmount,
@@ -1239,7 +1246,7 @@ export async function handleStripeEvent(
 
           // Atomic: ledger insert + tip_intent update + processed_refunds insert in one DB transaction
           const { error: rpcError } = await supabaseClient.rpc("apply_refund_slice", {
-            p_tip_id: tipIntent.id,
+            p_tip_id: tipIntent.receipt_id,
             p_user_id: tipIntent.creator_user_id,
             p_amount: refundAmount,
             p_refund_id: refundId ?? charge.id,
@@ -1257,7 +1264,7 @@ export async function handleStripeEvent(
 
           console.log(`Tip ${newRefundStatus} refund: $${refundAmount} for user ${tipIntent.creator_user_id}`);
         } catch (e) {
-          console.error("Failed to record refund ledger entry for tip_intent", tipIntent.id, e);
+          console.error("Failed to record refund ledger entry for tip_intent", tipIntent.receipt_id, e);
           throw e;
         } finally {
           try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (e) {}
@@ -1764,32 +1771,42 @@ export async function handleStripeEvent(
       }
 
       console.error(
-        `[ALERT] CHARGEBACK: dispute ${dispute.id} for $${disputeAmount} on tip ${tipIntent.id}, user ${tipIntent.creator_user_id}. Reason: ${dispute.reason}`
+        `[ALERT] CHARGEBACK: dispute ${dispute.id} for $${disputeAmount} on tip ${tipIntent.receipt_id}, user ${tipIntent.creator_user_id}. Reason: ${dispute.reason}`
+      );
+
+      const { data: priorDisputeDebits } = await supabaseClient
+        .from("transactions_ledger")
+        .select("meta")
+        .eq("user_id", tipIntent.creator_user_id)
+        .eq("type", "tip_refunded");
+      const disputeAlreadyDebited = (priorDisputeDebits ?? []).some(
+        (entry: { meta?: { dispute_id?: string } | null }) => entry.meta?.dispute_id === dispute.id
       );
 
       const lock = await acquireWalletLockWithRetry(tipIntent.creator_user_id, "withdrawal", 300);
 
       try {
-        // Debit the disputed amount (same as refund flow)
-        await ledgerFn({
-          user_id: tipIntent.creator_user_id,
-          type: "tip_refunded",
-          amount: -disputeAmount,
-          reference_id: tipIntent.id,
-          meta: {
-            action: "dispute",
-            tip_intent_id: tipIntent.id,
-            dispute_id: dispute.id,
-            payment_intent_id: paymentIntentId,
-            charge_id: chargeId,
-            amount: disputeAmount,
-            currency: dispute.currency,
-            reason: dispute.reason || "unspecified",
-            event_id: event.id,
-          },
-        });
+        if (!disputeAlreadyDebited) {
+          await ledgerFn({
+            user_id: tipIntent.creator_user_id,
+            type: "tip_refunded",
+            amount: -disputeAmount,
+            reference_id: tipIntent.receipt_id,
+            meta: {
+              action: "dispute",
+              tip_intent_id: tipIntent.receipt_id,
+              dispute_id: dispute.id,
+              payment_intent_id: paymentIntentId,
+              charge_id: chargeId,
+              amount: disputeAmount,
+              currency: dispute.currency,
+              reason: dispute.reason || "unspecified",
+              event_id: event.id,
+            },
+          });
+        }
 
-        // Mark tip as disputed
+        // Mark tip as disputed. tip_intents has no `id` column — key off receipt_id.
         await supabaseClient
           .from("tip_intents")
           .update({
@@ -1798,7 +1815,7 @@ export async function handleStripeEvent(
             refunded_amount: Number(tipIntent.tip_amount ?? (tipIntent.amount as any)),
             refund_initiated_at: null,
           })
-          .eq("id", tipIntent.id);
+          .eq("receipt_id", tipIntent.receipt_id);
 
         // Restrict creator account immediately
         const { data: walletRow } = await supabaseClient
@@ -1889,7 +1906,7 @@ export async function handleStripeEvent(
       if (paymentIntentId) {
         const { data } = await supabaseClient
           .from("tip_intents")
-          .select("id, receipt_id, creator_user_id")
+          .select("receipt_id, creator_user_id")
           .eq("stripe_payment_intent_id", paymentIntentId)
           .maybeSingle();
         tipIntent = data;
@@ -1897,7 +1914,7 @@ export async function handleStripeEvent(
       if (!tipIntent && chargeId) {
         const { data } = await supabaseClient
           .from("tip_intents")
-          .select("id, receipt_id, creator_user_id")
+          .select("receipt_id, creator_user_id")
           .eq("stripe_charge_id", chargeId)
           .maybeSingle();
         tipIntent = data;
@@ -1958,7 +1975,7 @@ export async function handleStripeEvent(
       if (paymentIntentId) {
         const { data } = await supabaseClient
           .from("tip_intents")
-          .select("id, receipt_id, creator_user_id, status")
+          .select("receipt_id, creator_user_id, status")
           .eq("stripe_payment_intent_id", paymentIntentId)
           .maybeSingle();
         tipIntent = data;
@@ -1966,7 +1983,7 @@ export async function handleStripeEvent(
       if (!tipIntent && chargeId) {
         const { data } = await supabaseClient
           .from("tip_intents")
-          .select("id, receipt_id, creator_user_id, status")
+          .select("receipt_id, creator_user_id, status")
           .eq("stripe_charge_id", chargeId)
           .maybeSingle();
         tipIntent = data;
@@ -1984,7 +2001,7 @@ export async function handleStripeEvent(
             user_id: tipIntent.creator_user_id,
             type: "adjustment",
             amount: disputeAmount,
-            reference_id: tipIntent.id,
+            reference_id: tipIntent.receipt_id,
             meta: {
               action: "dispute_won_credit",
               stripe_dispute_id: dispute.id,
@@ -1994,6 +2011,7 @@ export async function handleStripeEvent(
             },
           });
 
+          // tip_intents has no `id` column — key off receipt_id.
           await supabaseClient
             .from("tip_intents")
             .update({
@@ -2001,7 +2019,7 @@ export async function handleStripeEvent(
               refund_status: "none",
               refunded_amount: 0,
             })
-            .eq("id", tipIntent.id);
+            .eq("receipt_id", tipIntent.receipt_id);
 
           await supabaseClient
             .from("profiles")

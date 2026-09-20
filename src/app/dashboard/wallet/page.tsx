@@ -60,7 +60,7 @@ export default function WalletPage() {
   const [stripeInstantNet, setStripeInstantNet] = useState<number | null>(null);
   const [availableSoon, setAvailableSoon] = useState<number | null>(null);
   const [pendingAvailableOn, setPendingAvailableOn] = useState<string | null>(null);
-  const withdrawMode = "standard" as const;
+  const [withdrawMode, setWithdrawMode] = useState<"instant" | "standard">("instant");
   const { toasts, show: showToast, dismiss } = useToast(4000);
   const router = useRouter();
   
@@ -173,8 +173,11 @@ export default function WalletPage() {
   const fee = useMemo(() => getWithdrawalFee(amount, withdrawMode), [amount, withdrawMode]);
   const net = useMemo(() => Math.max(0, amount - fee), [amount, fee]);
 
-  // effectiveMax: settled Stripe funds only (stripeAvailable)
-  const effectiveMax = availableBalance;
+  // Standard withdrawals use settled Stripe funds; instant withdrawals use
+  // Stripe's instant-payout ceiling, which can include eligible pending funds.
+  const effectiveMax = withdrawMode === "standard"
+    ? availableBalance
+    : stripeInstantNet ?? availableBalance;
   const amountTooLow = amount > 0 && amount < 1;
   const amountTooHigh = amount > effectiveMax;
   const invalid = amount <= 0 || amountTooLow || amountTooHigh;
@@ -865,8 +868,36 @@ export default function WalletPage() {
       <div id="withdraw-section" className={`${ui.card} mt-6 p-4 space-y-4`}>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white/90">Withdraw</h2>
-          <span className="text-xs text-white/40">🏦 Arrives in 1–3 business days</span>
+          <div className="flex items-center bg-white/5 border border-white/10 rounded-xl p-0.5">
+            <button
+              type="button"
+              onClick={() => setWithdrawMode("instant")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                withdrawMode === "instant"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                  : "text-white/40 hover:text-white/60"
+              }`}
+            >
+              ⚡ Instant
+            </button>
+            <button
+              type="button"
+              onClick={() => setWithdrawMode("standard")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                withdrawMode === "standard"
+                  ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                  : "text-white/40 hover:text-white/60"
+              }`}
+            >
+              🏦 Standard
+            </button>
+          </div>
         </div>
+        <p className="text-xs text-white/40 -mt-2">
+          {withdrawMode === "instant"
+            ? "⚡ Arrives in minutes"
+            : "🏦 Arrives in 1–3 business days · no fees"}
+        </p>
 
         {/* Payout Method Selector */}
         {allMethods.length === 0 ? (
@@ -968,7 +999,14 @@ export default function WalletPage() {
             <span className="text-sm text-white/60">Withdrawal amount</span>
             <span className="text-sm font-semibold text-white/90">{formatMoney(amount || 0)}</span>
           </div>
-  
+          {withdrawMode === "instant" && amount > 0 && (
+            <>
+              <div className="border-t border-white/10 pt-2 flex items-center justify-between">
+                <span className="text-sm font-semibold text-white/80">You receive</span>
+                <span className="text-sm font-bold text-emerald-400">{formatMoney(net)}</span>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Withdrawal error */}

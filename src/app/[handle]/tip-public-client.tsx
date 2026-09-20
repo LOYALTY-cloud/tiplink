@@ -341,6 +341,7 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
 
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [receiptId, setReceiptId] = useState<string | null>(null);
+  const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
   const [breakdown, setBreakdown] = useState<{ tip: number; stripeFee: number; platformFee: number; total: number } | null>(null);
   const [loadingIntent, setLoadingIntent] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
@@ -458,6 +459,7 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
 
       setClientSecret(data.clientSecret);
       setReceiptId(data.receiptId);
+      setStripeAccountId(data.stripeAccountId ?? null);
       setBreakdown(data.breakdown);
       setShowPayment(true);
       submittingRef.current = false;
@@ -772,6 +774,7 @@ export default function TipPublicClient({ profile }: { profile: Profile }) {
                     clientSecret={clientSecret}
                     receiptUrl={`${window.location.origin}/r/${receiptId}`}
                     tipAmount={breakdown?.tip ?? chosenAmount}
+                    stripeAccountId={stripeAccountId}
                   />
                 ) : (
                   <div className={`text-sm ${theme.muted}`}>Preparing checkout…</div>
