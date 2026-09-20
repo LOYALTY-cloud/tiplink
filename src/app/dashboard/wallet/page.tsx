@@ -45,6 +45,7 @@ export default function WalletPage() {
   const [linkOpen, setLinkOpen] = useState(false);
   const [receipt, setReceipt] = useState<WithdrawalReceipt | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
+  const withdrawInFlightRef = useRef(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [todayEarnings, setTodayEarnings] = useState<number>(0);
   const [balanceFlash, setBalanceFlash] = useState(false);
@@ -175,9 +176,7 @@ export default function WalletPage() {
 
   // Standard withdrawals use settled Stripe funds; instant withdrawals use
   // Stripe's instant-payout ceiling, which can include eligible pending funds.
-  const effectiveMax = withdrawMode === "standard"
-    ? availableBalance
-    : stripeInstantNet ?? availableBalance;
+  const effectiveMax = availableBalance;
   const amountTooLow = amount > 0 && amount < 1;
   const amountTooHigh = amount > effectiveMax;
   const invalid = amount <= 0 || amountTooLow || amountTooHigh;
@@ -547,30 +546,48 @@ export default function WalletPage() {
   }
 
   const onWithdraw = async () => {
+    // Synchronous re-entry guard — closes the gap between click and the
+    // `withdrawing` state (and its `disabled` re-render) taking effect, which
+    // otherwise lets a rapid double-click fire two overlapping requests.
+    if (withdrawInFlightRef.current) return;
+    withdrawInFlightRef.current = true;
+    setWithdrawing(true);
+
     setWithdrawError(null);
-      setWithdrawErrorKind("error");
+    setWithdrawErrorKind("error");
+
+    const fail = (msg: string) => {
+      withdrawInFlightRef.current = false;
+      setWithdrawing(false);
+      setWithdrawError(msg);
+    };
+
     if (amount > effectiveMax) {
+      withdrawInFlightRef.current = false;
+      setWithdrawing(false);
       setShowInsufficientModal(true);
       return;
     }
 
     const payoutsOk = await ensurePayoutsEnabled();
-    if (!payoutsOk) return;
+    if (!payoutsOk) {
+      withdrawInFlightRef.current = false;
+      setWithdrawing(false);
+      return;
+    }
 
     const { data: userRes } = await supabase.auth.getUser();
     const user = userRes.user;
     if (!user) {
-      setWithdrawError("Session expired. Please refresh the page.");
+      fail("Session expired. Please refresh the page.");
       return;
     }
 
     const token = await getAuthToken();
     if (!token) {
-      setWithdrawError("Session expired. Please refresh the page.");
+      fail("Session expired. Please refresh the page.");
       return;
     }
-
-    setWithdrawing(true);
 
     // Resolve the destination external account ID for the selected method
     const selectedMethod = allMethods.find((m) => m.id === selectedMethodId);
@@ -585,15 +602,17 @@ export default function WalletPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ amount, destination, payout_type: withdrawMode }),
+        body: JSON.stringify({ amount, destination, payout_type: "standard" }),
       });
       json = await res.json();
     } catch {
+      withdrawInFlightRef.current = false;
       setWithdrawing(false);
       setWithdrawError("Network error. Please try again.");
       return;
     }
 
+    withdrawInFlightRef.current = false;
     setWithdrawing(false);
 
     if (!res.ok) {
@@ -868,35 +887,10 @@ export default function WalletPage() {
       <div id="withdraw-section" className={`${ui.card} mt-6 p-4 space-y-4`}>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white/90">Withdraw</h2>
-          <div className="flex items-center bg-white/5 border border-white/10 rounded-xl p-0.5">
-            <button
-              type="button"
-              onClick={() => setWithdrawMode("instant")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                withdrawMode === "instant"
-                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                  : "text-white/40 hover:text-white/60"
-              }`}
-            >
-              ⚡ Instant
-            </button>
-            <button
-              type="button"
-              onClick={() => setWithdrawMode("standard")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                withdrawMode === "standard"
-                  ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                  : "text-white/40 hover:text-white/60"
-              }`}
-            >
-              🏦 Standard
-            </button>
-          </div>
+          <span className="text-xs font-semibold text-blue-300">🏦 Standard</span>
         </div>
         <p className="text-xs text-white/40 -mt-2">
-          {withdrawMode === "instant"
-            ? "⚡ Arrives in minutes"
-            : "🏦 Arrives in 1–3 business days · no fees"}
+          🏦 Arrives in 1–3 business days · no fees
         </p>
 
         {/* Payout Method Selector */}
@@ -911,7 +905,7 @@ export default function WalletPage() {
               <span>💳</span>
               {allMethods[0].brand ? `${String(allMethods[0].brand).toUpperCase()} ` : ""}{"\u2022\u2022\u2022\u2022"} {allMethods[0].last4}
             </div>
-            <span className={`${ui.chip} bg-emerald-500/10 border-emerald-400/20 text-emerald-200`}>Instant</span>
+            <span className={`${ui.chip} bg-blue-500/10 border-blue-400/20 text-blue-200`}>Standard</span>
           </div>
         ) : (
           <div className={`${ui.cardInner} p-3`}>
@@ -999,7 +993,7 @@ export default function WalletPage() {
             <span className="text-sm text-white/60">Withdrawal amount</span>
             <span className="text-sm font-semibold text-white/90">{formatMoney(amount || 0)}</span>
           </div>
-          {withdrawMode === "instant" && amount > 0 && (
+          {amount > 0 && (
             <>
               <div className="border-t border-white/10 pt-2 flex items-center justify-between">
                 <span className="text-sm font-semibold text-white/80">You receive</span>
