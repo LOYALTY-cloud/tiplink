@@ -61,7 +61,7 @@ export function resolveFrom(category: EmailCategory): string {
  * Map notification types to the correct email category.
  */
 export function notificationTypeToCategory(
-  type: "tip" | "payout" | "payout_requested" | "payout_processing" | "payout_paid" | "payout_failed" | "verification_needed" | "theme_sold" | "theme_unlocked" | "theme_rejected" | "appeal_approved" | "appeal_rejected" | "creator_approved" | "security" | "support" | "system",
+  type: "tip" | "payout" | "payout_requested" | "payout_processing" | "payout_paid" | "payout_failed" | "verification_needed" | "theme_sold" | "theme_unlocked" | "theme_rejected" | "appeal_approved" | "appeal_rejected" | "creator_approved" | "security" | "support" | "system" | "dispute",
 ): EmailCategory {
   switch (type) {
     case "tip":
@@ -79,6 +79,7 @@ export function notificationTypeToCategory(
       return "receipts";
     case "verification_needed":
     case "security":
+    case "dispute":
       return "security";
     case "support":
       return "support";

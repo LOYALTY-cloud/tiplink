@@ -19,7 +19,8 @@ type NotificationType =
   | "creator_approved"
   | "security"
   | "support"
-  | "system";
+  | "system"
+  | "dispute";
 
 type NotificationCategory = "payouts" | "sales" | "tips" | "security" | "support" | "system";
 
@@ -32,6 +33,7 @@ function deriveCategory(type: NotificationType): NotificationCategory {
   if (type === "appeal_approved" || type === "appeal_rejected") return "system";
   if (type === "security") return "security";
   if (type === "support") return "support";
+  if (type === "dispute") return "security";
   return "system";
 }
 
@@ -137,6 +139,7 @@ export async function createNotification({
       (isPayoutType && prefs.notify_payouts !== false) ||
       (type === "verification_needed" && prefs.notify_security !== false) ||
       (type === "security" && prefs.notify_security !== false) ||
+      (type === "dispute" && prefs.notify_security !== false) ||
       isThemeSalesType || // theme purchase notifications always sent
       type === "theme_rejected" || // rejection notifications always sent
       type === "appeal_approved" ||
@@ -204,7 +207,9 @@ function buildEmailHtml({
         ? buildPayoutFailedBlock(meta)
         : type === "security"
           ? buildSecurityBlock(body, meta)
-          : type === "support"
+          : type === "dispute"
+            ? buildDisputeBlock(body, meta)
+            : type === "support"
             ? buildSupportBlock(body, meta)
             : type === "theme_sold"
               ? buildThemeSoldBlock(body, meta)
@@ -324,6 +329,30 @@ function getSecurityCta(action?: SecurityAction): { label: string; href: string 
     default:
       return { label: "View Account Status", href: `${APP_URL}/dashboard` };
   }
+}
+
+function buildDisputeBlock(
+  fallbackBody: string,
+  meta?: { amount?: number; reason?: string },
+): string {
+  const amount = typeof meta?.amount === "number" ? `$${meta.amount.toFixed(2)}` : null;
+  const reason = formatReason(meta?.reason);
+  return `
+  <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:20px;margin:12px 0;">
+    <h3 style="margin:0 0 8px;color:#991b1b;font-size:16px;">Payment Disputed</h3>
+    <p style="margin:0;color:#444;font-size:14px;">${fallbackBody}</p>
+    ${amount ? `
+    <p style="margin:12px 0 0;color:#111;font-size:14px;">
+      <strong>Amount:</strong> ${amount}
+    </p>` : ""}
+    <p style="margin:8px 0 0;color:#111;font-size:14px;">
+      <strong>Reason:</strong> ${reason}
+    </p>
+    <p style="margin:16px 0 0;color:#666;font-size:13px;">
+      This amount was already reflected in your balance when the dispute was reported.
+      No further action is needed from you. Contact support@1nelink.com with questions.
+    </p>
+  </div>`;
 }
 
 /* ── Security email block: action-specific templates ───── */

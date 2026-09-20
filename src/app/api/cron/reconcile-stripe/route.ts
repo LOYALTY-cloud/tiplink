@@ -101,7 +101,7 @@ export async function GET(req: Request) {
 
     const { data: stuckIntents } = await supabaseAdmin
       .from("tip_intents")
-      .select("id, receipt_id, creator_user_id, tip_amount, stripe_payment_intent_id, platform_fee, stripe_fee")
+      .select("id, receipt_id, creator_user_id, tip_amount, stripe_payment_intent_id, stripe_account_id, platform_fee, stripe_fee")
       .in("status", ["pending", "created"])
       .lt("created_at", staleThreshold)
       .not("stripe_payment_intent_id", "is", null)
@@ -109,8 +109,12 @@ export async function GET(req: Request) {
 
     for (const intent of stuckIntents ?? []) {
       try {
-        // Retrieve the PI from the platform account (destination charges live here)
-        const pi = await stripe.paymentIntents.retrieve(intent.stripe_payment_intent_id as string);
+        // Direct charge: retrieve the PI in the connected account's context
+        // (recorded on tip_intents.stripe_account_id at charge creation time).
+        const pi = await stripe.paymentIntents.retrieve(
+          intent.stripe_payment_intent_id as string,
+          intent.stripe_account_id ? { stripeAccount: intent.stripe_account_id as string } : undefined
+        );
 
         if (pi.status !== "succeeded") {
           // PI not paid — mark as failed if it's been cancelled/expired

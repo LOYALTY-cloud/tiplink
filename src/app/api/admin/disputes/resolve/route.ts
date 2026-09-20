@@ -42,12 +42,16 @@ async function executeResolution(
   note: string,
   tipCreatorUserId: string,
   stripePaymentIntentId: string | null,
+  stripeAccountId: string | null,
   finalAdminId: string,
 ) {
   let stripeDispute: { id: string; status: string } | null = null;
-  if (stripePaymentIntentId) {
+  if (stripePaymentIntentId && stripeAccountId) {
     try {
-      const disputes = await stripe.disputes.list({ payment_intent: stripePaymentIntentId, limit: 1 });
+      const disputes = await stripe.disputes.list(
+        { payment_intent: stripePaymentIntentId, limit: 1 },
+        { stripeAccount: stripeAccountId }
+      );
       if (disputes.data.length > 0) {
         stripeDispute = { id: disputes.data[0].id, status: disputes.data[0].status };
       }
@@ -58,7 +62,7 @@ async function executeResolution(
 
   if (action === "accept") {
     if (stripeDispute && stripeDispute.status === "needs_response") {
-      try { await stripe.disputes.close(stripeDispute.id); } catch (e) {
+      try { await stripe.disputes.close(stripeDispute.id, { stripeAccount: stripeAccountId! }); } catch (e) {
         console.error("[resolve-dispute] Stripe close failed:", e instanceof Error ? e.message : e);
       }
     }
@@ -68,13 +72,17 @@ async function executeResolution(
   } else if (action === "counter") {
     if (stripeDispute && stripeDispute.status === "needs_response") {
       try {
-        await stripe.disputes.update(stripeDispute.id, {
-          evidence: {
-            uncategorized_text: note || "This was a voluntary tip made by the cardholder on 1neLink. No goods or services were exchanged.",
-            product_description: "Voluntary tip/donation on 1neLink tipping platform",
+        await stripe.disputes.update(
+          stripeDispute.id,
+          {
+            evidence: {
+              uncategorized_text: note || "This was a voluntary tip made by the cardholder on 1neLink. No goods or services were exchanged.",
+              product_description: "Voluntary tip/donation on 1neLink tipping platform",
+            },
+            submit: true,
           },
-          submit: true,
-        });
+          { stripeAccount: stripeAccountId! }
+        );
       } catch (e) {
         console.error("[resolve-dispute] Stripe counter failed:", e instanceof Error ? e.message : e);
         throw new Error("Failed to submit evidence to Stripe");
@@ -169,7 +177,7 @@ export async function POST(req: Request) {
 
       // Load the tip
       const { data: tip } = await supabaseAdmin.from("tip_intents")
-        .select("receipt_id, creator_user_id, tip_amount, stripe_payment_intent_id, status")
+        .select("receipt_id, creator_user_id, tip_amount, stripe_payment_intent_id, stripe_account_id, status")
         .eq("receipt_id", approval.receipt_id)
         .maybeSingle();
 
@@ -185,7 +193,7 @@ export async function POST(req: Request) {
       try {
         stripeDispute = await executeResolution(
           approval.receipt_id, approval.action, approval.note,
-          tip.creator_user_id, tip.stripe_payment_intent_id, session.userId,
+          tip.creator_user_id, tip.stripe_payment_intent_id, tip.stripe_account_id ?? null, session.userId,
         );
       } catch (e) {
           // Release claim so another approver can retry after transient failures.
@@ -282,7 +290,7 @@ export async function POST(req: Request) {
 
     // Load the tip
     const { data: tip, error: tipErr } = await supabaseAdmin.from("tip_intents")
-      .select("receipt_id, creator_user_id, tip_amount, stripe_payment_intent_id, status")
+      .select("receipt_id, creator_user_id, tip_amount, stripe_payment_intent_id, stripe_account_id, status")
       .eq("receipt_id", receipt_id)
       .maybeSingle();
 
@@ -298,7 +306,7 @@ export async function POST(req: Request) {
       try {
         stripeDispute = await executeResolution(
           receipt_id, action, note.trim(),
-          tip.creator_user_id, tip.stripe_payment_intent_id, session.userId,
+          tip.creator_user_id, tip.stripe_payment_intent_id, tip.stripe_account_id ?? null, session.userId,
         );
       } catch {
         return NextResponse.json({ error: "Dispute action failed. Please try again." }, { status: 500 });

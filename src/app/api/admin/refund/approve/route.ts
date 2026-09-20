@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
-import { createRiskAlert } from "@/lib/riskAlerts";
 
 export const runtime = "nodejs";
 
@@ -145,7 +144,7 @@ export async function POST(req: Request) {
     // Load the tip
     const { data: tip } = await supabaseAdmin
       .from("tip_intents")
-      .select("receipt_id, stripe_payment_intent_id, tip_amount, refunded_amount, refund_status, creator_user_id")
+      .select("receipt_id, stripe_payment_intent_id, stripe_account_id, tip_amount, refunded_amount, refund_status, creator_user_id")
       .eq("receipt_id", refund.tip_intent_id)
       .single();
 
@@ -178,57 +177,15 @@ export async function POST(req: Request) {
       );
     }
 
-    // Identity lock: verify PaymentIntent destination matches creator's connected account
+    // Direct charge: refunds must be scoped to the exact connected account
+    // the PaymentIntent was created on (recorded at charge time).
     const { stripe } = await import("@/lib/stripe/server");
-    const { data: creatorProfile } = await supabaseAdmin
-      .from("profiles")
-      .select("stripe_account_id")
-      .eq("user_id", tip.creator_user_id)
-      .maybeSingle();
-
-    if (!creatorProfile?.stripe_account_id) {
+    if (!tip.stripe_account_id) {
       await supabaseAdmin.from("refund_requests").update({ status: "rejected", locked_at: null, locked_by: null }).eq("id", refund_id);
-      return NextResponse.json({ error: "Creator has no connected Stripe account" }, { status: 400 });
+      return NextResponse.json({ error: "Tip has no linked Stripe connected account — cannot process refund" }, { status: 400 });
     }
 
-    const pi = await stripe.paymentIntents.retrieve(tip.stripe_payment_intent_id);
-    const piDestination = typeof pi.transfer_data?.destination === "string"
-      ? pi.transfer_data.destination
-      : (pi.transfer_data?.destination as any)?.id ?? null;
-
-    if (piDestination !== creatorProfile.stripe_account_id) {
-      console.error(
-        `[ALERT] Refund destination mismatch for tip ${tip.receipt_id}: PI destination=${piDestination}, creator account=${creatorProfile.stripe_account_id}`
-      );
-      await createRiskAlert({
-        user_id: tip.creator_user_id,
-        type: "payment_mismatch",
-        message: `Refund blocked (approved): PI ${tip.stripe_payment_intent_id} destination ${piDestination} != creator account ${creatorProfile.stripe_account_id}`,
-        severity: "critical",
-      });
-      await supabaseAdmin.from("admin_actions").insert({
-        admin_id: adminId,
-        action: "refund_mismatch_block",
-        target_user: tip.creator_user_id,
-        metadata: {
-          tip_intent_id: tip.receipt_id,
-          pi_id: tip.stripe_payment_intent_id,
-          pi_destination: piDestination,
-          expected_account: creatorProfile.stripe_account_id,
-          expected_cents: Math.round(tipAmount * 100),
-          received_cents: pi.amount_received,
-          requested_refund_cents: Math.round(refundAmt * 100),
-          creator_account: creatorProfile.stripe_account_id,
-          refund_request_id: refund_id,
-        },
-        severity: "critical",
-      });
-      await supabaseAdmin.from("refund_requests").update({ status: "rejected", locked_at: null, locked_by: null }).eq("id", refund_id);
-      return NextResponse.json(
-        { error: "Payment destination mismatch — refusing refund to prevent funds routing error" },
-        { status: 409 }
-      );
-    }
+    const pi = await stripe.paymentIntents.retrieve(tip.stripe_payment_intent_id, { stripeAccount: tip.stripe_account_id });
 
     // Stripe source-of-truth: verify amount_received matches expected total (cents invariant)
     const toCents = (v: number) => Math.round(v * 100);
@@ -288,14 +245,13 @@ export async function POST(req: Request) {
         {
           payment_intent: tip.stripe_payment_intent_id,
           amount: Math.round(refundAmt * 100),
-          reverse_transfer: true,
           refund_application_fee: true,
           metadata: {
             tip_intent_id: tip.receipt_id,
             refund_request_id: refund_id,
           },
         },
-        { idempotencyKey }
+        { idempotencyKey, stripeAccount: tip.stripe_account_id }
       );
     } catch (e: unknown) {
       // Roll back tip status and release in-flight lock

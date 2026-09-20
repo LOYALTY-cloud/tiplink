@@ -56,7 +56,7 @@ function makeMockSupabase() {
             eq: (col: string, val: any) => ({ maybeSingle: async () => ({ data: intents[val] ?? null }) })
           }),
           insert: (payload: any) => ({ select: () => ({ single: async () => ({ data: payload }) }) }),
-          update: (payload: any) => ({ eq: async (col: string, val: any) => { const id = val as string; const intent = Object.values(intents).find((it: any) => it.id === id); if (intent) Object.assign(intent, payload); return { data: null }; } }),
+          update: (payload: any) => ({ eq: async (col: string, val: any) => { const intent = Object.values(intents).find((it: any) => it[col] === val); if (intent) Object.assign(intent, payload); return { data: null }; } }),
         };
       }
 
@@ -104,7 +104,7 @@ function makeMockSupabase() {
     },
     rpc: async (fn: string, args: any) => {
       if (fn === "apply_refund_slice") {
-        const tip = Object.values(intents).find((it: any) => it.id === args.p_tip_id) as any;
+        const tip = Object.values(intents).find((it: any) => it.receipt_id === args.p_tip_id) as any;
         if (!tip) return { error: { message: "tip_not_found" } };
 
         if (processedRefunds[args.p_refund_id]) {
