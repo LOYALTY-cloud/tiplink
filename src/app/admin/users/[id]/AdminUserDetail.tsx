@@ -685,7 +685,8 @@ export default function AdminUserDetailPage() {
     );
   }
 
-  const balance = Number(wallet?.balance ?? 0);
+  const liveBalance = Number(stripeBalance?.display_balance ?? 0);
+  const ledgerBalance = Number(wallet?.balance ?? 0);
   const owed = Number(profile.owed_balance ?? 0);
   const displayHandle = getDisplayHandle(profile.handle);
 
@@ -785,7 +786,7 @@ export default function AdminUserDetailPage() {
       <div className="flex gap-3 flex-wrap">
         <CaseBadge label="Disputes" value={disputeCount} color={disputeCount > 0 ? "red" : undefined} />
         <CaseBadge label="Refunds" value={tips.length} color={tips.length > 0 ? "yellow" : undefined} />
-        <CaseBadge label="Balance" value={`$${balance.toFixed(2)}`} color={balance < 0 ? "red" : undefined} />
+        <CaseBadge label="Live Balance" value={`$${liveBalance.toFixed(2)}`} color={liveBalance < 0 ? "red" : undefined} />
         <CaseBadge label="Owed" value={`$${owed.toFixed(2)}`} color={owed > 0 ? "red" : undefined} />
         <CaseBadge label="Trust" value={profile.trust_score ?? "—"} color={
           (profile.trust_score ?? 100) < 40 ? "red" : (profile.trust_score ?? 100) < 70 ? "yellow" : undefined
@@ -817,9 +818,9 @@ export default function AdminUserDetailPage() {
             </div>
 
             <div className={`${ui.card} p-5 bg-gradient-to-br from-white/[.04] to-transparent hover:scale-[1.01] transition-all duration-300`}>
-              <p className="text-[10px] text-white/40 uppercase tracking-wider mb-2">Balance</p>
-              <p className={`text-2xl font-bold mt-1 ${balance < 0 ? "text-red-400" : "text-green-400"}`}>
-                ${balance.toFixed(2)}
+              <p className="text-[10px] text-white/40 uppercase tracking-wider mb-2">Live Stripe Balance</p>
+              <p className={`text-2xl font-bold mt-1 ${liveBalance < 0 ? "text-red-400" : liveBalance > 0 ? "text-green-400" : "text-white/40"}`}>
+                ${liveBalance.toFixed(2)}
               </p>
               {owed > 0 && (
                 <p className="text-sm text-red-400 font-semibold mt-1">Owed: ${owed.toFixed(2)}</p>
@@ -847,18 +848,19 @@ export default function AdminUserDetailPage() {
             </div>
           </div>
 
-          {/* WALLET BALANCE BREAKDOWN — same view as the creator's wallet page */}
+          {/* WALLET BALANCE BREAKDOWN */}
           {stripeBalance?.stripe_account_id && (
             <div className={`${ui.card} p-5 space-y-3`}>
               <p className="text-[10px] text-white/40 uppercase tracking-wider">Wallet Breakdown (what creator sees)</p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {/* Mirrors wallet page: stripeTotal > 0 ? stripeTotal : dbBalance */}
                 <div className="bg-white/5 rounded-xl p-3">
-                  <p className="text-[10px] text-white/40 mb-1">Creator Balance</p>
+                  <p className="text-[10px] text-white/40 mb-1">Live Stripe Balance</p>
                   <p className={`text-lg font-bold ${stripeBalance.display_balance > 0 ? "text-green-400" : "text-white/40"}`}>
                     ${stripeBalance.display_balance.toFixed(2)}
                   </p>
-                  <p className="text-[10px] text-white/30 mt-0.5">{stripeBalance.available > 0 ? "Stripe settled" : "Platform ledger"}</p>
+                  <p className="text-[10px] text-white/30 mt-0.5">
+                    {stripeBalance.available > 0 ? "Stripe settled" : stripeBalance.pending > 0 ? "Stripe pending" : "No live funds"}
+                  </p>
                 </div>
                 {/* Mirrors wallet page: stripeInstantNet > 0 ? stripeInstantNet : stripeAvailable */}
                 <div className="bg-white/5 rounded-xl p-3">
@@ -883,14 +885,14 @@ export default function AdminUserDetailPage() {
                 </div>
                 <div className="bg-white/5 rounded-xl p-3">
                   <p className="text-[10px] text-white/40 mb-1">Platform Ledger</p>
-                  <p className={`text-lg font-bold ${balance < 0 ? "text-red-400" : balance > 0 ? "text-green-400" : "text-white/40"}`}>
-                    ${balance.toFixed(2)}
+                  <p className={`text-lg font-bold ${ledgerBalance < 0 ? "text-red-400" : ledgerBalance > 0 ? "text-green-400" : "text-white/40"}`}>
+                    ${ledgerBalance.toFixed(2)}
                   </p>
                   <p className="text-[10px] text-white/30 mt-0.5">Internal record</p>
                 </div>
               </div>
               {stripeBalance.available === 0 && stripeBalance.pending === 0 && (
-                <p className="text-xs text-white/30 italic">No live Stripe balance — creator balance is sourced from platform ledger.</p>
+                <p className="text-xs text-white/30 italic">No live Stripe funds. The platform ledger is shown separately.</p>
               )}
             </div>
           )}

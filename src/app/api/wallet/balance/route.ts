@@ -20,8 +20,6 @@ export async function GET(req: Request) {
       .maybeSingle()
       .returns<WalletRow | null>();
 
-    const dbBalance = Number(wallet?.balance ?? 0);
-
     // Fetch Stripe connected account for the real Stripe balances
     const { data: profile } = await supabaseAdmin
       .from("profiles")
@@ -98,10 +96,10 @@ export async function GET(req: Request) {
       }
     }
 
-    // Available balance = only SETTLED Stripe funds (ready for standard payout now)
-    // available = settled funds (withdrawable via standard payout immediately)
-    // pending   = in-transit (not yet settled, available in 2-3 business days)
-    const availableBalance = stripeAvailable > 0 ? stripeAvailable : dbBalance;
+    // Available balance = only SETTLED Stripe funds (ready for standard payout now).
+    // Keep the internal wallet ledger out of this value so a stale ledger entry
+    // cannot be presented as withdrawable Stripe money.
+    const availableBalance = stripeAvailable;
 
     // Available Soon = only Stripe pending (not yet settled)
     const availableSoon = stripePending;
