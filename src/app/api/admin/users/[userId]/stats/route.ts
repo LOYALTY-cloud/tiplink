@@ -91,11 +91,10 @@ export async function GET(
       } catch { /* non-fatal — Stripe may be unavailable */ }
     }
 
-    // Mirror the exact same fallback logic as /api/wallet/balance so admin
-    // sees what the creator actually sees on their wallet page.
-    const dbBalance = Number(walletRes.data?.balance ?? 0);
+    // Creator balance must represent live Stripe funds only. The database
+    // wallet is returned separately as the platform ledger.
     const stripeTotal = stripeAvailable + stripePending;
-    const displayBalance = stripeTotal > 0 ? stripeTotal : dbBalance;
+    const displayBalance = stripeTotal;
     const instantAvailable = stripeInstantNet > 0 ? stripeInstantNet : stripeAvailable;
 
     return NextResponse.json({
