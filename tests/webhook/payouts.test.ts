@@ -5,6 +5,8 @@ function makeMockSupabase() {
   const events: Record<string, any> = {};
   const locks: Record<string, any> = {};
   const withdrawals: Record<string, any> = {};
+  const profiles: Record<string, any> = {};
+  const wallets: Record<string, any> = {};
 
   function makeWalletLockDeleteQuery() {
     const filters: Record<string, any> = {};
@@ -127,6 +129,26 @@ function makeMockSupabase() {
         };
       }
 
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: (_col: string, val: any) => ({
+              maybeSingle: async () => ({ data: profiles[String(val)] ?? null }),
+            }),
+          }),
+        };
+      }
+
+      if (table === "wallets") {
+        return {
+          select: () => ({
+            eq: (_col: string, val: any) => ({
+              maybeSingle: async () => ({ data: wallets[String(val)] ?? null }),
+            }),
+          }),
+        };
+      }
+
       if (table === "transactions_ledger") {
         const state: any = {
           user_id: null,
@@ -160,6 +182,12 @@ function makeMockSupabase() {
       withdrawals[id] = row;
     },
     __getWithdrawal: (id: string) => withdrawals[id],
+    __seedProfile: (stripeAccountId: string, row: any) => {
+      profiles[stripeAccountId] = row;
+    },
+    __seedWallet: (userId: string, row: any) => {
+      wallets[userId] = row;
+    },
   } as any;
 }
 
@@ -302,6 +330,42 @@ async function testPayoutCreatedExpressNoOp() {
   await handleStripeEvent(event, supabase, async () => null);
 }
 
+async function testPayoutPaidExpressKeepsStripeIdOutOfUuidReference() {
+  const supabase = makeMockSupabase();
+  const userId = crypto.randomUUID();
+  const stripeAccountId = `acct_${crypto.randomUUID()}`;
+  const payoutId = `po_${crypto.randomUUID()}`;
+  let ledgerEntry: any = null;
+
+  supabase.__seedProfile(stripeAccountId, { user_id: userId });
+  supabase.__seedWallet(userId, { balance: 50 });
+
+  const event = {
+    id: `evt_${crypto.randomUUID()}`,
+    account: stripeAccountId,
+    type: "payout.paid",
+    data: {
+      object: {
+        id: payoutId,
+        amount: 2500,
+        currency: "usd",
+        metadata: {},
+      },
+    },
+  } as any;
+
+  await handleStripeEvent(event, supabase, async (entry: any) => {
+    ledgerEntry = entry;
+  });
+
+  if (ledgerEntry?.reference_id !== null) {
+    throw new Error(`Expected null ledger reference_id, got '${String(ledgerEntry?.reference_id)}'`);
+  }
+  if (ledgerEntry?.meta?.stripe_payout_id !== payoutId) {
+    throw new Error("Expected Stripe payout ID in ledger metadata");
+  }
+}
+
 async function testPayoutCanceledMarksCanceled() {
   const supabase = makeMockSupabase();
   const withdrawalId = `wd_${crypto.randomUUID()}`;
@@ -377,6 +441,7 @@ async function run() {
   await testPayoutCreatedAdvancesToProcessing();
   await testPayoutCreatedNoOpForNonPending();
   await testPayoutCreatedExpressNoOp();
+  await testPayoutPaidExpressKeepsStripeIdOutOfUuidReference();
   await testPayoutCanceledMarksCanceled();
   await testPayoutCanceledExpressNoOp();
   await testPayoutReconciliationCompleted();

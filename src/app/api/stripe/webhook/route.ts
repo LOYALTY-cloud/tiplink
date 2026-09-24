@@ -1365,7 +1365,7 @@ export async function handleStripeEvent(
                   user_id: expressUserId,
                     type: "withdrawal_express",
                     amount: Number((-deductAmount).toFixed(2)),
-                    reference_id: payout.id,
+                    reference_id: null,
                     meta: {
                       action: "express_payout",
                       stripe_payout_id: payout.id,

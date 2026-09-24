@@ -91,9 +91,13 @@ async function setupWebhooks() {
   const platformExists = existing.data.find(ep =>
     ep.url === WEBHOOK_URL && !ep.application
   );
-  const connectExists = existing.data.find(ep =>
+  const connectEndpoints = existing.data.filter(ep =>
     ep.url === WEBHOOK_URL && !!ep.application
   );
+  const connectExists =
+    connectEndpoints.find(ep => ep.status === "enabled" && ep.description === "1neLink Connect webhook") ||
+    connectEndpoints.find(ep => ep.status === "enabled") ||
+    connectEndpoints[0];
 
   let platformSecret = null;
   let connectSecret = null;
