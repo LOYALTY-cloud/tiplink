@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     // Only restricted accounts can request review
     const { data: profile } = await supabaseAdmin
       .from("profiles")
-      .select("account_status")
+      .select("account_status, restriction_level, risk_level")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -65,11 +65,18 @@ export async function POST(req: Request) {
     await createAdminNotification({
       type: "review_request",
       title: "Account Review Requested",
-      message: `${displayName} has requested a review of their restricted account.`,
+      message: `${displayName} has requested an account review.`,
       link: `/admin/users/${userId}`,
       priority: "high",
       requiresAction: true,
-      metadata: { user_id: userId, display_name: displayName, source: "dashboard" },
+      metadata: {
+        user_id: userId,
+        display_name: displayName,
+        source: "dashboard",
+        account_status_at_request: profile.account_status,
+        restriction_level_at_request: profile.restriction_level,
+        risk_level_at_request: profile.risk_level,
+      },
     });
 
     return NextResponse.json({ ok: true });

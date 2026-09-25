@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
+import { resolveStaleAccountReviewNotifications } from "@/lib/adminNotifications";
 
 export const runtime = "nodejs";
 
@@ -105,6 +106,8 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const includeRead = url.searchParams.get("includeRead") === "1";
     const includeHistory = url.searchParams.get("includeHistory") === "1";
+
+    await resolveStaleAccountReviewNotifications();
 
     const { data, error } = await supabaseAdmin
       .from("admin_notifications")

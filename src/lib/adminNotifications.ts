@@ -119,6 +119,56 @@ export async function createAdminNotification({
   });
 }
 
+export async function resolveStaleAccountReviewNotifications(): Promise<number> {
+  const { data: notifications, error: notificationError } = await supabaseAdmin
+    .from("admin_notifications")
+    .select("id, metadata")
+    .eq("type", "review_request")
+    .eq("archived", false)
+    .in("status", ["open", "in_progress"])
+    .limit(240);
+
+  if (notificationError || !notifications?.length) return 0;
+
+  const userIds = [
+    ...new Set(
+      notifications
+        .map((notification) => notification.metadata?.user_id)
+        .filter((userId): userId is string => typeof userId === "string"),
+    ),
+  ];
+  if (!userIds.length) return 0;
+
+  const { data: profiles, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("user_id, account_status")
+    .in("user_id", userIds);
+
+  if (profileError) return 0;
+
+  const restrictedUserIds = new Set(
+    (profiles ?? [])
+      .filter((profile) => profile.account_status === "restricted")
+      .map((profile) => profile.user_id),
+  );
+  const staleIds = notifications
+    .filter((notification) => {
+      const userId = notification.metadata?.user_id;
+      return typeof userId === "string" && !restrictedUserIds.has(userId);
+    })
+    .map((notification) => notification.id);
+
+  if (!staleIds.length) return 0;
+
+  const now = new Date().toISOString();
+  const { error: updateError } = await supabaseAdmin
+    .from("admin_notifications")
+    .update({ status: "resolved", archived: true, resolved_at: now, updated_at: now })
+    .in("id", staleIds);
+
+  return updateError ? 0 : staleIds.length;
+}
+
 type NotifyDisciplinaryReportIssuedParams = {
   adminId: string;
   ticketId: string;
