@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAdminFromRequest } from "@/lib/auth/getAdminFromSession";
 import { requireRole } from "@/lib/auth/requireRole";
+import { getConnectedUsdBalance } from "@/lib/stripe/connectedBalance";
 
 export const runtime = "nodejs";
 
@@ -67,18 +68,16 @@ export async function GET(req: Request) {
       .order("created_at", { ascending: true });
 
     // 6. Fetch creator profile
-    const { data: creator } = await supabaseAdmin
+    const { data: creatorProfile } = await supabaseAdmin
       .from("profiles")
-      .select("handle, display_name")
+      .select("handle, display_name, stripe_account_id")
       .eq("user_id", tip.creator_user_id)
       .maybeSingle();
 
-    // 7. Fetch wallet balance
-    const { data: wallet } = await supabaseAdmin
-      .from("wallets")
-      .select("balance")
-      .eq("user_id", tip.creator_user_id)
-      .maybeSingle();
+    // 7. Fetch live Stripe balance
+    const stripeBalance = creatorProfile?.stripe_account_id
+      ? await getConnectedUsdBalance(creatorProfile.stripe_account_id)
+      : { available: 0, pending: 0, total: 0 };
 
     // 8. Fetch disputes linked to this creator (tip_intents with status=disputed)
     const { data: creatorDisputes } = await supabaseAdmin
@@ -202,8 +201,11 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       tip,
-      creator: creator ?? null,
-      balance: Number(wallet?.balance ?? 0),
+      creator: creatorProfile ? {
+        handle: creatorProfile.handle,
+        display_name: creatorProfile.display_name,
+      } : null,
+      stripe_balance: stripeBalance,
       timeline,
       actorMap,
       riskAlerts: riskAlerts ?? [],

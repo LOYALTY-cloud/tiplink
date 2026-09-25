@@ -619,7 +619,8 @@ export default function AdminUserDetailPage() {
     setExporting(true);
     try {
       const displayHandle = getDisplayHandle(profile.handle);
-      const bal = Number(wallet?.balance ?? 0);
+      const liveStripeBalance = Number(stripeBalance?.display_balance ?? 0);
+      const platformLedgerBalance = Number(wallet?.balance ?? 0);
       const ow = Number(profile.owed_balance ?? 0);
       const sev = (() => {
         const rl = profile.restriction_level;
@@ -637,7 +638,8 @@ export default function AdminUserDetailPage() {
         accountStatus: profile.account_status,
         statusReason: profile.status_reason,
         createdAt: profile.created_at,
-        balance: bal,
+        liveStripeBalance,
+        platformLedgerBalance,
         owedBalance: ow,
         isFlagged: !!profile.is_flagged,
         disputeCount,
