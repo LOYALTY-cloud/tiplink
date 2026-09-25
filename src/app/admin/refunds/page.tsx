@@ -21,8 +21,8 @@ type RefundTip = {
 type ConfirmState = {
   tipId: string;
   refundAmount: number;
-  creatorBalance: number;
-  newBalance: number;
+  stripeBalance: number;
+  projectedStripeBalance: number;
 } | null;
 
 type TimelineEvent = {
@@ -56,7 +56,7 @@ type LinkedDispute = {
 type RefundDetail = {
   tip: RefundTip;
   creator: { handle: string | null; display_name: string | null } | null;
-  balance: number;
+  stripe_balance: { available: number; pending: number; total: number };
   timeline: TimelineEvent[];
   actorMap: Record<string, string>;
   riskAlerts: RiskAlert[];
@@ -132,7 +132,7 @@ export default function AdminRefundsPage() {
     const headers = getAdminHeaders();
     if (!headers["X-Admin-Id"]) { setActing(null); return; }
 
-    // Risk check: fetch creator balance via API
+    // Risk check: fetch creator's live Stripe balance via API
     const tip = tips.find((t) => t.receipt_id === tipId);
     if (tip) {
       const remaining = Number(tip.tip_amount) - Number(tip.refunded_amount ?? 0);
@@ -142,13 +142,13 @@ export default function AdminRefundsPage() {
           { headers }
         );
         if (balRes.ok) {
-          const { balance } = await balRes.json();
-          if (remaining > balance) {
+          const { stripe_balance: stripeBalance } = await balRes.json();
+          if (remaining > stripeBalance.total) {
             setConfirmModal({
               tipId,
               refundAmount: remaining,
-              creatorBalance: balance,
-              newBalance: balance - remaining,
+              stripeBalance: stripeBalance.total,
+              projectedStripeBalance: stripeBalance.total - remaining,
             });
             return; // Wait for modal confirmation
           }
@@ -462,9 +462,9 @@ export default function AdminRefundsPage() {
                           </div>
                           {detailCache[t.receipt_id] && (
                             <div className="text-right">
-                              <p className={`text-xs ${ui.muted2}`}>Balance</p>
-                              <p className={`font-semibold text-sm ${detailCache[t.receipt_id].balance < remaining ? "text-red-400" : "text-green-400"}`}>
-                                ${detailCache[t.receipt_id].balance.toFixed(2)}
+                              <p className={`text-xs ${ui.muted2}`}>Live Stripe Balance</p>
+                              <p className={`font-semibold text-sm ${detailCache[t.receipt_id].stripe_balance.total < remaining ? "text-red-400" : "text-green-400"}`}>
+                                ${detailCache[t.receipt_id].stripe_balance.total.toFixed(2)}
                               </p>
                             </div>
                           )}
@@ -734,20 +734,20 @@ export default function AdminRefundsPage() {
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className={`${ui.card} p-6 w-full max-w-[420px] space-y-4`}>
             <h2 className="text-lg font-semibold text-red-400">
-              ⚠ This refund will push the account negative
+              ⚠ Refund exceeds live Stripe balance
             </h2>
             <div className="space-y-1 text-sm">
               <p>
-                <span className={ui.muted2}>Creator balance:</span>{" "}
-                <span className="font-semibold">${confirmModal.creatorBalance.toFixed(2)}</span>
+                <span className={ui.muted2}>Live Stripe balance:</span>{" "}
+                <span className="font-semibold">${confirmModal.stripeBalance.toFixed(2)}</span>
               </p>
               <p>
                 <span className={ui.muted2}>Refund amount:</span>{" "}
                 <span className="font-semibold text-orange-400">${confirmModal.refundAmount.toFixed(2)}</span>
               </p>
               <p>
-                <span className={ui.muted2}>New balance:</span>{" "}
-                <span className="font-bold text-red-400">${confirmModal.newBalance.toFixed(2)}</span>
+                <span className={ui.muted2}>Projected Stripe balance:</span>{" "}
+                <span className="font-bold text-red-400">${confirmModal.projectedStripeBalance.toFixed(2)}</span>
               </p>
             </div>
             <div className="flex justify-end gap-3 pt-2">

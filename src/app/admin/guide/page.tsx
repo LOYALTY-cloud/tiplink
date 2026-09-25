@@ -344,7 +344,7 @@ export default function AdminGuidePage() {
                   <li>File and image uploads (up to 10 MB)</li>
                   <li>AI-suggested replies appear after each user message — click to use, or type your own</li>
                   <li>Smart menu: send wallet link, onboarding link, password reset link, or transaction link</li>
-                  <li>User Card sidebar: slide-in panel showing the user&apos;s profile, wallet balance, recent transactions, and past support sessions</li>
+                  <li>User Card sidebar: slide-in panel showing the user&apos;s profile, live Stripe balance, recent transactions, and past support sessions</li>
                 </ul>
               </div>
 
@@ -619,7 +619,7 @@ export default function AdminGuidePage() {
                     <p className="text-xs font-medium text-white mb-1">Info Cards (3 across)</p>
                     <ul className="text-xs text-white/60 space-y-1">
                       <li><strong className="text-blue-400">Account</strong> — @handle, user ID, join date, role, status, status reason</li>
-                      <li><strong className="text-emerald-400">Balance</strong> — wallet balance (green if positive, red if negative), owed balance</li>
+                      <li><strong className="text-emerald-400">Balance</strong> — live Stripe balance (green if positive), owed balance</li>
                       <li><strong className="text-amber-400">Risk</strong> — risk level (LOW/MEDIUM/HIGH), dispute count, flagged indicator</li>
                     </ul>
                   </div>
@@ -884,8 +884,8 @@ export default function AdminGuidePage() {
               <div>
                 <p className="text-sm font-semibold text-white mb-1">Your Actions</p>
                 <ul className="text-xs text-white/60 space-y-1">
-                  <li><strong className="text-white">Initiate Refund</strong> — starts a refund via Stripe. If the user&apos;s wallet balance is less than the refund amount, 
-                    a warning shows that this will result in a negative balance — you must confirm.</li>
+                  <li><strong className="text-white">Initiate Refund</strong> — starts a refund via Stripe. If the user&apos;s live Stripe balance is less than the refund amount,
+                    a warning shows the projected Stripe balance — you must confirm.</li>
                   <li><strong className="text-white">Retry</strong> — appears on stuck refunds (initiated &gt;10 min). Re-sends to Stripe.</li>
                 </ul>
                 <p className="text-xs text-white/50 mt-1">Rate limited: max 3 refund actions per minute per admin.</p>

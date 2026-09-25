@@ -217,7 +217,7 @@ type UserCard = {
     created_at: string;
     is_flagged: boolean | null;
   } | null;
-  wallet: { balance: number } | null;
+  stripe_balance: { available: number; pending: number; total: number };
   transactions: Array<{ id: string; type: string; amount: number; status: string | null; created_at: string }>;
   tipCount: number;
   supportSessions: Array<{
@@ -1063,11 +1063,14 @@ export default function AdminChatPage() {
                     )}
                   </div>
 
-                  {/* Wallet */}
+                  {/* Balance */}
                   <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-                    <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Wallet</p>
+                    <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Live Stripe Balance</p>
                     <p className="text-lg font-semibold">
-                      ${userCard.wallet ? (userCard.wallet.balance / 100).toFixed(2) : "0.00"}
+                      ${userCard.stripe_balance.total.toFixed(2)}
+                    </p>
+                    <p className="text-[10px] text-white/30 mt-0.5">
+                      ${userCard.stripe_balance.available.toFixed(2)} available · ${userCard.stripe_balance.pending.toFixed(2)} pending
                     </p>
                     <p className="text-[10px] text-white/30 mt-0.5">{userCard.tipCount} tips received</p>
                   </div>
