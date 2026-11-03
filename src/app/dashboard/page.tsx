@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 // ActivatePayoutsCard removed — payouts UI simplified
 import { StripeReturnSync } from "@/components/StripeReturnSync";
 import { ui } from "@/lib/ui";
+import { DEV_INSTANT_WITHDRAWALS_ENABLED } from "@/../dev-instant-withdrawal/config";
 import EarningsCard from "@/components/EarningsCard";
 import VerifyEmailBanner from "@/components/VerifyEmailBanner";
 import StripeRestrictionModal from "@/components/StripeRestrictionModal";
@@ -41,6 +42,9 @@ export default function DashboardPage() {
   const [stripeAvailable, setStripeAvailable] = useState<number | null>(null);
   const [pendingAmount, setPendingAmount] = useState<number | null>(null);
   const [pendingAvailableOn, setPendingAvailableOn] = useState<string | null>(null);
+  const [withdrawCardMode, setWithdrawCardMode] = useState<"instant" | "standard">(
+    DEV_INSTANT_WITHDRAWALS_ENABLED ? "instant" : "standard",
+  );
 
   // Remove the retired instant-withdrawal preference from older sessions.
   useEffect(() => {
@@ -522,18 +526,30 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Standard withdrawal card while instant payouts are unavailable */}
+        {/* Standard-only in production; instant is available only in local dev. */}
         <div className="relative rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">Standard Withdrawal</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs uppercase tracking-[0.18em] text-emerald-300">
+              {withdrawCardMode === "instant" ? "Instant Withdrawal" : "Standard Withdrawal"}
+            </p>
+            {DEV_INSTANT_WITHDRAWALS_ENABLED && (
+              <div className="flex items-center gap-1 text-xs">
+                <button type="button" onClick={() => setWithdrawCardMode("instant")} className={withdrawCardMode === "instant" ? "text-emerald-300" : "text-white/40"}>⚡</button>
+                <button type="button" onClick={() => setWithdrawCardMode("standard")} className={withdrawCardMode === "standard" ? "text-blue-300" : "text-white/40"}>🏦</button>
+              </div>
+            )}
           </div>
 
           <p className={`mt-2 text-3xl font-bold ${loadingWallet ? "text-emerald-400/20 animate-pulse" : "text-emerald-400"}`}>
             {loadingWallet
               ? "$—.——"
-              : formatMoney(getNetWithdrawalAmount(stripeAvailable ?? 0, "standard"))}
+              : withdrawCardMode === "instant"
+                ? formatMoney(instantAvailable ?? 0)
+                : formatMoney(getNetWithdrawalAmount(stripeAvailable ?? 0, "standard"))}
           </p>
-          <p className="mt-1 text-xs text-emerald-300">🏦 1–3 business days</p>
+          <p className="mt-1 text-xs text-emerald-300">
+            {withdrawCardMode === "instant" ? "⚡ Available now" : "🏦 1–3 business days"}
+          </p>
         </div>
       </div>
 

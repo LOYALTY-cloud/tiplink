@@ -1845,6 +1845,40 @@ export async function handleStripeEvent(
         try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (_e) {}
       }
 
+      // Pre-migration destination charges leave the platform liable; claw the funds back from the creator.
+      try {
+        const { recoverLegacyDestinationDispute } = await import("@/lib/stripe/legacyDisputeRecovery");
+        const [{ stripe: stripeClient }, { sendEmail }] = await Promise.all([
+          import("@/lib/stripe/server"),
+          import("@/lib/emailService"),
+        ]);
+        const recovery = await recoverLegacyDestinationDispute(
+          {
+            stripe: stripeClient,
+            supabase: supabaseClient,
+            ledgerFn,
+            sendEmail,
+            createNotification,
+            platformAccountId: process.env.STRIPE_PLATFORM_ACCOUNT_ID,
+          },
+          {
+            dispute,
+            eventAccount: typeof (event as any)?.account === "string" ? (event as any).account : null,
+            eventId: event.id,
+            tip: { receipt_id: tipIntent.receipt_id, creator_user_id: tipIntent.creator_user_id },
+          }
+        );
+        console.log(`[dispute-recovery] ${dispute.id}: ${recovery.status}`, recovery);
+      } catch (e) {
+        console.error(`[ALERT] dispute auto-recovery failed for ${dispute.id}:`, e);
+        sendAdminAlert({
+          subject: "Dispute auto-recovery failed",
+          body: `Platform was charged for dispute ${dispute.id} but automatic recovery from the creator failed: ${e instanceof Error ? e.message : String(e)}. Run the manual recovery script.`,
+          severity: "critical",
+          meta: { stripe_dispute_id: dispute.id, receipt_id: tipIntent.receipt_id, user_id: tipIntent.creator_user_id },
+        });
+      }
+
       // Risk engine: evaluate after dispute (will catch compound risk signals)
       try {
         const { evaluateRisk } = await import("@/lib/riskEngine");
@@ -2030,6 +2064,26 @@ export async function handleStripeEvent(
             .eq("user_id", tipIntent.creator_user_id);
         } finally {
           try { await releaseWalletLock(supabaseClient, tipIntent.creator_user_id, "withdrawal"); } catch (_) {}
+        }
+
+        // If funds were clawed back from the creator earlier, return the principal now that the platform is credited.
+        try {
+          const { reimburseRecoveredDisputeWin } = await import("@/lib/stripe/legacyDisputeRecovery");
+          const { stripe: stripeClient } = await import("@/lib/stripe/server");
+          const { sendEmail } = await import("@/lib/emailService");
+          const reimbursement = await reimburseRecoveredDisputeWin(
+            { stripe: stripeClient, supabase: supabaseClient, ledgerFn, sendEmail, createNotification },
+            { dispute, tip: { receipt_id: tipIntent.receipt_id, creator_user_id: tipIntent.creator_user_id } }
+          );
+          console.log(`[dispute-recovery] won ${dispute.id}: ${reimbursement.status}`, reimbursement);
+        } catch (e) {
+          console.error(`[ALERT] won-dispute reimbursement failed for ${dispute.id}:`, e);
+          sendAdminAlert({
+            subject: "Won dispute reimbursement failed",
+            body: `Dispute ${dispute.id} was won but returning the recovered principal to the creator failed: ${e instanceof Error ? e.message : String(e)}. Return it manually.`,
+            severity: "critical",
+            meta: { stripe_dispute_id: dispute.id, receipt_id: tipIntent.receipt_id, user_id: tipIntent.creator_user_id },
+          });
         }
       } else if (dispute.status === "lost") {
         await supabaseClient

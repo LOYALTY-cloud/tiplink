@@ -9,6 +9,10 @@ const route = readFileSync(
 
 test("rejected Stripe accounts use Account Settings instead of an impossible account link", () => {
   assert.match(route, /const rejected = profile\.stripe_disabled_reason\?\.startsWith\("rejected\."\)/);
-  assert.match(route, /let onboardingUrl = `\$\{APP_URL\}\/dashboard\/account`/);
-  assert.match(route, /if \(!rejected\)/);
+  assert.match(route, /rejected\s*\? `\$\{APP_URL\}\/dashboard\/account`/);
+});
+
+test("reminder links to embedded onboarding, never a Stripe-hosted account link", () => {
+  assert.match(route, /`\$\{APP_URL\}\/dashboard\/onboarding`/);
+  assert.doesNotMatch(route, /accountLinks/);
 });

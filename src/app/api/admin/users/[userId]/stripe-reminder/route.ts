@@ -94,9 +94,9 @@ function buildReminderEmail({
     }
 
     <p style="margin:16px 0 8px;color:#444;font-size:14px;">
-      {rejected
+      ${rejected
         ? "Your Stripe account needs review. Log in to 1neLink and open Account Settings to review the rejection and available appeal steps."
-        : "Click the button below to open Stripe's secure verification portal and complete the required steps:"}
+        : "Click the button below to log in to 1neLink and complete the required steps:"}
     </p>
 
     <div style="text-align:center;margin:24px 0;">
@@ -177,27 +177,11 @@ export async function POST(
   const pastDue = (profile.stripe_past_due as string[] | null) ?? [];
   const rejected = profile.stripe_disabled_reason?.startsWith("rejected.") ?? false;
 
-  // Rejected accounts cannot receive Stripe account links. They need to review
-  // the rejection and appeal from the authenticated 1neLink account settings.
-  let onboardingUrl = `${APP_URL}/dashboard/account`;
-  try {
-    if (!rejected) {
-      const { stripe } = await import("@/lib/stripe/server");
-      const accountLink = await stripe.accountLinks.create({
-        account: profile.stripe_account_id as string,
-        refresh_url: `${APP_URL}/dashboard/account`,
-        return_url: `${APP_URL}/dashboard/account?stripe_return=1`,
-        type: "account_onboarding",
-      });
-      onboardingUrl = accountLink.url;
-    }
-  } catch (err) {
-    console.error("[stripe-reminder] Failed to create account link:", err);
-    return NextResponse.json(
-      { error: "Failed to generate Stripe verification link" },
-      { status: 500 }
-    );
-  }
+  // Verification happens in embedded onboarding inside 1neLink; never send users
+  // to a Stripe-hosted page. Rejected accounts review/appeal in Account Settings.
+  const onboardingUrl = rejected
+    ? `${APP_URL}/dashboard/account`
+    : `${APP_URL}/dashboard/onboarding`;
 
   const reminderNumber = sentCount + 1;
 

@@ -17,6 +17,7 @@ import { fireConfetti } from "@/lib/confetti";
 import { ui } from "@/lib/ui";
 import { formatMoney, getWithdrawalFee } from "@/lib/walletFees";
 import WalletLockScreen from "@/components/wallet/WalletLockScreen";
+import { DEV_INSTANT_WITHDRAWALS_ENABLED } from "@/../dev-instant-withdrawal/config";
 
 interface WithdrawalReceipt {
   withdrawal_id: string;
@@ -61,7 +62,9 @@ export default function WalletPage() {
   const [stripeInstantNet, setStripeInstantNet] = useState<number | null>(null);
   const [availableSoon, setAvailableSoon] = useState<number | null>(null);
   const [pendingAvailableOn, setPendingAvailableOn] = useState<string | null>(null);
-  const [withdrawMode, setWithdrawMode] = useState<"instant" | "standard">("instant");
+  const [withdrawMode, setWithdrawMode] = useState<"instant" | "standard">(
+    DEV_INSTANT_WITHDRAWALS_ENABLED ? "instant" : "standard",
+  );
   const { toasts, show: showToast, dismiss } = useToast(4000);
   const router = useRouter();
   
@@ -176,7 +179,9 @@ export default function WalletPage() {
 
   // Standard withdrawals use settled Stripe funds; instant withdrawals use
   // Stripe's instant-payout ceiling, which can include eligible pending funds.
-  const effectiveMax = availableBalance;
+  const effectiveMax = withdrawMode === "standard"
+    ? availableBalance
+    : stripeInstantNet ?? availableBalance;
   const amountTooLow = amount > 0 && amount < 1;
   const amountTooHigh = amount > effectiveMax;
   const invalid = amount <= 0 || amountTooLow || amountTooHigh;
@@ -602,7 +607,7 @@ export default function WalletPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ amount, destination, payout_type: "standard" }),
+        body: JSON.stringify({ amount, destination, payout_type: withdrawMode }),
       });
       json = await res.json();
     } catch {
@@ -887,10 +892,39 @@ export default function WalletPage() {
       <div id="withdraw-section" className={`${ui.card} mt-6 p-4 space-y-4`}>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white/90">Withdraw</h2>
-          <span className="text-xs font-semibold text-blue-300">🏦 Standard</span>
+          {DEV_INSTANT_WITHDRAWALS_ENABLED ? (
+            <div className="flex items-center bg-white/5 border border-white/10 rounded-xl p-0.5">
+              <button
+                type="button"
+                onClick={() => setWithdrawMode("instant")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  withdrawMode === "instant"
+                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                    : "text-white/40 hover:text-white/60"
+                }`}
+              >
+                ⚡ Instant
+              </button>
+              <button
+                type="button"
+                onClick={() => setWithdrawMode("standard")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  withdrawMode === "standard"
+                    ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                    : "text-white/40 hover:text-white/60"
+                }`}
+              >
+                🏦 Standard
+              </button>
+            </div>
+          ) : (
+            <span className="text-xs font-semibold text-blue-300">🏦 Standard</span>
+          )}
         </div>
         <p className="text-xs text-white/40 -mt-2">
-          🏦 Arrives in 1–3 business days · no fees
+          {withdrawMode === "instant"
+            ? "⚡ Arrives in minutes"
+            : "🏦 Arrives in 1–3 business days · no fees"}
         </p>
 
         {/* Payout Method Selector */}
@@ -905,7 +939,9 @@ export default function WalletPage() {
               <span>💳</span>
               {allMethods[0].brand ? `${String(allMethods[0].brand).toUpperCase()} ` : ""}{"\u2022\u2022\u2022\u2022"} {allMethods[0].last4}
             </div>
-            <span className={`${ui.chip} bg-blue-500/10 border-blue-400/20 text-blue-200`}>Standard</span>
+            <span className={`${ui.chip} ${DEV_INSTANT_WITHDRAWALS_ENABLED && withdrawMode === "instant" ? "bg-emerald-500/10 border-emerald-400/20 text-emerald-200" : "bg-blue-500/10 border-blue-400/20 text-blue-200"}`}>
+              {DEV_INSTANT_WITHDRAWALS_ENABLED && withdrawMode === "instant" ? "Instant" : "Standard"}
+            </span>
           </div>
         ) : (
           <div className={`${ui.cardInner} p-3`}>
@@ -993,7 +1029,7 @@ export default function WalletPage() {
             <span className="text-sm text-white/60">Withdrawal amount</span>
             <span className="text-sm font-semibold text-white/90">{formatMoney(amount || 0)}</span>
           </div>
-          {amount > 0 && (
+          {withdrawMode === "instant" && amount > 0 && (
             <>
               <div className="border-t border-white/10 pt-2 flex items-center justify-between">
                 <span className="text-sm font-semibold text-white/80">You receive</span>

@@ -22,6 +22,7 @@ import { evaluateIpReputation } from "@/lib/ipReputation";
 import { getCreatorCategoryByName } from "@/lib/creatorCategoriesServer";
 import { emitSecurityEvent } from "@/lib/security-event";
 import type { ProfileRow } from "@/types/db";
+import { DEV_INSTANT_WITHDRAWALS_ENABLED } from "@/../dev-instant-withdrawal/config";
 
 export const runtime = "nodejs";
 
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
     const amt = Number(amount);
     const payoutType: "instant" | "standard" = payout_type === "standard" ? "standard" : "instant";
 
-    if (payout_type !== "standard") {
+    if (payout_type !== "standard" && !DEV_INSTANT_WITHDRAWALS_ENABLED) {
       return NextResponse.json(
         { error: "Instant withdrawals are temporarily unavailable. Please use a standard withdrawal." },
         { status: 503 },
@@ -214,7 +215,9 @@ export async function POST(req: Request) {
 
     // Run state-driven withdrawal safety rules
     if (prof) {
-      const check = validateWithdrawal(prof, amt, balance) as { ok: boolean; reason?: string; expired_restriction?: boolean };
+      const check = validateWithdrawal(prof, amt, balance, {
+        bypassPayoutHold: payoutType === "instant" && DEV_INSTANT_WITHDRAWALS_ENABLED,
+      }) as { ok: boolean; reason?: string; expired_restriction?: boolean };
       if (!check.ok) {
         try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
         return NextResponse.json({ error: check.reason }, { status: 400 });
@@ -486,7 +489,9 @@ export async function POST(req: Request) {
     const trustTierPolicy = TRUST_TIER_POLICIES[trustTier];
     const categoryDelayFloor = Math.max(0, Number(creatorCategory?.payout_delay_days ?? 0));
     const effectiveDelayDays = Math.max(trustTierPolicy.payoutDelayDays, categoryDelayFloor);
-    const effectiveInstantEligible = trustTierPolicy.instantEligible && effectiveDelayDays === 0;
+    const developmentInstantEligible = payoutType === "instant" && DEV_INSTANT_WITHDRAWALS_ENABLED;
+    const effectiveInstantEligible = developmentInstantEligible ||
+      (trustTierPolicy.instantEligible && effectiveDelayDays === 0);
     const categoryRisk = creatorCategory?.risk_level || "low";
     const categoryNeedsManualReview = Boolean(creatorCategory?.requires_manual_review);
 
@@ -577,6 +582,9 @@ export async function POST(req: Request) {
       releaseAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
       withdrawalStatus = "pending";
       payoutPolicyReason = `IP reputation risk override (${ipReputation.provider})`;
+    } else if (developmentInstantEligible) {
+      withdrawalStatus = "approved";
+      payoutPolicyReason = "Development instant payout enabled";
     } else if (effectiveInstantEligible) {
       withdrawalStatus = "approved";
       payoutPolicyReason = `${trustTierPolicy.label} tier instant eligible`;
@@ -716,6 +724,9 @@ export async function POST(req: Request) {
       } catch (err: unknown) {
         // If instant payout fails, REVERSE the ledger debit and mark withdrawal failed
         const payoutErr = err instanceof Error ? err.message : String(err ?? "Instant payout failed");
+        const instantVolumeLimitUnavailable =
+          payoutType === "instant" &&
+          payoutErr.includes("daily volume limit of $0.00 usd for Instant Payouts");
         console.error("Stripe payout failed:", payoutErr);
 
         sendAdminAlert({
@@ -755,7 +766,15 @@ export async function POST(req: Request) {
         void triggerAIAlerts("withdrawals.create:payout_failed");
 
         try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
-        return NextResponse.json({ error: "Payout failed. Please try again or contact support." }, { status: 400 });
+        return NextResponse.json(
+          instantVolumeLimitUnavailable
+            ? {
+                error: "Instant payouts are not enabled by Stripe for this platform yet. Please use Standard withdrawal while the platform's Instant Payouts limit is activated.",
+                code: "instant_payout_limit_unavailable",
+              }
+            : { error: "Payout failed. Please try again or contact support." },
+          { status: instantVolumeLimitUnavailable ? 503 : 400 },
+        );
       }
 
       await supabaseAdmin

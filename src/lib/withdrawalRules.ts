@@ -25,7 +25,8 @@ type ValidationResult =
 export function validateWithdrawal(
   user: WithdrawalUser,
   amount: number,
-  walletBalance?: number
+  walletBalance?: number,
+  options?: { bypassPayoutHold?: boolean },
 ): ValidationResult {
   const status = user.account_status ?? "active";
 
@@ -37,7 +38,7 @@ export function validateWithdrawal(
   // Restricted / Suspended / Closed = ALLOWED — users can always withdraw their own funds
 
   // Hold period (e.g., 24h after receiving tips)
-  if (user.payout_hold_until && new Date(user.payout_hold_until) > new Date()) {
+  if (!options?.bypassPayoutHold && user.payout_hold_until && new Date(user.payout_hold_until) > new Date()) {
     return { ok: false, reason: "Funds still pending clearance" };
   }
 
