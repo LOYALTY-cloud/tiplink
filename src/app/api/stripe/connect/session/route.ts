@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe/server";
+import { connectedAccountParams, connectSessionComponents } from "@/lib/stripe/connectedAccountParams";
 import { requireVerifiedEmail } from "@/lib/requireVerifiedEmail";
 import { getCreatorCategoryByName } from "@/lib/creatorCategoriesServer";
 import { isProhibitedCategory } from "@/lib/stripe/prohibitedCategories";
@@ -112,6 +113,9 @@ export async function POST(req: Request) {
     const email = authUserRes?.user?.email ?? undefined;
 
     const isManageMode = mode === "manage";
+    // New accounts are created with platform-collected requirements; legacy Express
+    // accounts are detected from the retrieve below.
+    let platformCollectsRequirements = true;
 
     if (!stripeAccountId) {
       // Category is required only when creating a brand-new account.
@@ -124,20 +128,7 @@ export async function POST(req: Request) {
       }
       let acct;
       try {
-        acct = await stripe.accounts.create({
-          type: "express",
-          email: email,
-          business_type: "individual",
-          capabilities: {
-            transfers: { requested: true },
-            card_payments: { requested: true },
-          },
-          settings: {
-            payouts: {
-              schedule: { interval: "manual" },
-            },
-          },
-        });
+        acct = await stripe.accounts.create(connectedAccountParams(email));
       } catch (stripeCreateErr: unknown) {
         const msg = stripeCreateErr instanceof Error ? stripeCreateErr.message : String(stripeCreateErr);
         console.error("stripe/connect/session accounts.create error:", msg);
@@ -158,7 +149,8 @@ export async function POST(req: Request) {
     } else {
       // Verify the stored Stripe account still exists (test-mode accounts can be deleted)
       try {
-        await stripe.accounts.retrieve(stripeAccountId);
+        const existingAcct = await stripe.accounts.retrieve(stripeAccountId);
+        platformCollectsRequirements = existingAcct.controller?.requirement_collection === "application";
       } catch (retrieveErr: unknown) {
         const msg = retrieveErr instanceof Error ? retrieveErr.message : String(retrieveErr);
         if (msg.includes("No such account")) {
@@ -166,7 +158,8 @@ export async function POST(req: Request) {
           await supabaseAdmin.from("profiles").update({ stripe_account_id: null }).eq("user_id", user_id);
           return NextResponse.json({ error: "Your Stripe account was not found. Please try again to create a new one.", _checkpoint: "stale_stripe_account", _detail: msg }, { status: 409 });
         }
-        // Non-fatal retrieve error — log and continue
+        // Non-fatal retrieve error — log and continue with Stripe's default authentication
+        platformCollectsRequirements = false;
         console.warn("stripe/connect/session accounts.retrieve warning:", msg);
       }
     }
@@ -224,9 +217,7 @@ export async function POST(req: Request) {
 
     // Use eventually_due so Stripe collects all required fields upfront in a
     // single session rather than requesting more info in subsequent sessions.
-    const components = isManageMode
-      ? { account_management: { enabled: true as const, features: { external_account_collection: true as const } } }
-      : { account_onboarding: { enabled: true as const, features: { external_account_collection: true as const } } };
+    const components = connectSessionComponents(isManageMode, platformCollectsRequirements);
 
     let accountSession;
     try {
@@ -243,21 +234,11 @@ export async function POST(req: Request) {
         console.warn("stripe/connect/session: stale/cross-mode account detected, auto-repairing:", stripeAccountId, msg);
         await supabaseAdmin.from("profiles").update({ stripe_account_id: null }).eq("user_id", user_id);
         try {
-          const freshAcct = await stripe.accounts.create({
-            type: "express",
-            email: email,
-            business_type: "individual",
-            capabilities: { transfers: { requested: true }, card_payments: { requested: true } },
-            settings: {
-              payouts: {
-                schedule: { interval: "manual" },
-              },
-            },
-          });
+          const freshAcct = await stripe.accounts.create(connectedAccountParams(email));
           await supabaseAdmin.from("profiles").update({ stripe_account_id: freshAcct.id }).eq("user_id", user_id);
           accountSession = await stripe.accountSessions.create({
             account: freshAcct.id,
-            components,
+            components: connectSessionComponents(isManageMode, true),
           });
           stripeAccountId = freshAcct.id;
         } catch (repairErr: unknown) {

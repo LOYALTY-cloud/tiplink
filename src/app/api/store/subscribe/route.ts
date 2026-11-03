@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireCreator } from "@/lib/creatorGuard";
 import { stripe } from "@/lib/stripe/server";
-import { addLedgerEntry } from "@/lib/ledger";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
-import { deductFromConnectedAccount } from "@/lib/stripe/deductFromConnectedAccount";
+import { STORE_PRICE_DOLLARS, chargeStoreFromBalance, recordStoreBalanceInvoice } from "@/lib/store/balanceBilling";
+import { addOneMonth } from "@/lib/store/billingDates";
 
 export const runtime = "nodejs";
 
-const STORE_PRICE_CENTS = 999; // $9.99 / month
-const STORE_PRICE_DOLLARS = STORE_PRICE_CENTS / 100;
+const STORE_PRICE_CENTS = Math.round(STORE_PRICE_DOLLARS * 100); // $9.99 / month
 
 /**
  * POST /api/store/subscribe
@@ -91,52 +91,17 @@ export async function POST(req: Request) {
         return NextResponse.json({ already_active: true });
       }
 
-      const { data: wallet } = await supabaseAdmin
-        .from("wallets")
-        .select("balance")
-        .eq("user_id", userId)
-        .maybeSingle();
+      const now = new Date();
+      const charge = await chargeStoreFromBalance({
+        userId,
+        action: "creator_store_open",
+        description: "Creator Store activation fee",
+        // The wallet lock + is_active re-check prevent double charges; a unique key avoids
+        // replaying an earlier charge when a creator cancels and re-activates the same day.
+        idempotencyKey: `store-open-${userId}-${randomUUID()}`,
+      });
 
-      const balance = Number(wallet?.balance ?? 0);
-
-      if (Number.isFinite(balance) && balance >= STORE_PRICE_DOLLARS) {
-        // Deduct from Stripe connected account first so the money actually
-        // moves on Stripe (transfer reversal), then record in the DB ledger.
-        const { data: profileForStripe } = await supabaseAdmin
-          .from("profiles")
-          .select("stripe_account_id")
-          .eq("user_id", userId)
-          .maybeSingle();
-
-        let stripeReversalIds: string[] = [];
-        if (profileForStripe?.stripe_account_id) {
-          try {
-            const result = await deductFromConnectedAccount(
-              profileForStripe.stripe_account_id,
-              STORE_PRICE_DOLLARS,
-              "Creator Store activation fee",
-            );
-            stripeReversalIds = result.reversalIds;
-          } catch (stripeErr) {
-            console.error("store/subscribe: Stripe deduction failed:", stripeErr);
-            // Fall through — still deduct from DB ledger so activation works.
-          }
-        }
-
-        await addLedgerEntry({
-          user_id: userId,
-          type: "fee",
-          amount: -STORE_PRICE_DOLLARS,
-          meta: {
-            action: "creator_store_open",
-            payment_method: "wallet_balance",
-            amount_usd: STORE_PRICE_DOLLARS,
-            description: "Creator Store activation fee",
-            stripe_reversal_ids: stripeReversalIds,
-          },
-          status: "completed",
-        });
-
+      if (charge.ok) {
         const { error: upsertErr } = await supabaseAdmin
           .from("creator_stores")
           .upsert(
@@ -146,8 +111,8 @@ export async function POST(req: Request) {
               billing_type: "balance",
               billing_status: "active",
               grace_until: null,
-              renews_at: null,
-              updated_at: new Date().toISOString(),
+              renews_at: addOneMonth(now).toISOString(),
+              updated_at: now.toISOString(),
             },
             { onConflict: "user_id" }
           );
@@ -165,23 +130,13 @@ export async function POST(req: Request) {
             );
         }
 
-        // Best-effort invoice log for wallet billing events.
         const { data: storeForInvoice } = await supabaseAdmin
           .from("creator_stores")
           .select("id")
           .eq("user_id", userId)
           .maybeSingle();
 
-        await supabaseAdmin
-          .from("store_invoices")
-          .insert({
-            user_id: userId,
-            store_id: storeForInvoice?.id ?? null,
-            amount: STORE_PRICE_DOLLARS,
-            status: "paid",
-            billing_type: "balance",
-            paid_at: new Date().toISOString(),
-          });
+        await recordStoreBalanceInvoice({ userId, storeId: storeForInvoice?.id ?? null, status: "paid" });
 
         return NextResponse.json({ activated_with_balance: true });
       }
