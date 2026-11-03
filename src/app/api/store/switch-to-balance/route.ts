@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireCreator } from "@/lib/creatorGuard";
 import { stripe } from "@/lib/stripe/server";
-import { addLedgerEntry } from "@/lib/ledger";
+import { randomUUID } from "node:crypto";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
-import { deductFromConnectedAccount } from "@/lib/stripe/deductFromConnectedAccount";
+import { chargeStoreFromBalance, recordStoreBalanceInvoice } from "@/lib/store/balanceBilling";
+import { addOneMonth } from "@/lib/store/billingDates";
 
 export const runtime = "nodejs";
-const STORE_PRICE_DOLLARS = 9.99;
 
 /**
  * POST /api/store/switch-to-balance
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
 
   const { data: store, error: fetchErr } = await supabaseAdmin
     .from("creator_stores")
-    .select("id, stripe_subscription_id, is_active, billing_status")
+    .select("id, stripe_subscription_id, is_active, billing_status, renews_at")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -49,85 +49,38 @@ export async function POST(req: Request) {
     }
 
     try {
-      const { data: wallet } = await supabaseAdmin
-        .from("wallets")
-        .select("balance")
-        .eq("user_id", userId)
-        .maybeSingle();
+      const charge = await chargeStoreFromBalance({
+        userId,
+        action: "creator_store_recovery",
+        description: "Creator Store recovery charge",
+        idempotencyKey: `store-recovery-${userId}-${randomUUID()}`,
+      });
 
-      const balance = Number(wallet?.balance ?? 0);
-      if (!Number.isFinite(balance) || balance < STORE_PRICE_DOLLARS) {
+      if (!charge.ok) {
         return NextResponse.json(
-          { error: "Insufficient balance to recover store billing. Add funds or retry card payment." },
+          {
+            error:
+              charge.reason === "insufficient_balance"
+                ? "Insufficient balance to recover store billing. Add funds or retry card payment."
+                : "We couldn't collect payment from your Stripe balance. Funds may still be pending — retry shortly or use card payment.",
+          },
           { status: 400 }
         );
       }
 
-      // Deduct from Stripe connected account (transfer reversal) before DB ledger
-      const { data: profileForStripe } = await supabaseAdmin
-        .from("profiles")
-        .select("stripe_account_id")
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      let stripeReversalIds: string[] = [];
-      if (profileForStripe?.stripe_account_id) {
-        try {
-          const result = await deductFromConnectedAccount(
-            profileForStripe.stripe_account_id,
-            STORE_PRICE_DOLLARS,
-            "Creator Store recovery charge",
-          );
-          stripeReversalIds = result.reversalIds;
-        } catch (stripeErr) {
-          console.error("store/switch-to-balance: Stripe deduction failed:", stripeErr);
-        }
-      }
-
-      await addLedgerEntry({
-        user_id: userId,
-        type: "fee",
-        amount: -STORE_PRICE_DOLLARS,
-        meta: {
-          action: "creator_store_recovery",
-          payment_method: "wallet_balance",
-          amount_usd: STORE_PRICE_DOLLARS,
-          description: "Creator Store recovery charge",
-          stripe_reversal_ids: stripeReversalIds,
-        },
-        status: "completed",
-      });
-
-      const { error: invoiceErr } = await supabaseAdmin
-        .from("store_invoices")
-        .insert({
-          user_id: userId,
-          store_id: store.id,
-          amount: STORE_PRICE_DOLLARS,
-          status: "paid",
-          billing_type: "balance",
-          paid_at: new Date().toISOString(),
-        });
-
-      if (invoiceErr) {
-        // Ledger already charged — alert admin so billing record can be manually created
-        console.error("store/switch-to-balance: invoice insert failed after ledger charge", {
-          userId, storeId: store.id, amount: STORE_PRICE_DOLLARS, error: invoiceErr.message,
-        });
-        try {
-          const { sendAdminAlert } = await import("@/lib/adminAlerts");
-          sendAdminAlert({
-            subject: "store/switch-to-balance: store_invoices insert failed",
-            body: `User ${userId} was charged $${STORE_PRICE_DOLLARS} but no invoice record was created. Manual reconciliation required.`,
-            severity: "critical",
-            meta: { userId, storeId: store.id, amount: STORE_PRICE_DOLLARS, error: invoiceErr.message },
-          });
-        } catch (_) {}
-      }
+      await recordStoreBalanceInvoice({ userId, storeId: store.id, status: "paid" });
     } finally {
       await releaseWalletLock(supabaseAdmin, userId, "withdrawal");
     }
   }
+
+  // Switching from a paid card cycle keeps its renewal date; a recovery charge starts a new cycle.
+  const now = new Date();
+  const existingRenewal = store.renews_at ? new Date(store.renews_at) : null;
+  const renewsAt =
+    !recoveringPastDue && existingRenewal && existingRenewal.getTime() > now.getTime()
+      ? existingRenewal
+      : addOneMonth(now);
 
   let { error: updateErr } = await supabaseAdmin
     .from("creator_stores")
@@ -137,8 +90,8 @@ export async function POST(req: Request) {
       grace_until: null,
       is_active: true,
       stripe_subscription_id: null,
-      renews_at: null,
-      updated_at: new Date().toISOString(),
+      renews_at: renewsAt.toISOString(),
+      updated_at: now.toISOString(),
     })
     .eq("id", store.id);
 
