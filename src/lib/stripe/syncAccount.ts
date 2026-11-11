@@ -56,6 +56,19 @@ export async function syncStripeAccount(
       return { success: false, error: creatorError ?? new Error("creator not found") };
     }
 
+    // Withdrawals are released by the app; Stripe must never auto-pay balances to the bank.
+    const payoutInterval = account.settings?.payouts?.schedule?.interval;
+    if (!(account as { deleted?: boolean }).deleted && payoutInterval !== "manual") {
+      try {
+        await stripe.accounts.update(stripeAccountId, {
+          settings: { payouts: { schedule: { interval: "manual" } } },
+        });
+        console.log(`syncStripeAccount: payout schedule ${payoutInterval ?? "unknown"} -> manual for ${stripeAccountId}`);
+      } catch (e) {
+        console.error(`syncStripeAccount: failed to set manual payout schedule for ${stripeAccountId}:`, e);
+      }
+    }
+
     const creatorId = creator.id;
     const userId = creator.user_id;
     const creatorHandle = (creator as any).handle ?? null;
