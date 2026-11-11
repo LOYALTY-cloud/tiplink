@@ -24,6 +24,17 @@ const FAILURE_MAP: Record<string, string> = {
   unsupported_card: "Your debit card does not support instant payouts. Please try a different card.",
 };
 
+// Reasons the release cron writes itself (not Stripe failure codes).
+export const PAYOUT_REASON_INSUFFICIENT_BALANCE = "Insufficient connected Stripe balance at release time";
+export const PAYOUT_REASON_ACCOUNT_RESTRICTED = "Account restricted at release time";
+
+const APP_REASON_MAP: Record<string, string> = {
+  [PAYOUT_REASON_INSUFFICIENT_BALANCE]:
+    "The funds were no longer in your Stripe balance when your scheduled withdrawal came due, for example because they had already been paid out to your bank. Please check your bank deposits before requesting again.",
+  [PAYOUT_REASON_ACCOUNT_RESTRICTED]:
+    "Your account was restricted when this withdrawal came due, so it could not be released. Contact support@1nelink.com to have your account reviewed.",
+};
+
 /**
  * Convert a raw Stripe failure code/message into a user-friendly string.
  */
@@ -31,6 +42,10 @@ export function humanizePayoutFailure(
   failureCode: string | null | undefined,
   failureMessage: string | null | undefined
 ): string {
+  if (failureMessage && APP_REASON_MAP[failureMessage]) {
+    return APP_REASON_MAP[failureMessage];
+  }
+
   // Try exact match on failure_code first
   if (failureCode && FAILURE_MAP[failureCode]) {
     return FAILURE_MAP[failureCode];

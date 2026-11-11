@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { stripe } from "@/lib/stripe/server";
+import { ensureManualPayoutSchedule } from "@/lib/stripe/payoutSchedule";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { addLedgerEntry } from "@/lib/ledger";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
@@ -662,6 +663,24 @@ export async function POST(req: Request) {
       try { await supabaseAdmin.from("withdrawals").delete().eq("id", w.id); } catch (e) {}
       try { await releaseWalletLock(supabaseAdmin, userId, "withdrawal"); } catch (_) {}
       return NextResponse.json({ error: "Failed to log ledger entry" }, { status: 500 });
+    }
+
+    // Stripe automatic payouts would sweep the balance during the hold and the release would fail.
+    if (withdrawalStatus === "pending" || withdrawalStatus === "under_review") {
+      try {
+        const schedule = await ensureManualPayoutSchedule(stripe, stripeAccount);
+        if (schedule.changed) {
+          console.log(`[withdrawals/create] payout schedule ${schedule.previous} -> manual for ${userId} (held withdrawal ${w.id})`);
+        }
+      } catch (scheduleErr) {
+        const message = scheduleErr instanceof Error ? scheduleErr.message : String(scheduleErr);
+        sendAdminAlert({
+          subject: "Could not hold payout balance",
+          body: `Held withdrawal ${w.id} (user ${userId}) may fail at release because the payout schedule could not be set to manual: ${message}`,
+          severity: "warning",
+          meta: { withdrawal_id: w.id, user_id: userId, stripe_account_id: stripeAccount },
+        });
+      }
     }
 
     // ── Payout execution ──────────────────────────────────────

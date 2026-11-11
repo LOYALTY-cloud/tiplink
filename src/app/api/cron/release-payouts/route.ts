@@ -3,12 +3,19 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe/server";
 import { acquireWalletLock, releaseWalletLock } from "@/lib/walletLocks";
 import { createNotification } from "@/lib/notifications";
-import { humanizePayoutFailure } from "@/lib/payoutErrors";
+import {
+  humanizePayoutFailure,
+  PAYOUT_REASON_ACCOUNT_RESTRICTED,
+  PAYOUT_REASON_INSUFFICIENT_BALANCE,
+} from "@/lib/payoutErrors";
 import { reversePayoutOnce } from "@/lib/payoutReversals";
 import { triggerAIAlerts } from "@/lib/ai/alerts";
 import { sendAdminAlert } from "@/lib/adminAlerts";
 
 export const runtime = "nodejs";
+
+// A restricted account's held withdrawal is failed (and refunded to the wallet) after this long overdue.
+const MAX_RESTRICTED_OVERDUE_DAYS = 7;
 
 /**
  * GET /api/cron/release-payouts?key=CRON_SECRET
@@ -88,8 +95,15 @@ export async function GET(req: Request) {
 
       // Safety: don't release payouts for frozen/restricted accounts
       if (prof.is_frozen || prof.account_status === "restricted" || prof.account_status === "suspended") {
-        console.warn(`[release-payouts] Skipping frozen/restricted user ${w.user_id}`);
-        skipped++;
+        const overdueDays = (Date.now() - new Date(w.release_at).getTime()) / 86_400_000;
+        if (overdueDays > MAX_RESTRICTED_OVERDUE_DAYS) {
+          console.warn(`[release-payouts] Failing withdrawal ${w.id}: restricted user ${w.user_id}, ${Math.floor(overdueDays)}d overdue`);
+          await failWithdrawal(w.id, w.user_id, Number(w.amount), PAYOUT_REASON_ACCOUNT_RESTRICTED);
+          failed++;
+        } else {
+          console.warn(`[release-payouts] Skipping frozen/restricted user ${w.user_id}`);
+          skipped++;
+        }
         continue;
       }
 
@@ -108,7 +122,7 @@ export async function GET(req: Request) {
 
         if (reqCents > availableUsdCents) {
           console.warn(`[release-payouts] Insufficient Stripe balance for ${w.user_id}: need ${reqCents}, have ${availableUsdCents}`);
-          await failWithdrawal(w.id, w.user_id, amount, "Insufficient connected Stripe balance at release time");
+          await failWithdrawal(w.id, w.user_id, amount, PAYOUT_REASON_INSUFFICIENT_BALANCE);
           failed++;
           continue;
         }
@@ -229,7 +243,8 @@ async function failWithdrawal(
       userId,
       type: "payout_failed",
       title: "⚠️ Payout Failed",
-      body: `Your withdrawal of $${amount.toFixed(2)} could not be completed. ${friendlyMessage} The funds have been returned to your balance.`,
+      // Funds that left Stripe cannot be returned, so only promise a refund for other reasons.
+      body: `Your withdrawal of $${amount.toFixed(2)} could not be completed. ${friendlyMessage}${reason === PAYOUT_REASON_INSUFFICIENT_BALANCE ? "" : " The funds have been returned to your balance."}`,
       meta: { failure_message: reason },
     });
   } catch (_) {}
